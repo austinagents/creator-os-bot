@@ -143,8 +143,8 @@ client.on('interactionCreate', async (interaction) => {
   await handleInteraction(interaction, client);
 });
 
-app.listen(PORT, () => {
-  log('PartnerLinks homepage running at http://localhost:3000');
+app.listen(PORT, '0.0.0.0', () => {
+  log(`PartnerLinks homepage running at http://0.0.0.0:${PORT}`);
 });
 
 client.login(DISCORD_TOKEN);
