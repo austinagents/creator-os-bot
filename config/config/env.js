@@ -1,0 +1,18 @@
+require("dotenv").config();
+
+module.exports = {
+  DISCORD_TOKEN: process.env.DISCORD_TOKEN,
+  DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
+  DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID,
+  ADMIN_DASHBOARD_CHANNEL_ID: process.env.ADMIN_DASHBOARD_CHANNEL_ID,
+  CREATOR_LOG_CHANNEL_ID: process.env.CREATOR_LOG_CHANNEL_ID,
+  SUBMISSIONS_LOG_CHANNEL_ID: process.env.SUBMISSIONS_LOG_CHANNEL_ID,
+  BOT_ALERTS_CHANNEL_ID: process.env.BOT_ALERTS_CHANNEL_ID,
+  SUPABASE_URL: process.env.SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  NODE_ENV: process.env.NODE_ENV || "development",
+  DEFAULT_REF_TEMPLATE: process.env.DEFAULT_REF_TEMPLATE,
+  PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
+  EXPORTS_DIR: process.env.EXPORTS_DIR,
+  LOG_LEVEL: process.env.LOG_LEVEL || "info"
+};
