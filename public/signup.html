@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Join PartnerLinks</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="auth-page">
+    <section class="auth-panel">
+      <p class="eyebrow">PartnerLinks</p>
+      <h1>Join PartnerLinks as a creator</h1>
+      <p id="invite-context">Create your creator account and get your invite link.</p>
+      <a id="google-button" class="auth-primary-button" href="/auth/google/start">Continue with Google</a>
+    </section>
+  </main>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const invite = params.get('invite');
+    const button = document.getElementById('google-button');
+    const context = document.getElementById('invite-context');
+
+    if (invite) {
+      button.href = `/auth/google/start?invite=${encodeURIComponent(invite)}`;
+      context.textContent = `You were invited by ${invite}. Continue with Google to create your creator account.`;
+    }
+  </script>
+</body>
+</html>

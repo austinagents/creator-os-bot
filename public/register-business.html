@@ -1,22 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PartnerLinks | Register Business</title>
-  <style>
-    body { margin: 0; min-height: 100vh; font-family: Inter, system-ui, sans-serif; background: #090d1b; color: #f8fafc; display: grid; place-items: center; }
-    .page { max-width: 520px; width: 100%; padding: 32px; text-align: center; background: rgba(15, 23, 42, 0.96); border: 1px solid rgba(255,255,255,0.08); border-radius: 24px; }
-    h1 { margin: 0 0 16px; font-size: 1.8rem; }
-    p { color: #9ca3af; line-height: 1.8; }
-    a { display: inline-flex; margin-top: 24px; padding: 14px 22px; border-radius: 999px; background: linear-gradient(135deg, #9b5cff, #ff6f61); color: white; text-decoration: none; }
-  </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PartnerLinks | Connect Shopify</title>
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div class="page">
-    <h1>Register Your Business</h1>
-    <p>This is a placeholder route for the PartnerLinks business signup flow. No registration is live yet.</p>
-    <a href="/">Return home</a>
-  </div>
+  <main class="auth-page">
+    <section class="auth-panel">
+      <p class="eyebrow">PartnerLinks</p>
+      <h1>Connect your Shopify store</h1>
+      <p>Install PartnerLinks to start setting creator commission terms and referral infrastructure.</p>
+      <form class="auth-form" action="/api/shopify/start" method="GET">
+        <label for="shop">Shopify store domain</label>
+        <input id="shop" name="shop" type="text" placeholder="your-store.myshopify.com" autocomplete="organization" required>
+        <button class="auth-primary-button" type="submit">Connect Shopify</button>
+      </form>
+    </section>
+  </main>
 </body>
 </html>

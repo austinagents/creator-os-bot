@@ -1,0 +1,210 @@
+const supabase = require('../database/database/supabase');
+
+const LEVEL_ONE_RATE = 10;
+const LEVEL_TWO_RATE = 2;
+
+async function getCreatorByInviteCode(inviteCode) {
+  const { data: referralMatches, error: referralError } = await supabase
+    .from('creators')
+    .select('*')
+    .eq('referral_code', inviteCode)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (referralError) throw referralError;
+  if (referralMatches && referralMatches[0]) return referralMatches[0];
+
+  const { data: creatorCodeMatches, error: creatorCodeError } = await supabase
+    .from('creators')
+    .select('*')
+    .eq('creator_code', inviteCode)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (creatorCodeError) throw creatorCodeError;
+  return creatorCodeMatches ? creatorCodeMatches[0] : null;
+}
+
+async function recordCreatorInviteSession({
+  inviterCreatorId,
+  sessionId,
+  ipHash,
+  userAgent,
+  referrer,
+  inviteCode
+}) {
+  const { data, error } = await supabase
+    .from('creator_invite_sessions')
+    .insert({
+      inviter_creator_id: inviterCreatorId,
+      session_id: sessionId,
+      ip_hash: ipHash || null,
+      user_agent: userAgent || null,
+      referrer: referrer || null,
+      invite_code: inviteCode
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function bindCreatorToInviteSession(creatorId, sessionId) {
+  const { data: creator, error: creatorError } = await supabase
+    .from('creators')
+    .select('id, parent_creator_id')
+    .eq('id', creatorId)
+    .single();
+  if (creatorError) throw creatorError;
+  if (!creator || creator.parent_creator_id) return null;
+
+  const { data: sessions, error: sessionError } = await supabase
+    .from('creator_invite_sessions')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (sessionError) throw sessionError;
+
+  const inviteSession = sessions ? sessions[0] : null;
+  if (!inviteSession || inviteSession.inviter_creator_id === creator.id) return null;
+
+  const { data, error } = await supabase
+    .from('creators')
+    .update({
+      parent_creator_id: inviteSession.inviter_creator_id,
+      referred_at: new Date().toISOString()
+    })
+    .eq('id', creator.id)
+    .is('parent_creator_id', null)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function createNetworkEarningsForConversion({
+  sourceCreatorId,
+  conversionId,
+  platformFeeAmount
+}) {
+  const feeAmount = Number(platformFeeAmount || 0);
+  if (!feeAmount || feeAmount <= 0) return [];
+
+  const { data: sourceCreator, error: sourceError } = await supabase
+    .from('creators')
+    .select('id, parent_creator_id')
+    .eq('id', sourceCreatorId)
+    .single();
+  if (sourceError) throw sourceError;
+  if (!sourceCreator || !sourceCreator.parent_creator_id) return [];
+
+  const earnings = [];
+
+  if (sourceCreator.parent_creator_id !== sourceCreator.id) {
+    earnings.push(buildEarningRow({
+      earningCreatorId: sourceCreator.parent_creator_id,
+      sourceCreatorId,
+      conversionId,
+      platformFeeAmount: feeAmount,
+      commissionRate: LEVEL_ONE_RATE,
+      level: 1
+    }));
+  }
+
+  const { data: levelOneParent, error: parentError } = await supabase
+    .from('creators')
+    .select('id, parent_creator_id')
+    .eq('id', sourceCreator.parent_creator_id)
+    .single();
+  if (parentError) throw parentError;
+
+  if (
+    levelOneParent &&
+    levelOneParent.parent_creator_id &&
+    levelOneParent.parent_creator_id !== sourceCreator.id &&
+    levelOneParent.parent_creator_id !== levelOneParent.id
+  ) {
+    earnings.push(buildEarningRow({
+      earningCreatorId: levelOneParent.parent_creator_id,
+      sourceCreatorId,
+      conversionId,
+      platformFeeAmount: feeAmount,
+      commissionRate: LEVEL_TWO_RATE,
+      level: 2
+    }));
+  }
+
+  if (!earnings.length) return [];
+
+  const { data, error } = await supabase
+    .from('creator_network_earnings')
+    .insert(earnings)
+    .select();
+  if (error) throw error;
+  return data || [];
+}
+
+async function getCreatorNetworkStats(creatorId) {
+  const { data: directCreators, error: directError } = await supabase
+    .from('creators')
+    .select('id')
+    .eq('parent_creator_id', creatorId);
+  if (directError) throw directError;
+
+  const directIds = directCreators.map((creator) => creator.id);
+  let secondLevelCount = 0;
+
+  if (directIds.length) {
+    const { data: secondLevelCreators, error: secondLevelError } = await supabase
+      .from('creators')
+      .select('id')
+      .in('parent_creator_id', directIds);
+    if (secondLevelError) throw secondLevelError;
+    secondLevelCount = secondLevelCreators.length;
+  }
+
+  const { data: earnings, error: earningsError } = await supabase
+    .from('creator_network_earnings')
+    .select('commission_amount')
+    .eq('earning_creator_id', creatorId);
+  if (earningsError) throw earningsError;
+
+  return {
+    directReferredCreators: directCreators.length,
+    secondLevelCreators: secondLevelCount,
+    networkEarnings: (earnings || []).reduce((sum, row) => sum + Number(row.commission_amount || 0), 0)
+  };
+}
+
+function buildEarningRow({
+  earningCreatorId,
+  sourceCreatorId,
+  conversionId,
+  platformFeeAmount,
+  commissionRate,
+  level
+}) {
+  return {
+    earning_creator_id: earningCreatorId,
+    source_creator_id: sourceCreatorId,
+    conversion_id: conversionId,
+    platform_fee_amount: platformFeeAmount,
+    commission_rate: commissionRate,
+    commission_amount: roundCurrency(platformFeeAmount * commissionRate / 100),
+    level,
+    notes: `Level ${level} creator-network override from PartnerLinks platform fee`
+  };
+}
+
+function roundCurrency(value) {
+  return Math.round(Number(value) * 100) / 100;
+}
+
+module.exports = {
+  LEVEL_ONE_RATE,
+  LEVEL_TWO_RATE,
+  getCreatorByInviteCode,
+  recordCreatorInviteSession,
+  bindCreatorToInviteSession,
+  createNetworkEarningsForConversion,
+  getCreatorNetworkStats
+};

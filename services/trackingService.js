@@ -173,6 +173,7 @@ async function recordConversion({
   currency = 'USD',
   commissionRate,
   commissionAmount,
+  platformFeeAmount = 0,
   source = 'manual',
   notes
 }) {
@@ -189,6 +190,7 @@ async function recordConversion({
       currency,
       commission_rate: commissionRate,
       commission_amount: commissionAmount,
+      platform_fee_amount: platformFeeAmount,
       source,
       notes: notes || null
     })
@@ -211,6 +213,12 @@ async function getCreatorTrackingStats(creatorId) {
     .eq('creator_id', creatorId);
   if (conversionsError && conversionsError.code !== '42P01') throw conversionsError;
 
+  const { data: networkEarnings, error: networkEarningsError } = await supabase
+    .from('creator_network_earnings')
+    .select('commission_amount')
+    .eq('earning_creator_id', creatorId);
+  if (networkEarningsError && networkEarningsError.code !== '42P01') throw networkEarningsError;
+
   const totalClicks = data.length;
   const uniqueSessions = new Set(data.map((row) => row.session_id)).size;
   const lastClickRow = data
@@ -221,8 +229,9 @@ async function getCreatorTrackingStats(creatorId) {
   const totalConversions = conversionRows.length;
   const totalRevenue = conversionRows.reduce((sum, row) => sum + Number(row.order_value || 0), 0);
   const estimatedCommission = conversionRows.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
+  const creatorNetworkEarnings = (networkEarnings || []).reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
 
-  return { totalClicks, uniqueSessions, lastClick, totalConversions, totalRevenue, estimatedCommission };
+  return { totalClicks, uniqueSessions, lastClick, totalConversions, totalRevenue, estimatedCommission, creatorNetworkEarnings };
 }
 
 async function getBrandSalesDashboardStats(brandId) {
@@ -234,14 +243,32 @@ async function getBrandSalesDashboardStats(brandId) {
 
   const { data: conversions, error: conversionsError } = await supabase
     .from('conversions')
-    .select('order_value, commission_amount, created_at')
+    .select('id, order_value, commission_amount, platform_fee_amount, created_at')
     .eq('brand_id', brandId);
   if (conversionsError) throw conversionsError;
 
   const conversionRows = conversions || [];
+  const conversionIds = conversionRows.map((row) => row.id);
+  let networkEarnings = [];
+
+  if (conversionIds.length) {
+    const { data, error } = await supabase
+      .from('creator_network_earnings')
+      .select('commission_amount, level')
+      .in('conversion_id', conversionIds);
+    if (error) throw error;
+    networkEarnings = data || [];
+  }
+
   const latestConversionRow = conversionRows
     .filter((row) => row.created_at)
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+  const levelOneNetworkEarnings = networkEarnings
+    .filter((row) => row.level === 1)
+    .reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
+  const levelTwoNetworkEarnings = networkEarnings
+    .filter((row) => row.level === 2)
+    .reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
 
   return {
     totalClicks: clicks.length,
@@ -249,6 +276,10 @@ async function getBrandSalesDashboardStats(brandId) {
     totalConversions: conversionRows.length,
     totalRevenue: conversionRows.reduce((sum, row) => sum + Number(row.order_value || 0), 0),
     estimatedCommissionsOwed: conversionRows.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0),
+    totalPlatformFees: conversionRows.reduce((sum, row) => sum + Number(row.platform_fee_amount || 0), 0),
+    totalCreatorNetworkEarningsOwed: networkEarnings.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0),
+    levelOneNetworkEarnings,
+    levelTwoNetworkEarnings,
     latestConversionDate: latestConversionRow ? new Date(latestConversionRow.created_at).toISOString() : null
   };
 }
@@ -276,6 +307,11 @@ async function getCreatorLeaderboardStats(brandId, limit = 10) {
     .eq('brand_id', brandId);
   if (conversionsError) throw conversionsError;
 
+  const { data: networkEarnings, error: networkEarningsError } = await supabase
+    .from('creator_network_earnings')
+    .select('earning_creator_id, commission_amount');
+  if (networkEarningsError) throw networkEarningsError;
+
   const clickCounts = new Map();
   for (const click of clicks) {
     if (!click.creator_id) continue;
@@ -296,6 +332,15 @@ async function getCreatorLeaderboardStats(brandId, limit = 10) {
     conversionStats.set(conversion.creator_id, current);
   }
 
+  const networkStats = new Map();
+  for (const earning of networkEarnings || []) {
+    if (!earning.earning_creator_id) continue;
+    networkStats.set(
+      earning.earning_creator_id,
+      (networkStats.get(earning.earning_creator_id) || 0) + Number(earning.commission_amount || 0)
+    );
+  }
+
   return creators
     .map((creator) => {
       const stats = conversionStats.get(creator.id) || {
@@ -309,7 +354,8 @@ async function getCreatorLeaderboardStats(brandId, limit = 10) {
         clicks: clickCounts.get(creator.id) || 0,
         conversions: stats.conversions,
         revenue: stats.revenue,
-        estimatedCommission: stats.estimatedCommission
+        estimatedCommission: stats.estimatedCommission,
+        networkEarnings: networkStats.get(creator.id) || 0
       };
     })
     .sort((a, b) => {

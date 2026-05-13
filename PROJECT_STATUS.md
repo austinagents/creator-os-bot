@@ -1,6 +1,6 @@
 # PartnerLinks / creator-os-bot Project Status
 
-Last updated: 2026-05-12
+Last updated: 2026-05-13
 
 ## Current MVP State
 
@@ -16,14 +16,93 @@ Last updated: 2026-05-12
 - `/record_conversion` is working for admin manual sale entry.
 - `/sales_dashboard` is working for admin brand-level sales totals.
 - `/creator_leaderboard` is working for admin creator performance ranking.
+- Creator invite links are scaffolded through `/join/:creatorCode`.
+- Creator invite click/session capture is scaffolded through `creator_invite_sessions`.
+- Creator-network override earnings are scaffolded through `creator_network_earnings`.
+- `/network_stats` is available for creator-facing invite network stats.
+- Supabase Google OAuth web signup bridge is implemented through `/signup`, `/auth/google/start`, `/auth/callback`, and `/creator/welcome`.
+- Web signup can create/find creators and permanently bind `parent_creator_id` from invite sessions.
+- `/auth/google/start` and `/auth/google/start/` both initiate Supabase Google OAuth and redirect to Google.
+- Shopify OAuth MVP install flow is implemented through `/register-business`, `/api/shopify/start`, and `/api/shopify/callback`.
 
 ## Product Direction
 
-PartnerLinks is currently focused on sales generated from creator referral links:
+PartnerLinks is focused on sales generated from creator referral links:
 
-Brand joins manually -> creator gets a PartnerLinks tracking link -> creator promotes link -> clicks are tracked -> sales/conversions are attributed -> estimated commission is calculated -> brand reviews performance and pays manually.
+Brand connects ecommerce/payment rails -> creator gets PartnerLinks tracking/invite infrastructure -> creator promotes links -> clicks and sales are attributed -> creator commission and PartnerLinks platform fee are calculated separately -> creator-network overrides are calculated only from PartnerLinks platform fee revenue.
 
 Content submission workflows are not the MVP priority unless they directly support sales attribution.
+
+### Future-Facing Onboarding And Payment Model
+
+Brand onboarding should be simplified around ecommerce/payment connections:
+
+1. Connect Shopify.
+2. Set creator commission percentage.
+3. PartnerLinks generates creator onboarding, creator invite links, and brand referral/tracking infrastructure.
+
+Shopify-first is the MVP default for target DTC and creator-commerce brands. Stripe may be added later for deeper payment routing, but it is not the default first integration.
+
+Current Shopify app setup:
+
+- App name: PartnerLinks.
+- App URL: `https://partnerlinks.app`.
+- Redirect URL: `https://partnerlinks.app/api/shopify/callback`.
+- Current scopes: `read_orders`, `read_customers`.
+
+Current Shopify OAuth flow:
+
+1. Brand visits `/register-business`.
+2. Brand enters Shopify store domain and clicks Connect Shopify.
+3. PartnerLinks redirects to Shopify OAuth install.
+4. Shopify redirects back to `/api/shopify/callback`.
+5. PartnerLinks validates the callback, exchanges the code for an access token, and stores the shop domain plus token in Supabase `shopify_stores`.
+6. Creator commission setup and referral infrastructure generation remain the next onboarding layer.
+
+Creator onboarding should be low-friction:
+
+1. Join through `/join/:creatorCode` or a brand onboarding link.
+2. Sign in with Google.
+3. Set creator code and social handle.
+4. Connect payout destination: bank or PayPal.
+5. Receive creator invite link and brand referral/tracking links.
+
+Do not collect creator tax info, identity verification, or KYC during the MVP. Creators should provide only email/profile/social information and payout destination. Compliance, tax, and KYC can be revisited later if PartnerLinks directly automates payouts at scale.
+
+Payment model:
+
+- PartnerLinks should not custody funds.
+- Long-term, payments should be routed through connected platform/payment rails.
+- Creator commission should route to the creator payout destination.
+- PartnerLinks platform fee should route to PartnerLinks.
+- Brand keeps remaining revenue.
+- Until automated payout routing is implemented, PartnerLinks can generate payout reporting and instructions.
+
+Example economics on a `$100` sale:
+
+- 20% creator commission = `$20` to creator.
+- 5% PartnerLinks platform fee = `$5` to PartnerLinks.
+- Brand keeps `$75`.
+
+Creator-network referral economics are separate from buyer/brand attribution:
+
+Creator invite links use `/join/:creatorCode`. Buyer attribution links use `/r/:brandSlug/:creatorCode`. Creator-network override earnings are calculated only from explicit PartnerLinks `platform_fee_amount`, not from creator campaign commission.
+
+Creator-network example:
+
+- Creator 1 invites Creator 2.
+- Creator 2 invites Creator 3.
+- Creator 3 drives a `$100` sale.
+- Creator 3 earns the creator commission.
+- Creator 2 earns 10% of PartnerLinks' platform fee.
+- Creator 1 earns 2% of PartnerLinks' platform fee.
+- Network overrides never come from creator commission principal.
+
+MVP override rates:
+
+- Level 1 direct invited creator: 10% of PartnerLinks platform fee.
+- Level 2 indirect invited creator: 2% of PartnerLinks platform fee.
+- No Level 3+ rewards.
 
 ## Current Tables
 
@@ -38,11 +117,17 @@ Tracking and attribution tables:
 - `clicks`
 - `attribution_sessions`
 - `conversions`
+- `creator_invite_sessions`
+- `creator_network_earnings`
+- `shopify_stores`
 
 Migration files currently present:
 
 - `database/migrations/001_tracking_tables.sql`
 - `database/migrations/002_conversions_table.sql`
+- `database/migrations/003_creator_network.sql`
+- `database/migrations/004_web_auth_creators.sql`
+- `database/migrations/005_shopify_stores.sql`
 
 ## Current Discord Commands
 
@@ -52,6 +137,7 @@ Creator-facing:
 - `/link`
 - `/stats`
 - `/tracking_stats`
+- `/network_stats`
 
 Admin-only:
 
@@ -81,6 +167,9 @@ cp .env.example .env
 ```text
 database/migrations/001_tracking_tables.sql
 database/migrations/002_conversions_table.sql
+database/migrations/003_creator_network.sql
+database/migrations/004_web_auth_creators.sql
+database/migrations/005_shopify_stores.sql
 ```
 
 4. Start the app:
@@ -104,6 +193,10 @@ Set production environment variables in Railway, not in committed files:
 - `BOT_ALERTS_CHANNEL_ID`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SHOPIFY_API_KEY`
+- `SHOPIFY_API_SECRET`
+- `SHOPIFY_SCOPES`
+- `SHOPIFY_APP_URL`
 - `NODE_ENV=production`
 - `PUBLIC_BASE_URL`
 - `DEFAULT_REF_TEMPLATE`
@@ -122,9 +215,22 @@ npm start
 - Database migrations are manual SQL files; there is no automated migration runner yet.
 - Supabase service role key is required by the current server-side bot code and must only live in local `.env` or Railway environment variables.
 - Payouts are manual. The app only calculates estimated commission.
-- Brand onboarding is manual through `/brand_setup`.
-- There is no Shopify app, Stripe Connect integration, public marketplace, auth system, or web dashboard yet.
+- Current Discord brand setup is manual through `/brand_setup`; web brand onboarding now has a lightweight Shopify OAuth install flow.
+- There is no embedded Shopify admin UI, webhook automation, billing, Stripe Connect integration, public marketplace, auth system, or web dashboard yet.
 - Current sales recording is manual through `/record_conversion`.
+- `/record_conversion` now accepts optional `platform_fee_amount`. Creator-network override rows are only created when this value is greater than zero.
+- `/record_conversion` slash command registration includes optional numeric `platform_fee_amount`; if omitted, command handling treats it as `0`.
+- `/record_conversion` can find creators by `creator_code` or `referral_code`, including web-created creators without a Discord user.
+- `/record_conversion` uses direct exact creator lookups and does not require `discord_user_id`.
+- `/record_conversion` performs its creator lookup inside the command handler without filtering by `brand_id`; temporary debug logs show input, creator-code lookup, referral-code lookup, and lookup errors before Discord replies.
+- Discord command replies are routed through `safeInteractionReply`, which only uses `followUp()` after an interaction is replied/deferred and otherwise uses `reply()`; reply errors are logged without being rethrown.
+- `/record_conversion` now runs both exact `creator_code` and exact `referral_code` lookups before deciding a creator is missing, and `safeInteractionReply` guards against duplicate responses per interaction.
+- `/record_conversion` defers once, then edits that single interaction response so failure and success messages cannot both be sent by the same handler.
+- Slash command registration logs the exact command list on startup, including `/network_stats`, and startup registration refreshes guild commands automatically.
+- `/join/:creatorCode` captures invite sessions in a browser cookie. Permanent parent binding from invite session to new creator is completed by the web Google signup flow.
+- Web signup/auth binding is now implemented for Google OAuth. Discord `/start` still cannot reliably read browser invite cookies, so invite parent binding should happen through the web signup flow.
+- Google-created creators can have `brand_id` null if the database allows it. If the existing production schema requires `brand_id`, the auth helper falls back to the latest brand so creator creation can still complete; review this later when multi-brand web onboarding is formalized.
+- Supabase Google provider and redirect allow-list entries must be configured manually before OAuth works.
 - Discord slash command registration happens on bot startup for the configured guild.
 
 ## Next Recommended Steps
@@ -133,6 +239,10 @@ npm start
 - Configure Railway environment variables from `.env.example`.
 - Set `PUBLIC_BASE_URL` to the Railway production URL after the first deploy.
 - Run Supabase migrations manually before production testing.
-- Test one full production referral loop: `/start`, `/link`, click tracking link, `/record_conversion`, `/tracking_stats`, `/sales_dashboard`, `/creator_leaderboard`.
+- Test one full production referral loop: `/start`, `/link`, click tracking link, `/record_conversion`, `/tracking_stats`, `/sales_dashboard`, `/creator_leaderboard`, `/network_stats`.
+- Continue hardening the Google signup flow after production traffic, especially duplicate creator edge cases between Discord-created and web-created creators.
+- Replace the temporary `/creator/welcome` placeholder with a real creator account page after auth and brand onboarding mature.
 - Add a simple production health check route later if Railway monitoring needs it.
-- Keep payout automation, Shopify, Stripe Connect, dashboards, AI, and marketplace features out of scope until the sales attribution loop is stable.
+- Next product layer should connect installed Shopify stores to brand records, set creator commission percentage, and generate creator onboarding/referral infrastructure.
+- Payout reporting/instructions should come before deeper Stripe/payment routing.
+- Keep automated custody-style payouts, Stripe Connect, dashboards, AI, and marketplace features out of scope until the sales attribution and Shopify onboarding loops are stable.

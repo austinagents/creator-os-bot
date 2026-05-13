@@ -74,6 +74,13 @@ const commands = [
         type: 3, // STRING
         description: 'Optional internal notes',
         required: false
+      },
+      {
+        name: 'platform_fee_amount',
+        type: 10, // NUMBER
+        description: 'Optional PartnerLinks platform fee amount',
+        required: false,
+        min_value: 0
       }
     ]
   },
@@ -84,6 +91,10 @@ const commands = [
   {
     name: 'creator_leaderboard',
     description: 'View top creators by referral sales performance'
+  },
+  {
+    name: 'network_stats',
+    description: 'View your creator invite network performance'
   }
 ];
 
@@ -91,16 +102,23 @@ async function registerCommands(token) {
   const rest = new REST({ version: '9' }).setToken(token);
 
   try {
+    console.log('Registering application commands:', commands.map((command) => `/${command.name}`).join(', '));
+    const recordConversionCommand = commands.find((command) => command.name === 'record_conversion');
+    console.log(
+      'Registering /record_conversion options:',
+      recordConversionCommand.options.map((option) => `${option.name}:${option.type}${option.required ? ':required' : ':optional'}`).join(', ')
+    );
     await rest.put(
       Routes.applicationGuildCommands(DISCORD_CLIENT_ID, DISCORD_GUILD_ID),
       { body: commands }
     );
-    console.log('Successfully registered application commands.');
+    console.log('Successfully registered application commands:', commands.map((command) => `/${command.name}`).join(', '));
   } catch (error) {
     console.error(error);
   }
 }
 
 module.exports = {
-  registerCommands
+  registerCommands,
+  commands
 };
