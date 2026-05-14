@@ -5,6 +5,7 @@ const {
   SHOPIFY_API_SECRET,
   SHOPIFY_SCOPES,
   SHOPIFY_APP_URL,
+  DEFAULT_REF_TEMPLATE,
   NODE_ENV
 } = require('../config/config/env');
 
@@ -76,11 +77,15 @@ async function exchangeShopifyCodeForToken(shop, code) {
 }
 
 async function upsertShopifyStore({ shopDomain, accessToken, brandId = null }) {
+  const normalizedShopDomain = normalizeShopDomain(shopDomain);
+  const existingStore = await getShopifyStoreByDomain(normalizedShopDomain);
+  const linkedBrandId = brandId || (existingStore ? existingStore.brand_id : null) || (await ensureBrandForShopifyStore(normalizedShopDomain)).id;
+
   const { data, error } = await supabase
     .from('shopify_stores')
     .upsert({
-      brand_id: brandId,
-      shop_domain: shopDomain,
+      brand_id: linkedBrandId,
+      shop_domain: normalizedShopDomain,
       access_token: accessToken,
       installed_at: new Date().toISOString()
     }, {
@@ -91,6 +96,79 @@ async function upsertShopifyStore({ shopDomain, accessToken, brandId = null }) {
 
   if (error) throw error;
   return data;
+}
+
+async function getShopifyStoreByDomain(shopDomain) {
+  const { data, error } = await supabase
+    .from('shopify_stores')
+    .select('*')
+    .eq('shop_domain', shopDomain)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data ? data[0] : null;
+}
+
+async function ensureBrandForShopifyStore(shopDomain) {
+  const existingByName = await getBrandByName(shopDomain);
+  if (existingByName) return existingByName;
+
+  const shopifyGuildId = buildShopifyBrandGuildId(shopDomain);
+  const existingByGuildId = await getBrandByGuildId(shopifyGuildId);
+  if (existingByGuildId) return existingByGuildId;
+
+  const basePayload = {
+    name: shopDomain,
+    ref_link_template: DEFAULT_REF_TEMPLATE || `https://${shopDomain}?ref={creator_code}`,
+    destination_url: `https://${shopDomain}`
+  };
+
+  const firstAttempt = await supabase
+    .from('brands')
+    .insert(basePayload)
+    .select()
+    .single();
+
+  if (!firstAttempt.error) return firstAttempt.data;
+
+  if (firstAttempt.error.code !== '23502') {
+    throw firstAttempt.error;
+  }
+
+  const fallbackPayload = {
+    ...basePayload,
+    guild_id: shopifyGuildId
+  };
+
+  const { data, error } = await supabase
+    .from('brands')
+    .insert(fallbackPayload)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function getBrandByName(name) {
+  const { data, error } = await supabase
+    .from('brands')
+    .select('*')
+    .eq('name', name)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data ? data[0] : null;
+}
+
+async function getBrandByGuildId(guildId) {
+  const { data, error } = await supabase
+    .from('brands')
+    .select('*')
+    .eq('guild_id', guildId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data ? data[0] : null;
 }
 
 function normalizeShopDomain(shop) {
@@ -110,6 +188,12 @@ function normalizeShopDomain(shop) {
 
 function generateShopifyState() {
   return crypto.randomBytes(24).toString('hex');
+}
+
+function buildShopifyBrandGuildId(shopDomain) {
+  const hash = crypto.createHash('sha256').update(`shopify:${shopDomain}`).digest('hex');
+  const numericHash = parseInt(hash.slice(0, 12), 16);
+  return -1 * (numericHash % 900000000000000);
 }
 
 function shopifyStateCookieOptions() {
@@ -142,5 +226,6 @@ module.exports = {
   upsertShopifyStore,
   normalizeShopDomain,
   generateShopifyState,
+  ensureBrandForShopifyStore,
   shopifyStateCookieOptions
 };

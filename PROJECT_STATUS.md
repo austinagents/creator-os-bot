@@ -24,6 +24,7 @@ Last updated: 2026-05-13
 - Web signup can create/find creators and permanently bind `parent_creator_id` from invite sessions.
 - `/auth/google/start` and `/auth/google/start/` both initiate Supabase Google OAuth and redirect to Google.
 - Shopify OAuth MVP install flow is implemented through `/register-business`, `/api/shopify/start`, and `/api/shopify/callback`.
+- Shopify installs now automatically create or reuse a brand record and link `shopify_stores.brand_id` to `brands.id`.
 
 ## Product Direction
 
@@ -57,7 +58,9 @@ Current Shopify OAuth flow:
 3. PartnerLinks redirects to Shopify OAuth install.
 4. Shopify redirects back to `/api/shopify/callback`.
 5. PartnerLinks validates the callback, exchanges the code for an access token, and stores the shop domain plus token in Supabase `shopify_stores`.
-6. Creator commission setup and referral infrastructure generation remain the next onboarding layer.
+6. PartnerLinks creates or reuses a brand record using the Shopify store domain as the initial brand name/slug source.
+7. PartnerLinks links `shopify_stores.brand_id` to `brands.id`.
+8. Creator commission setup and referral infrastructure generation remain the next onboarding layer.
 
 Creator onboarding should be low-friction:
 
@@ -216,6 +219,7 @@ npm start
 - Supabase service role key is required by the current server-side bot code and must only live in local `.env` or Railway environment variables.
 - Payouts are manual. The app only calculates estimated commission.
 - Current Discord brand setup is manual through `/brand_setup`; web brand onboarding now has a lightweight Shopify OAuth install flow.
+- Shopify-connected stores are linked to brand records automatically. Reinstalling an existing connected store reuses the existing `shopify_stores.brand_id` and does not create a duplicate brand.
 - There is no embedded Shopify admin UI, webhook automation, billing, Stripe Connect integration, public marketplace, auth system, or web dashboard yet.
 - Current sales recording is manual through `/record_conversion`.
 - `/record_conversion` now accepts optional `platform_fee_amount`. Creator-network override rows are only created when this value is greater than zero.
