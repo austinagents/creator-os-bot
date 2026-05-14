@@ -18,16 +18,19 @@ const {
   generateShopifyState,
   shopifyStateCookieOptions
 } = require("./services/shopifyService");
+const { generateSlug } = require("./utils/slug");
 
 const {
   DISCORD_TOKEN,
-  BOT_ALERTS_CHANNEL_ID
+  BOT_ALERTS_CHANNEL_ID,
+  PUBLIC_BASE_URL
 } = require("./config/config/env");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cookieParser());
+app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/join/:creatorCode', async (req, res) => {
@@ -247,12 +250,7 @@ app.get('/api/shopify/callback', async (req, res) => {
     res.clearCookie('partnerlinks_shopify_state', shopifyStateCookieOptions());
     res.clearCookie('partnerlinks_shopify_shop', shopifyStateCookieOptions());
 
-    res.send(renderSimpleMessagePage(
-      'Shopify connected',
-      `${store.shop_domain} is connected to PartnerLinks. Creator onboarding and referral infrastructure can be configured next.`,
-      '/',
-      'Return home'
-    ));
+    res.redirect(`/brand/setup/${encodeURIComponent(store.brand_id)}`);
   } catch (error) {
     log('Shopify OAuth callback error:', error);
     res.status(500).send(renderSimpleMessagePage(
@@ -265,6 +263,90 @@ app.get('/api/shopify/callback', async (req, res) => {
 });
 app.get('/register-business', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'register-business.html'));
+});
+app.get('/brand/setup/:brandId', async (req, res) => {
+  try {
+    const setup = await getBrandSetupData(req.params.brandId);
+    if (!setup) {
+      return res.status(404).send(renderSimpleMessagePage(
+        'Brand not found',
+        'We could not find that brand setup record.',
+        '/register-business',
+        'Connect Shopify'
+      ));
+    }
+
+    res.send(renderBrandSetupPage(setup.brand, setup.store));
+  } catch (error) {
+    log('Brand setup page error:', error);
+    res.status(500).send(renderSimpleMessagePage(
+      'Brand setup error',
+      'Unable to load brand setup. Please try again.',
+      '/register-business',
+      'Try again'
+    ));
+  }
+});
+app.post('/brand/setup/:brandId', async (req, res) => {
+  try {
+    const brandId = req.params.brandId;
+    const name = String(req.body.name || '').trim();
+    const destinationUrl = String(req.body.destination_url || '').trim();
+    const creatorCommissionRate = Number(req.body.creator_commission_rate);
+    const platformFeeRate = Number(req.body.platform_fee_rate);
+
+    if (!name || !destinationUrl || Number.isNaN(creatorCommissionRate) || Number.isNaN(platformFeeRate)) {
+      return res.status(400).send(renderSimpleMessagePage(
+        'Missing setup details',
+        'Please provide brand name, destination URL, creator commission percentage, and platform fee percentage.',
+        `/brand/setup/${encodeURIComponent(brandId)}`,
+        'Back to setup'
+      ));
+    }
+
+    if (creatorCommissionRate < 0 || platformFeeRate < 0) {
+      return res.status(400).send(renderSimpleMessagePage(
+        'Invalid setup details',
+        'Commission and platform fee percentages must be zero or greater.',
+        `/brand/setup/${encodeURIComponent(brandId)}`,
+        'Back to setup'
+      ));
+    }
+
+    const normalizedDestinationUrl = normalizeUrl(destinationUrl);
+    const { data: brand, error } = await supabase
+      .from('brands')
+      .update({
+        name,
+        destination_url: normalizedDestinationUrl,
+        creator_commission_rate: creatorCommissionRate,
+        platform_fee_rate: platformFeeRate,
+        setup_completed_at: new Date().toISOString()
+      })
+      .eq('id', brandId)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    const { data: stores, error: storeError } = await supabase
+      .from('shopify_stores')
+      .select('*')
+      .eq('brand_id', brand.id)
+      .order('installed_at', { ascending: false })
+      .limit(1);
+    if (storeError) throw storeError;
+
+    res.send(renderBrandSetupSuccessPage(brand, stores ? stores[0] : null));
+  } catch (error) {
+    log('Brand setup save error:', error);
+    res.status(500).send(renderSimpleMessagePage(
+      'Brand setup error',
+      'Unable to save brand setup. Please try again.',
+      `/brand/setup/${encodeURIComponent(req.params.brandId)}`,
+      'Back to setup'
+    ));
+  }
 });
 
 const client = new Client({
@@ -351,6 +433,107 @@ function renderCreatorWelcomePage(creator) {
   </main>
 </body>
 </html>`;
+}
+
+async function getBrandSetupData(brandId) {
+  const { data: brand, error } = await supabase
+    .from('brands')
+    .select('*')
+    .eq('id', brandId)
+    .single();
+  if (error) throw error;
+  if (!brand) return null;
+
+  const { data: stores, error: storeError } = await supabase
+    .from('shopify_stores')
+    .select('*')
+    .eq('brand_id', brand.id)
+    .order('installed_at', { ascending: false })
+    .limit(1);
+  if (storeError) throw storeError;
+
+  return {
+    brand,
+    store: stores ? stores[0] : null
+  };
+}
+
+function renderBrandSetupPage(brand, store) {
+  const destinationUrl = brand.destination_url || (store ? `https://${store.shop_domain}` : '');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PartnerLinks | Brand Setup</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="auth-page">
+    <section class="auth-panel">
+      <p class="eyebrow">PartnerLinks</p>
+      <h1>Set up your brand</h1>
+      <p>${escapeHtml(store ? `${store.shop_domain} is connected.` : 'Your Shopify store is connected.')}</p>
+      <form class="auth-form" action="/brand/setup/${escapeHtml(brand.id)}" method="POST">
+        <label for="name">Display brand name</label>
+        <input id="name" name="name" type="text" value="${escapeHtml(brand.name || '')}" required>
+        <label for="destination_url">Destination URL</label>
+        <input id="destination_url" name="destination_url" type="url" value="${escapeHtml(destinationUrl)}" required>
+        <label for="creator_commission_rate">Creator commission %</label>
+        <input id="creator_commission_rate" name="creator_commission_rate" type="number" min="0" step="0.01" value="${escapeHtml(brand.creator_commission_rate ?? '')}" required>
+        <label for="platform_fee_rate">PartnerLinks platform fee %</label>
+        <input id="platform_fee_rate" name="platform_fee_rate" type="number" min="0" step="0.01" value="${escapeHtml(brand.platform_fee_rate ?? '')}" required>
+        <button class="auth-primary-button" type="submit">Save brand setup</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function renderBrandSetupSuccessPage(brand, store) {
+  const links = buildBrandLinkExamples(brand);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PartnerLinks | Brand Ready</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="auth-page">
+    <section class="auth-panel">
+      <p class="eyebrow">PartnerLinks</p>
+      <h1>Brand setup saved</h1>
+      <div class="link-list">
+        <p><strong>Connected Shopify store</strong><br>${escapeHtml(store ? store.shop_domain : 'Connected store not found')}</p>
+        <p><strong>Brand name</strong><br>${escapeHtml(brand.name)}</p>
+        <p><strong>Creator commission</strong><br>${escapeHtml(brand.creator_commission_rate)}%</p>
+        <p><strong>PartnerLinks platform fee</strong><br>${escapeHtml(brand.platform_fee_rate)}%</p>
+        <p><strong>Creator onboarding link</strong><br>${escapeHtml(links.creatorSignupLink)}</p>
+        <p><strong>Example tracking link format</strong><br>${escapeHtml(links.trackingLinkFormat)}</p>
+        <p><strong>Next step</strong><br>Invite creators and share your onboarding link.</p>
+      </div>
+      <a class="auth-primary-button" href="/">Return home</a>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function buildBrandLinkExamples(brand) {
+  const brandSlug = generateSlug(brand.name);
+  return {
+    creatorSignupLink: `${PUBLIC_BASE_URL}/join/:creatorCode`,
+    trackingLinkFormat: `${PUBLIC_BASE_URL}/r/${brandSlug}/:creatorCode`
+  };
+}
+
+function normalizeUrl(value) {
+  const trimmed = String(value || '').trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
 }
 
 function escapeHtml(value) {

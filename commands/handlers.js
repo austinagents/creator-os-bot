@@ -316,6 +316,7 @@ async function handleSalesDashboard(interaction, guild) {
       { name: 'Network Earnings Owed', value: formatMoney(stats.totalCreatorNetworkEarningsOwed), inline: true },
       { name: 'Level 1 Network Earnings', value: formatMoney(stats.levelOneNetworkEarnings), inline: true },
       { name: 'Level 2 Network Earnings', value: formatMoney(stats.levelTwoNetworkEarnings), inline: true },
+      { name: 'Level 3 Network Earnings', value: formatMoney(stats.levelThreeNetworkEarnings), inline: true },
       { name: 'Latest Conversion', value: stats.latestConversionDate || 'No conversions yet', inline: true }
     )
     .setColor(0x00aa55);
@@ -385,6 +386,7 @@ async function handleNetworkStats(interaction, guild) {
       { name: 'Creator Invite Link', value: updatedCreator.join_referral_link || 'Not available' },
       { name: 'Direct Referred Creators', value: stats.directReferredCreators.toString(), inline: true },
       { name: 'Second-Level Creators', value: stats.secondLevelCreators.toString(), inline: true },
+      { name: 'Third-Level Creators', value: stats.thirdLevelCreators.toString(), inline: true },
       { name: 'Network Earnings Earned', value: formatMoney(stats.networkEarnings), inline: true }
     )
     .setColor(0x6a5acd);

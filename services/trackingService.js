@@ -269,6 +269,9 @@ async function getBrandSalesDashboardStats(brandId) {
   const levelTwoNetworkEarnings = networkEarnings
     .filter((row) => row.level === 2)
     .reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
+  const levelThreeNetworkEarnings = networkEarnings
+    .filter((row) => row.level === 3)
+    .reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
 
   return {
     totalClicks: clicks.length,
@@ -280,6 +283,7 @@ async function getBrandSalesDashboardStats(brandId) {
     totalCreatorNetworkEarningsOwed: networkEarnings.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0),
     levelOneNetworkEarnings,
     levelTwoNetworkEarnings,
+    levelThreeNetworkEarnings,
     latestConversionDate: latestConversionRow ? new Date(latestConversionRow.created_at).toISOString() : null
   };
 }

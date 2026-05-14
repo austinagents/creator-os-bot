@@ -25,6 +25,7 @@ Last updated: 2026-05-13
 - `/auth/google/start` and `/auth/google/start/` both initiate Supabase Google OAuth and redirect to Google.
 - Shopify OAuth MVP install flow is implemented through `/register-business`, `/api/shopify/start`, and `/api/shopify/callback`.
 - Shopify installs now automatically create or reuse a brand record and link `shopify_stores.brand_id` to `brands.id`.
+- Post-install brand setup is implemented through `/brand/setup/:brandId`.
 
 ## Product Direction
 
@@ -60,7 +61,9 @@ Current Shopify OAuth flow:
 5. PartnerLinks validates the callback, exchanges the code for an access token, and stores the shop domain plus token in Supabase `shopify_stores`.
 6. PartnerLinks creates or reuses a brand record using the Shopify store domain as the initial brand name/slug source.
 7. PartnerLinks links `shopify_stores.brand_id` to `brands.id`.
-8. Creator commission setup and referral infrastructure generation remain the next onboarding layer.
+8. PartnerLinks redirects the merchant to `/brand/setup/:brandId`.
+9. Brand sets display name, destination URL, creator commission percentage, and PartnerLinks platform fee percentage.
+10. PartnerLinks displays creator onboarding and tracking link formats.
 
 Creator onboarding should be low-friction:
 
@@ -97,15 +100,17 @@ Creator-network example:
 - Creator 2 invites Creator 3.
 - Creator 3 drives a `$100` sale.
 - Creator 3 earns the creator commission.
-- Creator 2 earns 10% of PartnerLinks' platform fee.
-- Creator 1 earns 2% of PartnerLinks' platform fee.
+- Creator 2 earns 30% of PartnerLinks' platform fee.
+- Creator 1 earns 3% of PartnerLinks' platform fee.
+- If there is a Level 3 inviter, they earn 2% of PartnerLinks' platform fee.
 - Network overrides never come from creator commission principal.
 
 MVP override rates:
 
-- Level 1 direct invited creator: 10% of PartnerLinks platform fee.
-- Level 2 indirect invited creator: 2% of PartnerLinks platform fee.
-- No Level 3+ rewards.
+- Level 1 direct invited creator: 30% of PartnerLinks platform fee.
+- Level 2 indirect invited creator: 3% of PartnerLinks platform fee.
+- Level 3 extended invited creator: 2% of PartnerLinks platform fee.
+- No Level 4+ rewards.
 
 ## Current Tables
 
@@ -131,6 +136,7 @@ Migration files currently present:
 - `database/migrations/003_creator_network.sql`
 - `database/migrations/004_web_auth_creators.sql`
 - `database/migrations/005_shopify_stores.sql`
+- `database/migrations/006_brand_setup_fields.sql`
 
 ## Current Discord Commands
 
@@ -173,6 +179,7 @@ database/migrations/002_conversions_table.sql
 database/migrations/003_creator_network.sql
 database/migrations/004_web_auth_creators.sql
 database/migrations/005_shopify_stores.sql
+database/migrations/006_brand_setup_fields.sql
 ```
 
 4. Start the app:
@@ -220,6 +227,7 @@ npm start
 - Payouts are manual. The app only calculates estimated commission.
 - Current Discord brand setup is manual through `/brand_setup`; web brand onboarding now has a lightweight Shopify OAuth install flow.
 - Shopify-connected stores are linked to brand records automatically. Reinstalling an existing connected store reuses the existing `shopify_stores.brand_id` and does not create a duplicate brand.
+- Brand setup stores `brands.name`, `brands.destination_url`, `brands.creator_commission_rate`, `brands.platform_fee_rate`, and `brands.setup_completed_at`.
 - There is no embedded Shopify admin UI, webhook automation, billing, Stripe Connect integration, public marketplace, auth system, or web dashboard yet.
 - Current sales recording is manual through `/record_conversion`.
 - `/record_conversion` now accepts optional `platform_fee_amount`. Creator-network override rows are only created when this value is greater than zero.
@@ -247,6 +255,6 @@ npm start
 - Continue hardening the Google signup flow after production traffic, especially duplicate creator edge cases between Discord-created and web-created creators.
 - Replace the temporary `/creator/welcome` placeholder with a real creator account page after auth and brand onboarding mature.
 - Add a simple production health check route later if Railway monitoring needs it.
-- Next product layer should connect installed Shopify stores to brand records, set creator commission percentage, and generate creator onboarding/referral infrastructure.
+- Next product layer should connect setup brands to real Shopify order webhooks and conversion creation.
 - Payout reporting/instructions should come before deeper Stripe/payment routing.
 - Keep automated custody-style payouts, Stripe Connect, dashboards, AI, and marketplace features out of scope until the sales attribution and Shopify onboarding loops are stable.

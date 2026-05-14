@@ -1,7 +1,13 @@
 const supabase = require('../database/database/supabase');
 
-const LEVEL_ONE_RATE = 10;
-const LEVEL_TWO_RATE = 2;
+const LEVEL_ONE_RATE = 30;
+const LEVEL_TWO_RATE = 3;
+const LEVEL_THREE_RATE = 2;
+const NETWORK_RATES_BY_LEVEL = {
+  1: LEVEL_ONE_RATE,
+  2: LEVEL_TWO_RATE,
+  3: LEVEL_THREE_RATE
+};
 
 async function getCreatorByInviteCode(inviteCode) {
   const { data: referralMatches, error: referralError } = await supabase
@@ -89,48 +95,24 @@ async function createNetworkEarningsForConversion({
   const feeAmount = Number(platformFeeAmount || 0);
   if (!feeAmount || feeAmount <= 0) return [];
 
-  const { data: sourceCreator, error: sourceError } = await supabase
-    .from('creators')
-    .select('id, parent_creator_id')
-    .eq('id', sourceCreatorId)
-    .single();
-  if (sourceError) throw sourceError;
-  if (!sourceCreator || !sourceCreator.parent_creator_id) return [];
-
   const earnings = [];
+  const visitedCreatorIds = new Set([sourceCreatorId]);
+  let parentCreatorId = await getParentCreatorId(sourceCreatorId);
+  let level = 1;
 
-  if (sourceCreator.parent_creator_id !== sourceCreator.id) {
+  while (parentCreatorId && level <= 3 && !visitedCreatorIds.has(parentCreatorId)) {
+    visitedCreatorIds.add(parentCreatorId);
     earnings.push(buildEarningRow({
-      earningCreatorId: sourceCreator.parent_creator_id,
+      earningCreatorId: parentCreatorId,
       sourceCreatorId,
       conversionId,
       platformFeeAmount: feeAmount,
-      commissionRate: LEVEL_ONE_RATE,
-      level: 1
+      commissionRate: NETWORK_RATES_BY_LEVEL[level],
+      level
     }));
-  }
 
-  const { data: levelOneParent, error: parentError } = await supabase
-    .from('creators')
-    .select('id, parent_creator_id')
-    .eq('id', sourceCreator.parent_creator_id)
-    .single();
-  if (parentError) throw parentError;
-
-  if (
-    levelOneParent &&
-    levelOneParent.parent_creator_id &&
-    levelOneParent.parent_creator_id !== sourceCreator.id &&
-    levelOneParent.parent_creator_id !== levelOneParent.id
-  ) {
-    earnings.push(buildEarningRow({
-      earningCreatorId: levelOneParent.parent_creator_id,
-      sourceCreatorId,
-      conversionId,
-      platformFeeAmount: feeAmount,
-      commissionRate: LEVEL_TWO_RATE,
-      level: 2
-    }));
+    parentCreatorId = await getParentCreatorId(parentCreatorId);
+    level += 1;
   }
 
   if (!earnings.length) return [];
@@ -143,6 +125,16 @@ async function createNetworkEarningsForConversion({
   return data || [];
 }
 
+async function getParentCreatorId(creatorId) {
+  const { data, error } = await supabase
+    .from('creators')
+    .select('parent_creator_id')
+    .eq('id', creatorId)
+    .limit(1);
+  if (error) throw error;
+  return data && data[0] ? data[0].parent_creator_id : null;
+}
+
 async function getCreatorNetworkStats(creatorId) {
   const { data: directCreators, error: directError } = await supabase
     .from('creators')
@@ -152,6 +144,7 @@ async function getCreatorNetworkStats(creatorId) {
 
   const directIds = directCreators.map((creator) => creator.id);
   let secondLevelCount = 0;
+  let thirdLevelCount = 0;
 
   if (directIds.length) {
     const { data: secondLevelCreators, error: secondLevelError } = await supabase
@@ -160,6 +153,16 @@ async function getCreatorNetworkStats(creatorId) {
       .in('parent_creator_id', directIds);
     if (secondLevelError) throw secondLevelError;
     secondLevelCount = secondLevelCreators.length;
+
+    const secondLevelIds = secondLevelCreators.map((creator) => creator.id);
+    if (secondLevelIds.length) {
+      const { data: thirdLevelCreators, error: thirdLevelError } = await supabase
+        .from('creators')
+        .select('id')
+        .in('parent_creator_id', secondLevelIds);
+      if (thirdLevelError) throw thirdLevelError;
+      thirdLevelCount = thirdLevelCreators.length;
+    }
   }
 
   const { data: earnings, error: earningsError } = await supabase
@@ -171,6 +174,7 @@ async function getCreatorNetworkStats(creatorId) {
   return {
     directReferredCreators: directCreators.length,
     secondLevelCreators: secondLevelCount,
+    thirdLevelCreators: thirdLevelCount,
     networkEarnings: (earnings || []).reduce((sum, row) => sum + Number(row.commission_amount || 0), 0)
   };
 }
@@ -202,6 +206,7 @@ function roundCurrency(value) {
 module.exports = {
   LEVEL_ONE_RATE,
   LEVEL_TWO_RATE,
+  LEVEL_THREE_RATE,
   getCreatorByInviteCode,
   recordCreatorInviteSession,
   bindCreatorToInviteSession,
