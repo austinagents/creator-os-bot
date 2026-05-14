@@ -18,12 +18,15 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     const invite = params.get('invite');
+    const brand = params.get('brand');
     const button = document.getElementById('google-button');
     const context = document.getElementById('invite-context');
 
     if (invite) {
       button.href = `/auth/google/start?invite=${encodeURIComponent(invite)}`;
       context.textContent = `You were invited by ${invite}. Continue with Google to create your creator account.`;
+    } else if (brand) {
+      context.textContent = 'You were invited by a PartnerLinks brand. Continue with Google to create your creator account.';
     }
   </script>
 </body>

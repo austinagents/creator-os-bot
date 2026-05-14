@@ -7,7 +7,12 @@ const { log } = require("./services/services/logger");
 const { registerCommands } = require("./commands/registerCommands");
 const { handleInteraction } = require("./commands/handlers");
 const { getBrandBySlug, getCreatorByCodeAndBrand, recordClick, upsertAttributionSession, generateSessionId, hashIp } = require("./services/trackingService");
-const { getCreatorByInviteCode, recordCreatorInviteSession, bindCreatorToInviteSession } = require("./services/creatorNetworkService");
+const {
+  getCreatorByInviteCode,
+  recordCreatorInviteSession,
+  bindCreatorToInviteSession,
+  bindCreatorToBrandOrigin
+} = require("./services/creatorNetworkService");
 const { findOrCreateWebCreator, getCreatorById } = require("./services/creatorService");
 const { getGoogleOAuthUrl, exchangeAuthCodeForUser } = require("./services/authService");
 const {
@@ -33,6 +38,28 @@ const DEFAULT_PLATFORM_FEE_RATE = 5;
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/join/brand/:brandId', async (req, res) => {
+  try {
+    const brand = await getBrandById(req.params.brandId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand invite not found' });
+    }
+
+    res.cookie('partnerlinks_brand_invite_id', String(brand.id), {
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax'
+    });
+    res.clearCookie('partnerlinks_invite_sid');
+
+    res.redirect(`/signup?brand=${encodeURIComponent(brand.id)}`);
+  } catch (error) {
+    log('Brand invite redirect error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 app.get('/join/:creatorCode', async (req, res) => {
   try {
@@ -67,6 +94,7 @@ app.get('/join/:creatorCode', async (req, res) => {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax'
     });
+    res.clearCookie('partnerlinks_brand_invite_id');
 
     res.redirect(`/signup?invite=${encodeURIComponent(creatorCode)}`);
   } catch (error) {
@@ -163,11 +191,16 @@ app.get('/auth/callback', async (req, res) => {
     const authUser = await exchangeAuthCodeForUser(req, res, code);
     const creator = await findOrCreateWebCreator(authUser);
     const inviteSessionId = req.cookies.partnerlinks_invite_sid;
+    const brandInviteId = req.cookies.partnerlinks_brand_invite_id;
 
     if (inviteSessionId) {
       await bindCreatorToInviteSession(creator.id, inviteSessionId);
+    } else if (brandInviteId) {
+      await bindCreatorToBrandOrigin(creator.id, brandInviteId);
     }
 
+    res.clearCookie('partnerlinks_invite_sid');
+    res.clearCookie('partnerlinks_brand_invite_id');
     res.redirect(`/creator/welcome?creator_id=${encodeURIComponent(creator.id)}`);
   } catch (error) {
     log('Auth callback error:', error);
@@ -459,6 +492,19 @@ async function getBrandSetupData(brandId) {
   };
 }
 
+async function getBrandById(brandId) {
+  const { data, error } = await supabase
+    .from('brands')
+    .select('*')
+    .eq('id', brandId)
+    .single();
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return data;
+}
+
 function renderBrandSetupPage(brand, store) {
   const destinationUrl = brand.destination_url || (store ? `https://${store.shop_domain}` : '');
   return `<!DOCTYPE html>
@@ -523,7 +569,7 @@ function renderBrandSetupSuccessPage(brand, store) {
 function buildBrandLinkExamples(brand) {
   const brandSlug = generateSlug(brand.name);
   return {
-    creatorSignupLink: `${PUBLIC_BASE_URL}/join/:creatorCode`,
+    creatorSignupLink: `${PUBLIC_BASE_URL}/join/brand/${brand.id}`,
     trackingLinkFormat: `${PUBLIC_BASE_URL}/r/${brandSlug}/:creatorCode`
   };
 }

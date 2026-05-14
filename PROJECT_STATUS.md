@@ -1,6 +1,6 @@
 # PartnerLinks / creator-os-bot Project Status
 
-Last updated: 2026-05-13
+Last updated: 2026-05-14
 
 ## Current MVP State
 
@@ -26,6 +26,7 @@ Last updated: 2026-05-13
 - Shopify OAuth MVP install flow is implemented through `/register-business`, `/api/shopify/start`, and `/api/shopify/callback`.
 - Shopify installs now automatically create or reuse a brand record and link `shopify_stores.brand_id` to `brands.id`.
 - Post-install brand setup is implemented through `/brand/setup/:brandId`.
+- Brands can now act as origin sponsors when creators sign up through a brand onboarding link.
 
 ## Product Direction
 
@@ -69,7 +70,7 @@ For MVP, `platform_fee_rate` remains an internal field and defaults to 5% server
 
 Creator onboarding should be low-friction:
 
-1. Join through `/join/:creatorCode` or a brand onboarding link.
+1. Join through `/join/:creatorCode` or a brand onboarding link like `/join/brand/:brandId`.
 2. Sign in with Google.
 3. Set creator code and social handle.
 4. Connect payout destination: bank or PayPal.
@@ -114,6 +115,15 @@ MVP override rates:
 - Level 3 extended invited creator: 2% of PartnerLinks platform fee.
 - No Level 4+ rewards.
 
+Brands can occupy the origin sponsor position when they directly onboard a creator. This uses the same 30% / 3% / 2% capped economics:
+
+- If a brand directly invites Creator 1 and Creator 1 generates a sale, the brand receives the Level 1 reward.
+- If Creator 1 invites Creator 2 and Creator 2 generates a sale, Creator 1 receives Level 1 and the brand receives Level 2.
+- If Creator 2 invites Creator 3 and Creator 3 generates a sale, Creator 2 receives Level 1, Creator 1 receives Level 2, and the brand receives Level 3.
+- If the creator chain already uses all three levels, the brand receives nothing. There is no infinite depth and no Level 4+ reward.
+
+Brand-origin rewards are recorded only from explicit `platform_fee_amount`, never from order value or creator campaign commission.
+
 ## Current Tables
 
 Expected base tables:
@@ -129,6 +139,7 @@ Tracking and attribution tables:
 - `conversions`
 - `creator_invite_sessions`
 - `creator_network_earnings`
+- `brand_network_earnings`
 - `shopify_stores`
 
 Migration files currently present:
@@ -139,6 +150,7 @@ Migration files currently present:
 - `database/migrations/004_web_auth_creators.sql`
 - `database/migrations/005_shopify_stores.sql`
 - `database/migrations/006_brand_setup_fields.sql`
+- `database/migrations/007_brand_origin_network.sql`
 
 ## Current Discord Commands
 
@@ -182,6 +194,7 @@ database/migrations/003_creator_network.sql
 database/migrations/004_web_auth_creators.sql
 database/migrations/005_shopify_stores.sql
 database/migrations/006_brand_setup_fields.sql
+database/migrations/007_brand_origin_network.sql
 ```
 
 4. Start the app:
@@ -231,9 +244,12 @@ npm start
 - Shopify-connected stores are linked to brand records automatically. Reinstalling an existing connected store reuses the existing `shopify_stores.brand_id` and does not create a duplicate brand.
 - Brand setup stores `brands.name`, `brands.destination_url`, `brands.creator_commission_rate`, internal `brands.platform_fee_rate`, and `brands.setup_completed_at`.
 - Brand-facing setup only asks for creator commission percentage. `platform_fee_rate` exists internally and defaults to 5% for MVP.
+- Brand setup displays a brand-origin creator onboarding link at `/join/brand/:brandId`.
+- Creators who sign up through a brand onboarding link can be permanently marked with `creators.invited_by_brand_id`.
 - There is no embedded Shopify admin UI, webhook automation, billing, Stripe Connect integration, public marketplace, auth system, or web dashboard yet.
 - Current sales recording is manual through `/record_conversion`.
 - `/record_conversion` now accepts optional `platform_fee_amount`. Creator-network override rows are only created when this value is greater than zero.
+- When `platform_fee_amount` is greater than zero, conversion recording can create creator network earnings and, if the chain reaches a brand origin sponsor before Level 3 is exhausted, a `brand_network_earnings` row.
 - `/record_conversion` slash command registration includes optional numeric `platform_fee_amount`; if omitted, command handling treats it as `0`.
 - `/record_conversion` can find creators by `creator_code` or `referral_code`, including web-created creators without a Discord user.
 - `/record_conversion` uses direct exact creator lookups and does not require `discord_user_id`.
