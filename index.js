@@ -28,6 +28,7 @@ const {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const DEFAULT_PLATFORM_FEE_RATE = 5;
 
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: false }));
@@ -293,21 +294,21 @@ app.post('/brand/setup/:brandId', async (req, res) => {
     const name = String(req.body.name || '').trim();
     const destinationUrl = String(req.body.destination_url || '').trim();
     const creatorCommissionRate = Number(req.body.creator_commission_rate);
-    const platformFeeRate = Number(req.body.platform_fee_rate);
+    const platformFeeRate = DEFAULT_PLATFORM_FEE_RATE;
 
-    if (!name || !destinationUrl || Number.isNaN(creatorCommissionRate) || Number.isNaN(platformFeeRate)) {
+    if (!name || !destinationUrl || Number.isNaN(creatorCommissionRate)) {
       return res.status(400).send(renderSimpleMessagePage(
         'Missing setup details',
-        'Please provide brand name, destination URL, creator commission percentage, and platform fee percentage.',
+        'Please provide brand name, destination URL, and creator commission percentage.',
         `/brand/setup/${encodeURIComponent(brandId)}`,
         'Back to setup'
       ));
     }
 
-    if (creatorCommissionRate < 0 || platformFeeRate < 0) {
+    if (creatorCommissionRate < 0) {
       return res.status(400).send(renderSimpleMessagePage(
         'Invalid setup details',
-        'Commission and platform fee percentages must be zero or greater.',
+        'Creator commission percentage must be zero or greater.',
         `/brand/setup/${encodeURIComponent(brandId)}`,
         'Back to setup'
       ));
@@ -481,8 +482,6 @@ function renderBrandSetupPage(brand, store) {
         <input id="destination_url" name="destination_url" type="url" value="${escapeHtml(destinationUrl)}" required>
         <label for="creator_commission_rate">Creator commission %</label>
         <input id="creator_commission_rate" name="creator_commission_rate" type="number" min="0" step="0.01" value="${escapeHtml(brand.creator_commission_rate ?? '')}" required>
-        <label for="platform_fee_rate">PartnerLinks platform fee %</label>
-        <input id="platform_fee_rate" name="platform_fee_rate" type="number" min="0" step="0.01" value="${escapeHtml(brand.platform_fee_rate ?? '')}" required>
         <button class="auth-primary-button" type="submit">Save brand setup</button>
       </form>
     </section>
@@ -510,7 +509,6 @@ function renderBrandSetupSuccessPage(brand, store) {
         <p><strong>Connected Shopify store</strong><br>${escapeHtml(store ? store.shop_domain : 'Connected store not found')}</p>
         <p><strong>Brand name</strong><br>${escapeHtml(brand.name)}</p>
         <p><strong>Creator commission</strong><br>${escapeHtml(brand.creator_commission_rate)}%</p>
-        <p><strong>PartnerLinks platform fee</strong><br>${escapeHtml(brand.platform_fee_rate)}%</p>
         <p><strong>Creator onboarding link</strong><br>${escapeHtml(links.creatorSignupLink)}</p>
         <p><strong>Example tracking link format</strong><br>${escapeHtml(links.trackingLinkFormat)}</p>
         <p><strong>Next step</strong><br>Invite creators and share your onboarding link.</p>

@@ -62,8 +62,10 @@ Current Shopify OAuth flow:
 6. PartnerLinks creates or reuses a brand record using the Shopify store domain as the initial brand name/slug source.
 7. PartnerLinks links `shopify_stores.brand_id` to `brands.id`.
 8. PartnerLinks redirects the merchant to `/brand/setup/:brandId`.
-9. Brand sets display name, destination URL, creator commission percentage, and PartnerLinks platform fee percentage.
+9. Brand sets display name, destination URL, and creator commission percentage.
 10. PartnerLinks displays creator onboarding and tracking link formats.
+
+For MVP, `platform_fee_rate` remains an internal field and defaults to 5% server-side during brand setup. It is not shown in the brand-facing setup UI.
 
 Creator onboarding should be low-friction:
 
@@ -227,7 +229,8 @@ npm start
 - Payouts are manual. The app only calculates estimated commission.
 - Current Discord brand setup is manual through `/brand_setup`; web brand onboarding now has a lightweight Shopify OAuth install flow.
 - Shopify-connected stores are linked to brand records automatically. Reinstalling an existing connected store reuses the existing `shopify_stores.brand_id` and does not create a duplicate brand.
-- Brand setup stores `brands.name`, `brands.destination_url`, `brands.creator_commission_rate`, `brands.platform_fee_rate`, and `brands.setup_completed_at`.
+- Brand setup stores `brands.name`, `brands.destination_url`, `brands.creator_commission_rate`, internal `brands.platform_fee_rate`, and `brands.setup_completed_at`.
+- Brand-facing setup only asks for creator commission percentage. `platform_fee_rate` exists internally and defaults to 5% for MVP.
 - There is no embedded Shopify admin UI, webhook automation, billing, Stripe Connect integration, public marketplace, auth system, or web dashboard yet.
 - Current sales recording is manual through `/record_conversion`.
 - `/record_conversion` now accepts optional `platform_fee_amount`. Creator-network override rows are only created when this value is greater than zero.
