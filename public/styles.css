@@ -674,6 +674,7 @@ a {
   margin-bottom: 24px;
   text-align: center;
   font-size: clamp(1.8rem, 2.8vw, 2.65rem);
+  white-space: nowrap;
 }
 .brand-referral-panel span,
 .product-payout-line {
@@ -1352,6 +1353,9 @@ a {
   .brand-detail-hero > div:first-child,
   .brand-referral-panel {
     padding: 20px;
+  }
+  .section-support-copy {
+    white-space: normal;
   }
   .site-footer {
     flex-direction: column;
