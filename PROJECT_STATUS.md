@@ -1,6 +1,6 @@
 # PartnerLinks / creator-os-bot Project Status
 
-Last updated: 2026-05-14
+Last updated: 2026-05-15
 
 ## Current MVP State
 
@@ -30,6 +30,7 @@ Last updated: 2026-05-14
 - Creator codes, referral codes, and brand URL slugs are canonical lowercase identifiers across routes, lookups, and generated links.
 - Creator Dashboard MVP is available at `/dashboard/:creator_code` with referral, conversion, commission, and network earnings summary. `/dashboard` resolves the current persisted Supabase auth user to their creator dashboard when available, and otherwise shows a clean sign-in state. Post-signup welcome pages now include primary Creator Dashboard and secondary Home CTAs using the canonical lowercase creator code.
 - Brand Dashboard MVP is available at `/brand-dashboard/:brand_slug` with tracked revenue, creator, conversion, fee, network payout, tracking link, and program performance summaries.
+- Homepage creator navigation now uses the same persisted Supabase Auth session resolver as `/dashboard`; returning signed-in creators see Creator Dashboard links routed directly to their canonical `/dashboard/:creator_code` page without a separate homepage auth system.
 - Homepage brand navigation stores only a non-sensitive brand slug in browser state after Shopify install/brand setup to switch returning connected brands from Register Your Business to Brand Dashboard.
 - `/creator_dashboard` is available as an admin/operator Discord shortcut for dashboard URL lookup and quick verification.
 
@@ -158,7 +159,7 @@ Before implementing major new features, decide:
 Product structure rules:
 
 - Build cohesive Creator and Brand dashboard systems before adding many more isolated backend capabilities.
-- Creator Dashboard MVP now lives at `/dashboard/:creator_code` as the first Creator dashboard surface. The homepage creator navigation includes a Creator Dashboard dropdown item that routes to the safe `/dashboard` entry page until full session-aware dashboard routing is implemented.
+- Creator Dashboard MVP now lives at `/dashboard/:creator_code` as the first Creator dashboard surface. The homepage creator navigation includes a Creator Dashboard dropdown item; signed-in creators are routed directly to their canonical dashboard through the persisted Supabase session, while unauthenticated visitors still use the safe `/dashboard` entry/sign-in state.
 - Brand Dashboard MVP now lives at `/brand-dashboard/:brand_slug` as the first Brand dashboard surface and intentionally reuses the Creator Dashboard visual system, sidebar structure, card styling, responsive behavior, and dark SaaS layout language.
 - Place features inside structured dashboard/navigation systems instead of standalone utility routes whenever practical.
 - Avoid disconnected utility pages and duplicate navigation paths for the same functionality.
@@ -206,7 +207,7 @@ UI principles:
 - Subtle gradients, soft borders, dark surfaces, and restrained cards.
 - Responsive sidebar and grids collapse cleanly on mobile with mobile-only overflow protection, tighter padding/gaps, smaller welcome heading, one-column cards, scrollable sidebar nav, and aggressive wrapping for long invite URLs. Dashboard critical CSS is inlined in the `/dashboard/:creator_code` route and the external stylesheet uses cache-busting/no-store headers so production cannot render the dashboard as raw unstyled markup if `/styles.css` is stale.
 - No internal/admin tooling exposed in public creator dashboard UI.
-- Homepage navigation includes a `For Creators` dropdown with `Creator Dashboard` as the first creator journey item; `/dashboard` shows a clean sign-in state when no authenticated creator session is available. The dropdown is an overlay on hover/focus so it does not shift navbar layout, and the welcome-page Home CTA is styled as a balanced secondary button next to the primary Creator Dashboard CTA.
+- Homepage navigation includes a `For Creators` dropdown with `Creator Dashboard` as the first creator journey item; the homepage now checks the same persisted Supabase session used by `/dashboard` and routes signed-in creators directly to `/dashboard/:creator_code`. `/dashboard` still shows a clean sign-in state when no authenticated creator session is available. The dropdown is an overlay on hover/focus so it does not shift navbar layout, and the welcome-page Home CTA is styled as a balanced secondary button next to the primary Creator Dashboard CTA.
 - Brand nav is state-aware without full auth: unconnected visitors see `Register Your Business` with a hover/focus `Brand Dashboard` teaser that routes to `/register-business`; connected brands with a stored safe brand slug see `Brand Dashboard` directly, routed to `/brand-dashboard/:brand_slug`. Invalid or missing brand slug state falls back safely to `/register-business`. Brand setup success pages show Brand Dashboard and Home CTAs with the same visual button system as creator onboarding.
 - Homepage dropdown hover behavior uses a shared hover/focus wrapper and invisible hover bridge so users can move from the nav trigger to dropdown items without the menu closing.
 - Website/dashboard remains the primary creator UX; Discord remains an operator shortcut layer.
@@ -394,7 +395,7 @@ npm start
 - `/creator_dashboard creator_code` returns the canonical Creator Dashboard URL and quick stats for admin/operator verification.
 - Slash command registration logs the exact command list on startup, including `/network_stats`, and startup registration refreshes guild commands automatically.
 - `/join/:creator_code` captures invite sessions in a browser cookie. Permanent parent binding from invite session to new creator is completed by the web Google signup flow.
-- Web signup/auth binding is now implemented for Google OAuth. Supabase Auth session cookies are persisted server-side with httpOnly, secure production settings and a 30-day max age, so returning creators can access `/dashboard` without signing in again until the session naturally expires. Discord `/start` still cannot reliably read browser invite cookies, so invite parent binding should happen through the web signup flow.
+- Web signup/auth binding is now implemented for Google OAuth. Supabase Auth session cookies are persisted server-side with httpOnly, secure production settings and a 30-day max age, so returning creators can access `/dashboard` and homepage Creator Dashboard navigation without signing in again until the session naturally expires. Discord `/start` still cannot reliably read browser invite cookies, so invite parent binding should happen through the web signup flow.
 - Google-created creators can have `brand_id` null if the database allows it. If the existing production schema requires `brand_id`, the auth helper falls back to the latest brand so creator creation can still complete; review this later when multi-brand web onboarding is formalized.
 - Supabase Google provider and redirect allow-list entries must be configured manually before OAuth works. Railway must also include `SUPABASE_ANON_KEY` and `PUBLIC_BASE_URL=https://partnerlinks.app`; missing either one causes `/auth/google/start` to return `Unable to start Google signup`. Auth clear-cookie calls must not include `maxAge`; Shopify and Supabase auth clear paths now use clear-cookie options without expiration metadata.
 - Discord slash command registration happens on bot startup for the configured guild.

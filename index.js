@@ -1,5 +1,6 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
+const fs = require('fs');
 const path = require('path');
 const { Client, GatewayIntentBits } = require("discord.js");
 const supabase = require("./database/database/supabase");
@@ -44,7 +45,7 @@ app.get('/styles.css', (req, res) => {
   res.set('Cache-Control', 'no-store, max-age=0');
   res.sendFile(path.join(__dirname, 'public', 'styles.css'));
 });
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 app.get('/join/brand/:brandId', async (req, res) => {
   try {
@@ -175,8 +176,16 @@ app.get('/r/:brandSlug/:creatorCode', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+app.get('/', async (req, res) => {
+  try {
+    const creator = await getHomepageCreator(req, res);
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.send(renderHomepage(creator));
+  } catch (error) {
+    log('Homepage auth-aware render error:', error);
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.send(renderHomepage(null));
+  }
 });
 app.get('/signup', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'signup.html'));
@@ -519,6 +528,36 @@ app.listen(PORT, '0.0.0.0', () => {
 });
 
 client.login(DISCORD_TOKEN);
+
+async function getHomepageCreator(req, res) {
+  const authUser = await getCurrentAuthUser(req, res);
+  if (!authUser) return null;
+
+  const creator = await getCreatorByAuthUserId(authUser.id);
+  if (!creator || !creator.creator_code) return null;
+
+  return creator;
+}
+
+function renderHomepage(creator) {
+  const homepagePath = path.join(__dirname, 'public', 'index.html');
+  const template = fs.readFileSync(homepagePath, 'utf8');
+  if (!creator || !creator.creator_code) return template;
+
+  const creatorCode = normalizeCode(creator.creator_code);
+  if (!creatorCode) return template;
+
+  const dashboardHref = `/dashboard/${encodeURIComponent(creatorCode)}`;
+  return template
+    .replace(
+      '<a href="/dashboard">Creator Dashboard</a>',
+      `<a href="${escapeHtml(dashboardHref)}">Creator Dashboard</a>`
+    )
+    .replace(
+      '<a class="primary-button" href="/auth/google">Sign up with Google</a>',
+      `<a class="primary-button" href="${escapeHtml(dashboardHref)}">Creator Dashboard</a>`
+    );
+}
 
 function renderCreatorWelcomePage(creator) {
   const trackingLink = creator.tracking_link || 'Brand tracking link will appear after brand assignment.';
