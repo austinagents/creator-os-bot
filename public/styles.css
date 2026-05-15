@@ -172,11 +172,15 @@ a {
   letter-spacing: -0.06em;
 }
 .hero-accent {
+  display: block;
+  max-width: 560px;
   margin: 8px 0 0;
   font-style: italic;
   color: #ffb68a;
-  font-size: clamp(2rem, 3.1vw, 3.05rem);
-  line-height: 1;
+  font-size: clamp(2.15rem, 3vw, 3rem);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: 0;
   font-family: Georgia, 'Times New Roman', serif;
 }
 .hero-statement-grid {
