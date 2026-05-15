@@ -526,8 +526,9 @@ a {
   padding: 30px 0 56px;
 }
 .section-heading {
-  display: flex;
-  justify-content: center;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
 }
 .featured-brand-grid {
   display: grid;
@@ -652,6 +653,21 @@ a {
   align-content: center;
   gap: 14px;
   padding: 24px;
+}
+.brand-support-copy,
+.section-support-copy {
+  margin: 0;
+  color: rgba(184, 192, 224, 0.78);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+.brand-support-copy {
+  max-width: 320px;
+}
+.section-support-copy {
+  margin-top: -20px;
+  margin-bottom: 18px;
+  text-align: center;
 }
 .brand-referral-panel span,
 .product-payout-line {

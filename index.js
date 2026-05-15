@@ -945,6 +945,7 @@ function renderBrandDiscoveryPage(brand, creatorCode) {
           <p>${escapeHtml(brand.description)}</p>
         </div>
         <div class="brand-referral-panel">
+          <p class="brand-support-copy">Earn from any purchase across the brand's store</p>
           <span>Brand referral link</span>
           <strong class="mock-referral-link" id="brand-referral-link">${escapeHtml(brandReferralLink)}</strong>
           <button class="featured-copy-button" type="button" data-brand-copy="${escapeHtml(brandReferralLink)}">Copy Link</button>
@@ -954,6 +955,7 @@ function renderBrandDiscoveryPage(brand, creatorCode) {
       <section class="featured-products-section" aria-labelledby="featured-products-title">
         <div class="section-heading">
           <h2 id="featured-products-title" class="section-title">Featured Products</h2>
+          <p class="section-support-copy">Promote a specific featured product</p>
         </div>
         <div class="featured-product-grid">
           ${brand.products.map((product) => renderFeaturedProductCard(brand.slug, safeCreatorCode, product)).join('')}
