@@ -203,7 +203,7 @@ UI principles:
 - Subtle gradients, soft borders, dark surfaces, and restrained cards.
 - Responsive sidebar and grids collapse cleanly on mobile with mobile-only overflow protection, tighter padding/gaps, smaller welcome heading, one-column cards, scrollable sidebar nav, and aggressive wrapping for long invite URLs. Dashboard critical CSS is inlined in the `/dashboard/:creator_code` route and the external stylesheet uses cache-busting/no-store headers so production cannot render the dashboard as raw unstyled markup if `/styles.css` is stale.
 - No internal/admin tooling exposed in public creator dashboard UI.
-- Homepage navigation includes a `For Creators` dropdown with `Creator Dashboard` as the first creator journey item; `/dashboard` shows a clean sign-in state when no authenticated creator session is available.
+- Homepage navigation includes a `For Creators` dropdown with `Creator Dashboard` as the first creator journey item; `/dashboard` shows a clean sign-in state when no authenticated creator session is available. The dropdown is an overlay on hover/focus so it does not shift navbar layout, and the welcome-page Home CTA is styled as a balanced secondary button next to the primary Creator Dashboard CTA.
 - Website/dashboard remains the primary creator UX; Discord remains an operator shortcut layer.
 - Dashboard rendering fix: `/styles.css` is served with `Cache-Control: no-store`, the dashboard route sets no-store headers, and `/styles.css?v=creator-dashboard-3` plus inline critical CSS ensure current dashboard classes apply in production.
 

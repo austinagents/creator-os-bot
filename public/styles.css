@@ -94,11 +94,17 @@ a {
   position: relative;
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
+}
+.nav-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
 }
 .nav-dropdown-menu {
   position: absolute;
   top: calc(100% + 14px);
-  left: 0;
+  left: 50%;
   z-index: 20;
   min-width: 190px;
   padding: 8px;
@@ -106,16 +112,18 @@ a {
   border-radius: 12px;
   background: rgba(8, 13, 28, 0.96);
   box-shadow: 0 24px 70px rgba(0,0,0,0.28);
+  visibility: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-4px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transform: translate(-50%, -4px);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
 }
 .nav-dropdown:hover .nav-dropdown-menu,
 .nav-dropdown:focus-within .nav-dropdown-menu {
+  visibility: visible;
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
+  transform: translate(-50%, 0);
 }
 .nav-dropdown-menu a {
   display: flex;
@@ -488,11 +496,17 @@ a {
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
+  justify-content: center;
+  padding-top: 4px;
 }
 .auth-actions .auth-primary-button,
 .auth-actions .auth-secondary-button {
   min-height: 48px;
-  padding: 0 22px;
+  min-width: 154px;
+  padding: 0 24px;
+  border-radius: 999px;
+  line-height: 1;
+  text-align: center;
 }
 .auth-form {
   display: grid;
@@ -881,28 +895,39 @@ a {
   }
   .main-nav {
     gap: 16px;
+    align-items: center;
   }
   .nav-dropdown {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
+    flex-direction: row;
+    align-items: center;
+    gap: 0;
   }
   .nav-dropdown-menu {
-    position: static;
-    display: flex;
-    min-width: 0;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 0;
+    min-width: 176px;
+    max-width: calc(100vw - 36px);
+    padding: 8px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(8, 13, 28, 0.98);
+    box-shadow: 0 18px 50px rgba(0,0,0,0.28);
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-4px);
+  }
+  .nav-dropdown:hover .nav-dropdown-menu,
+  .nav-dropdown:focus-within .nav-dropdown-menu {
+    visibility: visible;
     opacity: 1;
     pointer-events: auto;
-    transform: none;
+    transform: translateY(0);
   }
   .nav-dropdown-menu a {
-    min-height: 34px;
-    padding: 0;
-    color: var(--muted);
+    min-height: 38px;
+    padding: 0 10px;
+    color: var(--text);
   }
   .hero-title {
     font-size: 3rem;
@@ -920,6 +945,8 @@ a {
   .auth-actions {
     width: 100%;
     display: grid;
+    gap: 10px;
+    justify-content: stretch;
   }
   .auth-actions .auth-primary-button,
   .auth-actions .auth-secondary-button {
