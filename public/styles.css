@@ -666,6 +666,7 @@ a {
 }
 .brand-support-copy {
   max-width: 320px;
+  color: #ffb68a;
   font-size: clamp(1.45rem, 2.2vw, 2rem);
 }
 .section-support-copy {
