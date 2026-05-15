@@ -103,7 +103,7 @@ Canonical referral identifiers are always lowercase:
 - `creator_code` is generated, stored, looked up, and linked in lowercase.
 - `referral_code` is generated, stored, looked up, and linked in lowercase.
 - Brand URL slugs/codes are generated and matched in lowercase.
-- Incoming route params are normalized with lowercase trimming before lookup.
+- Incoming route params are normalized with lowercase trimming before lookup. `/join/:creator_code` explicitly normalizes with `String(...).trim().toLowerCase()` and checks both `referral_code` and `creator_code` case-insensitively before redirecting to `/signup?invite={lowercase_code}`.
 - Display names keep their original casing in UI.
 
 Creator-network example:

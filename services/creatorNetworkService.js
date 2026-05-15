@@ -15,7 +15,7 @@ async function getCreatorByInviteCode(inviteCode) {
   const { data: referralMatches, error: referralError } = await supabase
     .from('creators')
     .select('*')
-    .eq('referral_code', normalizedInviteCode)
+    .ilike('referral_code', normalizedInviteCode)
     .order('created_at', { ascending: false })
     .limit(1);
   if (referralError) throw referralError;
@@ -24,7 +24,7 @@ async function getCreatorByInviteCode(inviteCode) {
   const { data: creatorCodeMatches, error: creatorCodeError } = await supabase
     .from('creators')
     .select('*')
-    .eq('creator_code', normalizedInviteCode)
+    .ilike('creator_code', normalizedInviteCode)
     .order('created_at', { ascending: false })
     .limit(1);
   if (creatorCodeError) throw creatorCodeError;

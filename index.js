@@ -64,7 +64,7 @@ app.get('/join/brand/:brandId', async (req, res) => {
 
 app.get('/join/:creatorCode', async (req, res) => {
   try {
-    const creatorCode = normalizeCode(req.params.creatorCode);
+    const creatorCode = String(req.params.creatorCode || '').trim().toLowerCase();
     const inviter = await getCreatorByInviteCode(creatorCode);
     if (!inviter) {
       return res.status(404).json({ error: 'Creator invite not found' });
