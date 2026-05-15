@@ -29,6 +29,7 @@ Last updated: 2026-05-14
 - Brands can now act as origin sponsors when creators sign up through a brand onboarding link.
 - Creator codes, referral codes, and brand URL slugs are canonical lowercase identifiers across routes, lookups, and generated links.
 - Creator Dashboard MVP is available at `/dashboard/:creator_code` with referral, conversion, commission, and network earnings summary. Post-signup welcome pages now include primary Creator Dashboard and secondary Home CTAs using the canonical lowercase creator code.
+- Brand Dashboard MVP is available at `/brand-dashboard/:brand_slug` with tracked revenue, creator, conversion, fee, network payout, tracking link, and program performance summaries.
 - `/creator_dashboard` is available as an admin/operator Discord shortcut for dashboard URL lookup and quick verification.
 
 ## Product Direction
@@ -157,6 +158,7 @@ Product structure rules:
 
 - Build cohesive Creator and Brand dashboard systems before adding many more isolated backend capabilities.
 - Creator Dashboard MVP now lives at `/dashboard/:creator_code` as the first Creator dashboard surface. The homepage creator navigation includes a Creator Dashboard dropdown item that routes to the safe `/dashboard` entry page until full session-aware dashboard routing is implemented.
+- Brand Dashboard MVP now lives at `/brand-dashboard/:brand_slug` as the first Brand dashboard surface and intentionally reuses the Creator Dashboard visual system, sidebar structure, card styling, responsive behavior, and dark SaaS layout language.
 - Place features inside structured dashboard/navigation systems instead of standalone utility routes whenever practical.
 - Avoid disconnected utility pages and duplicate navigation paths for the same functionality.
 - Add redirects and canonical routes where appropriate.
@@ -204,6 +206,7 @@ UI principles:
 - Responsive sidebar and grids collapse cleanly on mobile with mobile-only overflow protection, tighter padding/gaps, smaller welcome heading, one-column cards, scrollable sidebar nav, and aggressive wrapping for long invite URLs. Dashboard critical CSS is inlined in the `/dashboard/:creator_code` route and the external stylesheet uses cache-busting/no-store headers so production cannot render the dashboard as raw unstyled markup if `/styles.css` is stale.
 - No internal/admin tooling exposed in public creator dashboard UI.
 - Homepage navigation includes a `For Creators` dropdown with `Creator Dashboard` as the first creator journey item; `/dashboard` shows a clean sign-in state when no authenticated creator session is available. The dropdown is an overlay on hover/focus so it does not shift navbar layout, and the welcome-page Home CTA is styled as a balanced secondary button next to the primary Creator Dashboard CTA.
+- Homepage navigation also includes a `Register Your Business` dropdown with `Brand Dashboard` as the first brand journey item; `/brand-dashboard` shows a clean setup/connect state when no brand context is available. Brand setup success pages now show Brand Dashboard and Home CTAs with the same visual button system as creator onboarding.
 - Website/dashboard remains the primary creator UX; Discord remains an operator shortcut layer.
 - Dashboard rendering fix: `/styles.css` is served with `Cache-Control: no-store`, the dashboard route sets no-store headers, and `/styles.css?v=creator-dashboard-3` plus inline critical CSS ensure current dashboard classes apply in production.
 
@@ -254,6 +257,8 @@ Tracking and attribution tables:
 - `creator_network_earnings`
 - `brand_network_earnings`
 - `shopify_stores`
+
+Brand Dashboard uses existing tables only for this MVP pass: `brands`, `creators`, `clicks`, `conversions`, `creator_network_earnings`, and `shopify_stores`.
 
 Migration files currently present:
 

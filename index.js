@@ -15,6 +15,7 @@ const {
 } = require("./services/creatorNetworkService");
 const { findOrCreateWebCreator, getCreatorById } = require("./services/creatorService");
 const { getCreatorDashboardByCode } = require("./services/creatorDashboardService");
+const { getBrandDashboardBySlug } = require("./services/brandDashboardService");
 const { getGoogleOAuthUrl, exchangeAuthCodeForUser } = require("./services/authService");
 const {
   buildShopifyInstallUrl,
@@ -253,6 +254,34 @@ app.get('/dashboard/:creatorCode', async (req, res) => {
       'Unable to load this creator dashboard. Please try again.',
       '/',
       'Return home'
+    ));
+  }
+});
+app.get('/brand-dashboard', (req, res) => {
+  res.send(renderBrandDashboardEntryPage());
+});
+app.get('/brand-dashboard/:brandSlug', async (req, res) => {
+  try {
+    const brandSlug = String(req.params.brandSlug || '').trim().toLowerCase();
+    const dashboard = await getBrandDashboardBySlug(brandSlug);
+    if (!dashboard) {
+      return res.status(404).send(renderSimpleMessagePage(
+        'Brand not found',
+        'We could not find that brand dashboard.',
+        '/brand-dashboard',
+        'Brand dashboard'
+      ));
+    }
+
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.send(renderBrandDashboardPage(dashboard));
+  } catch (error) {
+    log('Brand dashboard error:', error);
+    res.status(500).send(renderSimpleMessagePage(
+      'Dashboard unavailable',
+      'Unable to load this brand dashboard. Please try again.',
+      '/brand-dashboard',
+      'Brand dashboard'
     ));
   }
 });
@@ -533,6 +562,199 @@ function renderCreatorDashboardEntryPage() {
   </main>
 </body>
 </html>`;
+}
+
+function renderBrandDashboardEntryPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PartnerLinks | Brand Dashboard</title>
+  <link rel="stylesheet" href="/styles.css?v=brand-dashboard-entry">
+</head>
+<body>
+  <main class="auth-page">
+    <section class="auth-panel">
+      <p class="eyebrow">PartnerLinks</p>
+      <h1>Access your Brand Dashboard</h1>
+      <p>Connect Shopify or return to your setup flow to open your brand workspace.</p>
+      <div class="auth-actions">
+        <a class="auth-primary-button" href="/register-business">Connect Shopify</a>
+        <a class="auth-secondary-button" href="/">Home</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function renderBrandDashboardPage(dashboard) {
+  const dashboardPath = `/brand-dashboard/${encodeURIComponent(dashboard.brandSlug)}`;
+  const primaryStats = [
+    ['Tracked Revenue', formatMoney(dashboard.totalTrackedRevenue), 'Revenue attributed through PartnerLinks'],
+    ['Active Creators', dashboard.activeCreators, 'Creators connected to this brand'],
+    ['Conversions', dashboard.totalConversions, 'Recorded sales'],
+    ['Platform Fees', formatMoney(dashboard.platformFeesGenerated), 'PartnerLinks platform revenue'],
+    ['Network Payouts', formatMoney(dashboard.networkPayouts), 'Estimated network rewards owed'],
+    ['Conversion Rate', formatPercent(dashboard.conversionRate), 'Clicks to recorded conversions']
+  ];
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PartnerLinks | Brand Dashboard</title>
+  <link rel="stylesheet" href="/styles.css?v=brand-dashboard-1">
+  <style>${renderCreatorDashboardCriticalStyles()}</style>
+</head>
+<body>
+  <div class="creator-dashboard">
+    <aside class="creator-sidebar" aria-label="Brand dashboard navigation">
+      <a class="creator-sidebar-brand" href="/">
+        <span class="logo-mark">PL</span>
+        <span>
+          <span class="brand-name">PartnerLinks</span>
+          <span class="brand-tag">Brand</span>
+        </span>
+      </a>
+      <nav class="creator-sidebar-nav">
+        <a class="active" href="${escapeHtml(dashboardPath)}">Overview</a>
+        <a href="${escapeHtml(dashboardPath)}#creators">Creators</a>
+        <a href="${escapeHtml(dashboardPath)}#conversions">Conversions</a>
+        <a href="${escapeHtml(dashboardPath)}#earnings">Earnings</a>
+        <a href="${escapeHtml(dashboardPath)}#links">Tracking Links</a>
+        <a href="${escapeHtml(dashboardPath)}#settings">Settings</a>
+      </nav>
+    </aside>
+
+    <main class="creator-main">
+      <header class="creator-topbar">
+        <div>
+          <p class="eyebrow">Brand Dashboard</p>
+          <h1>${escapeHtml(dashboard.brandName)}</h1>
+          <p class="creator-code-line">Brand slug <strong>${escapeHtml(dashboard.brandSlug)}</strong></p>
+        </div>
+        <div class="creator-earnings-chip">
+          <span>Total tracked revenue</span>
+          <strong>${escapeHtml(formatMoney(dashboard.totalTrackedRevenue))}</strong>
+        </div>
+      </header>
+
+      <section class="creator-action-panel" id="links">
+        <div>
+          <span>Tracking link preview</span>
+          <strong id="tracking-link-preview">${escapeHtml(dashboard.trackingLinkPreview)}</strong>
+          <p>Use this format when creators receive brand-specific referral links.</p>
+        </div>
+        <button class="copy-button" type="button" data-copy-target="tracking-link-preview">Copy Link</button>
+      </section>
+
+      <section class="creator-stat-grid" aria-label="Brand performance summary">
+        ${primaryStats.map(([label, value, description]) => `
+          <article class="creator-stat-card">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+            <p>${escapeHtml(description)}</p>
+          </article>
+        `).join('')}
+      </section>
+
+      <section class="creator-content-grid">
+        <article class="creator-panel" id="conversions">
+          <div class="panel-heading">
+            <span>Recent Conversions</span>
+            <strong>${escapeHtml(String(dashboard.totalConversions))}</strong>
+          </div>
+          <div class="earnings-list">
+            ${renderBrandRecentConversions(dashboard.recentConversions)}
+          </div>
+        </article>
+
+        <article class="creator-panel creator-panel-accent" id="creators">
+          <div class="panel-heading">
+            <span>Top Creators</span>
+            <strong>${escapeHtml(String(dashboard.activeCreators))}</strong>
+          </div>
+          <div class="earnings-list">
+            ${renderBrandTopCreators(dashboard.topCreators)}
+          </div>
+        </article>
+      </section>
+
+      <section class="creator-lower-grid">
+        <article class="creator-panel" id="earnings">
+          <div class="panel-heading">
+            <span>Revenue Summary</span>
+            <strong>${escapeHtml(formatMoney(dashboard.totalTrackedRevenue))}</strong>
+          </div>
+          <p class="muted-panel-copy">Platform fees generated: ${escapeHtml(formatMoney(dashboard.platformFeesGenerated))}</p>
+        </article>
+
+        <article class="creator-panel">
+          <div class="panel-heading">
+            <span>Program Performance</span>
+            <strong>${escapeHtml(formatPercent(dashboard.conversionRate))}</strong>
+          </div>
+          <p class="muted-panel-copy">Conversion rate is based on recorded clicks and conversions.</p>
+        </article>
+
+        <article class="creator-panel" id="settings">
+          <div class="panel-heading">
+            <span>Creator Growth</span>
+            <strong>${escapeHtml(String(dashboard.activeCreators))}</strong>
+          </div>
+          <p class="muted-panel-copy">Creator onboarding link: ${escapeHtml(dashboard.creatorOnboardingLink)}</p>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script>
+    document.querySelectorAll('[data-copy-target]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const target = document.getElementById(button.dataset.copyTarget);
+        if (!target) return;
+        try {
+          await navigator.clipboard.writeText(target.textContent.trim());
+          button.textContent = 'Copied';
+          window.setTimeout(() => {
+            button.textContent = 'Copy Link';
+          }, 1400);
+        } catch (error) {
+          button.textContent = 'Select link';
+        }
+      });
+    });
+  </script>
+</body>
+</html>`;
+}
+
+function renderBrandRecentConversions(conversions) {
+  if (!conversions.length) {
+    return '<p class="muted-panel-copy">No conversions recorded yet.</p>';
+  }
+
+  return conversions.map((conversion) => `
+    <div>
+      <span>${escapeHtml(conversion.creator_code || 'unknown')} · ${escapeHtml(conversion.order_id || 'Manual conversion')}</span>
+      <strong>${escapeHtml(formatMoney(conversion.order_value))}</strong>
+    </div>
+  `).join('');
+}
+
+function renderBrandTopCreators(creators) {
+  if (!creators.length) {
+    return '<p class="muted-panel-copy">No creator activity yet.</p>';
+  }
+
+  return creators.map((creator) => `
+    <div>
+      <span>${escapeHtml(creator.creatorCode)}</span>
+      <strong>${escapeHtml(formatMoney(creator.revenue))}</strong>
+    </div>
+  `).join('');
 }
 
 function renderCreatorDashboardPage(dashboard) {
@@ -1088,6 +1310,7 @@ function renderBrandSetupPage(brand, store) {
 
 function renderBrandSetupSuccessPage(brand, store) {
   const links = buildBrandLinkExamples(brand);
+  const brandDashboardHref = `/brand-dashboard/${encodeURIComponent(generateSlug(brand.name))}`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1109,7 +1332,10 @@ function renderBrandSetupSuccessPage(brand, store) {
         <p><strong>Example tracking link format</strong><br>${escapeHtml(links.trackingLinkFormat)}</p>
         <p><strong>Next step</strong><br>Invite creators and share your onboarding link.</p>
       </div>
-      <a class="auth-primary-button" href="/">Return home</a>
+      <div class="auth-actions">
+        <a class="auth-primary-button" href="${escapeHtml(brandDashboardHref)}">Brand Dashboard</a>
+        <a class="auth-secondary-button" href="/">Home</a>
+      </div>
     </section>
   </main>
 </body>
@@ -1135,6 +1361,10 @@ function formatMoney(value, currency = 'USD') {
     style: 'currency',
     currency
   }).format(Number(value || 0));
+}
+
+function formatPercent(value) {
+  return `${Number(value || 0).toFixed(2).replace(/\.00$/, '')}%`;
 }
 
 function escapeHtml(value) {
