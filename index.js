@@ -38,6 +38,10 @@ const DEFAULT_PLATFORM_FEE_RATE = 5;
 
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: false }));
+app.get('/styles.css', (req, res) => {
+  res.set('Cache-Control', 'no-store, max-age=0');
+  res.sendFile(path.join(__dirname, 'public', 'styles.css'));
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/join/brand/:brandId', async (req, res) => {
@@ -237,6 +241,7 @@ app.get('/dashboard/:creatorCode', async (req, res) => {
       ));
     }
 
+    res.set('Cache-Control', 'no-store, max-age=0');
     res.send(renderCreatorDashboardPage(dashboard));
   } catch (error) {
     log('Creator dashboard error:', error);
@@ -498,15 +503,17 @@ function renderCreatorWelcomePage(creator) {
 
 function renderCreatorDashboardPage(dashboard) {
   const inviteLink = dashboard.inviteLink || `${PUBLIC_BASE_URL}/join/${dashboard.creatorCode}`;
-  const statCards = [
-    ['Direct Referrals', dashboard.directReferralsCount],
-    ['Second-Level Referrals', dashboard.secondLevelReferralsCount],
-    ['Third-Level Referrals', dashboard.thirdLevelReferralsCount],
-    ['Total Conversions', dashboard.totalConversions],
-    ['Total Order Value', formatMoney(dashboard.totalOrderValue)],
-    ['Direct Commission Earned', formatMoney(dashboard.directCommissionEarned)],
-    ['Network Earnings Earned', formatMoney(dashboard.networkEarnings)],
-    ['Total Earnings', formatMoney(dashboard.totalEarnings)]
+  const dashboardPath = `/dashboard/${encodeURIComponent(dashboard.creatorCode)}`;
+  const primaryStats = [
+    ['Total Earnings', formatMoney(dashboard.totalEarnings), 'Campaign plus network earnings'],
+    ['Order Value', formatMoney(dashboard.totalOrderValue), 'Attributed creator sales'],
+    ['Conversions', dashboard.totalConversions, 'Recorded sales'],
+    ['Network Earnings', formatMoney(dashboard.networkEarnings), 'Creator referral overrides']
+  ];
+  const referralStats = [
+    ['Direct', dashboard.directReferralsCount],
+    ['Second-Level', dashboard.secondLevelReferralsCount],
+    ['Third-Level', dashboard.thirdLevelReferralsCount]
   ];
 
   return `<!DOCTYPE html>
@@ -515,52 +522,121 @@ function renderCreatorDashboardPage(dashboard) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PartnerLinks | Creator Dashboard</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=creator-dashboard-3">
+  <style>${renderCreatorDashboardCriticalStyles()}</style>
 </head>
 <body>
-  <main class="dashboard-shell">
-    <header class="dashboard-header">
-      <a class="brand" href="/">
+  <div class="creator-dashboard">
+    <aside class="creator-sidebar" aria-label="Creator dashboard navigation">
+      <a class="creator-sidebar-brand" href="/">
         <span class="logo-mark">PL</span>
         <span>
           <span class="brand-name">PartnerLinks</span>
-          <span class="brand-tag">Creator Dashboard</span>
+          <span class="brand-tag">Creator</span>
         </span>
       </a>
-      <nav class="dashboard-nav" aria-label="Creator navigation">
-        <a class="active" href="/dashboard/${escapeHtml(dashboard.creatorCode)}">Overview</a>
+      <nav class="creator-sidebar-nav">
+        <a class="active" href="${escapeHtml(dashboardPath)}">Overview</a>
+        <a href="${escapeHtml(dashboardPath)}#referrals">Referrals</a>
+        <a href="${escapeHtml(dashboardPath)}#earnings">Earnings</a>
+        <a href="${escapeHtml(dashboardPath)}#links">Links</a>
+        <a href="${escapeHtml(dashboardPath)}#settings">Settings</a>
       </nav>
-    </header>
+    </aside>
 
-    <section class="dashboard-hero">
-      <div>
-        <p class="eyebrow">Creator</p>
-        <h1>${escapeHtml(dashboard.displayName)}</h1>
-        <p class="dashboard-subtitle">Creator code: <strong>${escapeHtml(dashboard.creatorCode)}</strong></p>
-      </div>
-      <div class="dashboard-total">
-        <span>Total earnings</span>
-        <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
-      </div>
-    </section>
+    <main class="creator-main">
+      <header class="creator-topbar">
+        <div>
+          <p class="eyebrow">Creator Dashboard</p>
+          <h1>Welcome, ${escapeHtml(dashboard.displayName)}</h1>
+          <p class="creator-code-line">Creator code <strong>${escapeHtml(dashboard.creatorCode)}</strong></p>
+        </div>
+        <div class="creator-earnings-chip">
+          <span>Total earnings</span>
+          <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
+        </div>
+      </header>
 
-    <section class="dashboard-link-panel" aria-label="Creator invite link">
-      <div>
-        <span>Creator invite link</span>
-        <strong id="invite-link">${escapeHtml(inviteLink)}</strong>
-      </div>
-      <button class="copy-button" type="button" data-copy-target="invite-link">Copy</button>
-    </section>
+      <section class="creator-action-panel" id="links">
+        <div>
+          <span>Creator invite link</span>
+          <strong id="invite-link">${escapeHtml(inviteLink)}</strong>
+          <p>Share this link to invite creators into your PartnerLinks network.</p>
+        </div>
+        <button class="copy-button" type="button" data-copy-target="invite-link">Copy Link</button>
+      </section>
 
-    <section class="dashboard-grid" aria-label="Creator performance">
-      ${statCards.map(([label, value]) => `
-        <article class="dashboard-card">
-          <span>${escapeHtml(label)}</span>
-          <strong>${escapeHtml(value)}</strong>
+      <section class="creator-stat-grid" aria-label="Creator performance summary">
+        ${primaryStats.map(([label, value, description]) => `
+          <article class="creator-stat-card">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+            <p>${escapeHtml(description)}</p>
+          </article>
+        `).join('')}
+      </section>
+
+      <section class="creator-content-grid">
+        <article class="creator-panel" id="referrals">
+          <div class="panel-heading">
+            <span>Referral Performance</span>
+            <strong>${escapeHtml(String(dashboard.directReferralsCount + dashboard.secondLevelReferralsCount + dashboard.thirdLevelReferralsCount))}</strong>
+          </div>
+          <div class="referral-levels">
+            ${referralStats.map(([label, value]) => `
+              <div>
+                <span>${escapeHtml(label)}</span>
+                <strong>${escapeHtml(value)}</strong>
+              </div>
+            `).join('')}
+          </div>
         </article>
-      `).join('')}
-    </section>
-  </main>
+
+        <article class="creator-panel creator-panel-accent" id="earnings">
+          <div class="panel-heading">
+            <span>Earnings Mix</span>
+            <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
+          </div>
+          <div class="earnings-list">
+            <div>
+              <span>Direct commission</span>
+              <strong>${escapeHtml(formatMoney(dashboard.directCommissionEarned))}</strong>
+            </div>
+            <div>
+              <span>Network earnings</span>
+              <strong>${escapeHtml(formatMoney(dashboard.networkEarnings))}</strong>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="creator-lower-grid">
+        <article class="creator-panel">
+          <div class="panel-heading">
+            <span>Recent Conversions</span>
+            <strong>${escapeHtml(String(dashboard.totalConversions))}</strong>
+          </div>
+          <p class="muted-panel-copy">Detailed conversion activity will appear here as the dashboard expands.</p>
+        </article>
+
+        <article class="creator-panel">
+          <div class="panel-heading">
+            <span>Network Earnings</span>
+            <strong>${escapeHtml(formatMoney(dashboard.networkEarnings))}</strong>
+          </div>
+          <p class="muted-panel-copy">Network rewards are calculated only from PartnerLinks platform fees.</p>
+        </article>
+
+        <article class="creator-panel" id="settings">
+          <div class="panel-heading">
+            <span>Referral Tree Preview</span>
+            <strong>3 Levels</strong>
+          </div>
+          <p class="muted-panel-copy">Your creator network is tracked through direct, second-level, and third-level referrals.</p>
+        </article>
+      </section>
+    </main>
+  </div>
   <script>
     document.querySelectorAll('[data-copy-target]').forEach((button) => {
       button.addEventListener('click', async () => {
@@ -580,6 +656,251 @@ function renderCreatorDashboardPage(dashboard) {
   </script>
 </body>
 </html>`;
+}
+
+function renderCreatorDashboardCriticalStyles() {
+  return `
+    :root {
+      color-scheme: dark;
+      --bg: #04070f;
+      --surface: rgba(8, 13, 28, 0.88);
+      --surface-strong: rgba(14, 21, 44, 0.96);
+      --text: #f8fafc;
+      --muted: #9aa7c1;
+      --primary: #9b5cff;
+      --accent: #ff895f;
+      --border: rgba(255, 255, 255, 0.1);
+      --shadow: 0 40px 120px rgba(0, 0, 0, 0.25);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: radial-gradient(circle at top, rgba(155, 92, 255, 0.16), transparent 28%),
+        radial-gradient(circle at 20% 10%, rgba(255, 111, 97, 0.14), transparent 22%),
+        radial-gradient(circle at 90% 35%, rgba(155, 92, 255, 0.12), transparent 24%),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: inherit; text-decoration: none; }
+    .logo-mark {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #9b5cff, #ff6f61);
+      font-weight: 800;
+    }
+    .brand-name { display: block; font-weight: 800; font-size: 1rem; }
+    .brand-tag { display: block; color: var(--muted); font-size: 0.78rem; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0;
+      color: #b8c0e0;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 0.78rem;
+    }
+    .creator-dashboard {
+      width: min(1440px, 100%);
+      min-height: 100vh;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      gap: 28px;
+      padding: 24px;
+    }
+    .creator-sidebar {
+      position: sticky;
+      top: 24px;
+      align-self: start;
+      min-height: calc(100vh - 48px);
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+      padding: 22px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(8, 13, 28, 0.78);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+    .creator-sidebar-brand { display: flex; align-items: center; gap: 12px; }
+    .creator-sidebar-nav { display: grid; gap: 6px; }
+    .creator-sidebar-nav a {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      border-radius: 10px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .creator-sidebar-nav a.active,
+    .creator-sidebar-nav a:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.07);
+    }
+    .creator-main { min-width: 0; display: grid; gap: 22px; }
+    .creator-topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+      gap: 22px;
+      align-items: stretch;
+    }
+    .creator-topbar > div,
+    .creator-action-panel,
+    .creator-stat-card,
+    .creator-panel {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.045);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+    }
+    .creator-topbar > div:first-child { padding: 30px; }
+    .creator-topbar h1 {
+      max-width: 760px;
+      margin: 12px 0;
+      font-size: clamp(2.3rem, 5vw, 4.4rem);
+      line-height: 0.96;
+      letter-spacing: 0;
+    }
+    .creator-code-line { margin: 0; color: var(--muted); }
+    .creator-code-line strong { color: var(--text); }
+    .creator-earnings-chip {
+      display: grid;
+      align-content: end;
+      gap: 10px;
+      padding: 28px;
+      background: linear-gradient(135deg, rgba(155,92,255,0.18), rgba(255,111,97,0.12));
+    }
+    .creator-earnings-chip span,
+    .creator-action-panel span,
+    .creator-stat-card span,
+    .panel-heading span,
+    .referral-levels span,
+    .earnings-list span {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .creator-earnings-chip strong { font-size: clamp(2rem, 4vw, 3rem); }
+    .creator-action-panel {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 22px;
+      align-items: center;
+      padding: 24px;
+      background: linear-gradient(135deg, rgba(155,92,255,0.1), rgba(255,111,97,0.07));
+    }
+    .creator-action-panel div { min-width: 0; display: grid; gap: 8px; }
+    .creator-action-panel strong { overflow-wrap: anywhere; }
+    .creator-action-panel p,
+    .muted-panel-copy,
+    .creator-stat-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .copy-button {
+      min-width: 118px;
+      min-height: 44px;
+      padding: 0 18px;
+      border: 0;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #9b5cff, #ff6f61);
+      color: white;
+      font: inherit;
+      font-weight: 800;
+      white-space: nowrap;
+      cursor: pointer;
+      box-shadow: 0 18px 36px rgba(155, 92, 255, 0.18);
+    }
+    .creator-stat-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .creator-stat-card {
+      min-height: 154px;
+      display: grid;
+      align-content: space-between;
+      gap: 16px;
+      padding: 22px;
+    }
+    .creator-stat-card strong {
+      font-size: clamp(1.55rem, 3vw, 2.15rem);
+      overflow-wrap: anywhere;
+    }
+    .creator-content-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+      gap: 16px;
+    }
+    .creator-lower-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .creator-panel { display: grid; gap: 22px; padding: 24px; }
+    .creator-panel-accent {
+      background: linear-gradient(135deg, rgba(155,92,255,0.12), rgba(255,111,97,0.08));
+    }
+    .panel-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .panel-heading strong { font-size: 1.35rem; text-align: right; }
+    .referral-levels,
+    .earnings-list { display: grid; gap: 12px; }
+    .referral-levels { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .referral-levels div,
+    .earnings-list div {
+      display: grid;
+      gap: 8px;
+      padding: 16px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .referral-levels strong,
+    .earnings-list strong { font-size: 1.45rem; }
+    @media (max-width: 1024px) {
+      .creator-dashboard { grid-template-columns: 1fr; gap: 18px; }
+      .creator-sidebar { position: static; min-height: auto; }
+      .creator-sidebar-nav { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+      .creator-sidebar-nav a { flex: 0 0 auto; }
+      .creator-stat-grid,
+      .creator-lower-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .creator-content-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .creator-dashboard { padding: 16px; }
+      .creator-sidebar { padding: 16px; border-radius: 14px; }
+      .creator-topbar,
+      .creator-action-panel,
+      .creator-stat-grid,
+      .creator-lower-grid,
+      .referral-levels { grid-template-columns: 1fr; }
+      .creator-topbar > div:first-child,
+      .creator-earnings-chip,
+      .creator-action-panel,
+      .creator-stat-card,
+      .creator-panel {
+        padding: 20px;
+        border-radius: 14px;
+      }
+      .creator-topbar h1 { font-size: 2.4rem; }
+      .copy-button { width: 100%; }
+      .panel-heading { display: grid; }
+      .panel-heading strong { text-align: left; }
+    }
+  `;
 }
 
 async function getBrandSetupData(brandId) {

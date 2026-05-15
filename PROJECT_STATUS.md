@@ -171,6 +171,41 @@ UI direction:
 - Keep spacing, typography, buttons, gradients, cards, and layouts consistent across public, creator, and brand experiences.
 - Treat new UI work as part of a scalable dashboard/navigation architecture rather than one-off screens.
 
+## Creator Dashboard Design Direction
+
+Creator Dashboard MVP lives at `/dashboard/:creator_code` and should be treated as the first Creator product surface, not a standalone utility page. The dashboard uses a premium dark PartnerLinks UI with a persistent navigation frame, clear earnings hierarchy, compact stat cards, and low-clutter referral/earnings sections.
+
+Design inspiration references for future polish, without directly cloning any product:
+
+- Shopify Partner Dashboard
+- Stripe Express Dashboard
+- Linktree Creator Analytics
+- Beacons.ai
+- Gumroad
+- Fourthwall
+- Kajabi
+- TikTok Creator tools
+- Modern SaaS analytics dashboards
+
+Finalized Creator Dashboard architecture:
+
+- Sidebar navigation: Overview, Referrals, Earnings, Links, Settings.
+- Top area: welcome header, creator code, total earnings summary.
+- Primary action area: creator invite link with copy action.
+- Middle area: stat cards for earnings, order value, conversions, and network earnings.
+- Lower area: referral performance, earnings mix, recent conversions placeholder, network earnings note, referral tree preview.
+
+UI principles:
+
+- Premium, creator-first, modern, minimal, trustworthy.
+- High signal and low clutter.
+- Centered max-width layout with strong spacing rhythm.
+- Subtle gradients, soft borders, dark surfaces, and restrained cards.
+- Responsive sidebar and grids that collapse cleanly on mobile. Dashboard critical CSS is inlined in the `/dashboard/:creator_code` route and the external stylesheet uses cache-busting/no-store headers so production cannot render the dashboard as raw unstyled markup if `/styles.css` is stale.
+- No internal/admin tooling exposed in public creator dashboard UI.
+- Website/dashboard remains the primary creator UX; Discord remains an operator shortcut layer.
+- Dashboard rendering fix: `/styles.css` is served with `Cache-Control: no-store`, the dashboard route sets no-store headers, and `/styles.css?v=creator-dashboard-3` plus inline critical CSS ensure current dashboard classes apply in production.
+
 ## Development Workflow Rule
 
 When adding a new PartnerLinks site feature or backend mechanic, evaluate whether it also needs a Discord slash command. Do not add slash commands automatically for every feature.
