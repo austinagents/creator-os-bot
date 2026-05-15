@@ -657,17 +657,23 @@ a {
 .brand-support-copy,
 .section-support-copy {
   margin: 0;
-  color: rgba(184, 192, 224, 0.78);
-  font-size: 0.95rem;
-  line-height: 1.55;
+  color: #ffb68a;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.15;
 }
 .brand-support-copy {
   max-width: 320px;
+  font-size: clamp(1.45rem, 2.2vw, 2rem);
 }
 .section-support-copy {
-  margin-top: -20px;
-  margin-bottom: 18px;
+  max-width: 620px;
+  margin-top: -16px;
+  margin-bottom: 24px;
   text-align: center;
+  font-size: clamp(1.8rem, 2.8vw, 2.65rem);
 }
 .brand-referral-panel span,
 .product-payout-line {
