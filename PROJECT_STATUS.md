@@ -32,6 +32,7 @@ Last updated: 2026-05-15
 - Brand Dashboard MVP is available at `/brand-dashboard/:brand_slug` with tracked revenue, creator, conversion, fee, network payout, tracking link, and program performance summaries.
 - Homepage creator navigation now uses the same persisted Supabase Auth session resolver as `/dashboard`; returning signed-in creators see Creator Dashboard links routed directly to their canonical `/dashboard/:creator_code` page without a separate homepage auth system, and the homepage hero swaps the public Google signup CTA for a compact creator-code/invite-link copy panel.
 - Homepage hero positioning now uses a stacked editorial hierarchy: creator referral growth on top, the gradient divider, and creator-brand monetization below.
+- Homepage affiliate revenue highlight is presented as a labeled `Network Rewards` value proposition with restrained champagne/gold styling.
 - Homepage hero right-side visual now shows the 3-tier PartnerLinks commission structure: 30% Direct L1, 3% Indirect L2, and 2% Third-Tier L3 in a compact dark tree/pyramid card.
 - Homepage now includes a UI-only `Featured Brands` discovery section under `How it works?` with 20 imaginary mock brand cards, mock referral links, and client-side copy buttons. This is intentionally not connected to real brand/campaign database logic yet.
 - Auth persistence now uses dedicated server-set httpOnly access and refresh token cookies with a 30-day max age instead of relying on Supabase's full session blob cookie, so returning creators can be restored across normal browser returns.

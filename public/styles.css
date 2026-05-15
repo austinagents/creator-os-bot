@@ -302,12 +302,19 @@ a {
   padding-bottom: 2px;
 }
 .hero-notes {
-  display: flex;
-  gap: 18px;
-  flex-wrap: wrap;
-  color: #ffd166;
+  max-width: 520px;
+  display: grid;
+  gap: 8px;
+  color: #f4c982;
   font-size: 1.05rem;
+  font-weight: 700;
+}
+.hero-notes-label {
+  color: rgba(184, 192, 224, 0.72);
+  font-size: 0.72rem;
   font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 .hero-board {
   display: grid;
