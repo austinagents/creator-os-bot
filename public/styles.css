@@ -305,8 +305,9 @@ a {
   display: flex;
   gap: 18px;
   flex-wrap: wrap;
-  color: var(--muted);
-  font-size: 0.95rem;
+  color: #ffd166;
+  font-size: 1.05rem;
+  font-weight: 800;
 }
 .hero-board {
   display: grid;
