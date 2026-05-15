@@ -55,6 +55,11 @@ app.get('/join/brand/:brandId', async (req, res) => {
       return res.status(404).json({ error: 'Brand invite not found' });
     }
 
+    const signedInDashboardPath = await getSignedInCreatorDashboardPath(req, res);
+    if (signedInDashboardPath) {
+      return res.redirect(signedInDashboardPath);
+    }
+
     res.cookie('partnerlinks_brand_invite_id', String(brand.id), {
       maxAge: 30 * 24 * 60 * 60 * 1000,
       httpOnly: true,
@@ -76,6 +81,11 @@ app.get('/join/:creatorCode', async (req, res) => {
     const inviter = await getCreatorByInviteCode(creatorCode);
     if (!inviter) {
       return res.status(404).json({ error: 'Creator invite not found' });
+    }
+
+    const signedInDashboardPath = await getSignedInCreatorDashboardPath(req, res);
+    if (signedInDashboardPath) {
+      return res.redirect(signedInDashboardPath);
     }
 
     let sessionId = req.cookies.partnerlinks_invite_sid;
@@ -243,14 +253,17 @@ app.get('/dashboard', async (req, res) => {
   try {
     const authUser = await getCurrentAuthUser(req, res);
     if (!authUser) {
+      log('Creator dashboard auth check: no persisted auth user');
       return res.send(renderCreatorDashboardEntryPage());
     }
 
     const creator = await getCreatorByAuthUserId(authUser.id);
     if (!creator || !creator.creator_code) {
+      log('Creator dashboard auth check: auth user has no creator row', { authUserId: authUser.id });
       return res.send(renderCreatorDashboardEntryPage());
     }
 
+    log('Creator dashboard auth check: redirecting signed-in creator', { creatorCode: normalizeCode(creator.creator_code) });
     res.redirect(`/dashboard/${encodeURIComponent(normalizeCode(creator.creator_code))}`);
   } catch (error) {
     log('Creator dashboard session lookup error:', error);
@@ -531,12 +544,30 @@ client.login(DISCORD_TOKEN);
 
 async function getHomepageCreator(req, res) {
   const authUser = await getCurrentAuthUser(req, res);
+  if (!authUser) {
+    log('Homepage auth check: no persisted auth user');
+    return null;
+  }
+
+  const creator = await getCreatorByAuthUserId(authUser.id);
+  if (!creator || !creator.creator_code) {
+    log('Homepage auth check: auth user has no creator row', { authUserId: authUser.id });
+    return null;
+  }
+
+  log('Homepage auth check: signed-in creator resolved', { creatorCode: normalizeCode(creator.creator_code) });
+  return creator;
+}
+
+async function getSignedInCreatorDashboardPath(req, res) {
+  const authUser = await getCurrentAuthUser(req, res);
   if (!authUser) return null;
 
   const creator = await getCreatorByAuthUserId(authUser.id);
   if (!creator || !creator.creator_code) return null;
 
-  return creator;
+  const creatorCode = normalizeCode(creator.creator_code);
+  return creatorCode ? `/dashboard/${encodeURIComponent(creatorCode)}` : null;
 }
 
 function renderHomepage(creator) {
