@@ -35,6 +35,7 @@ Last updated: 2026-05-15
 - Homepage affiliate revenue highlight is presented as a labeled `Network Rewards` value proposition with restrained champagne/gold styling.
 - Homepage hero right-side visual now shows the 3-tier PartnerLinks commission structure: 30% Direct L1, 3% Indirect L2, and 2% Third-Tier L3 in a compact dark tree/pyramid card.
 - Homepage now includes a UI-only `Featured Brands` discovery section under `How it works?` with 20 imaginary mock brand cards, mock referral links, and client-side copy buttons. This is intentionally not connected to real brand/campaign database logic yet.
+- Product-level referral link MVP is UI-only through `/brands/:brand_slug`. Featured brand cards click through to a brand product page with manually curated mock products, brand-level referral links, and product-level preview links in the planned `/r/:brand_slug/:creator_code/:product_slug` format. Signed-in creators see their real lowercase creator code; signed-out visitors see `creator` as the placeholder.
 - Auth persistence now uses dedicated server-set httpOnly access and refresh token cookies with a 30-day max age instead of relying on Supabase's full session blob cookie, so returning creators can be restored across normal browser returns.
 - Homepage brand navigation stores only a non-sensitive brand slug in browser state after Shopify install/brand setup to switch returning connected brands from Register Your Business to Brand Dashboard.
 - `/creator_dashboard` is available as an admin/operator Discord shortcut for dashboard URL lookup and quick verification.
@@ -74,6 +75,12 @@ Current Shopify OAuth flow:
 6. PartnerLinks creates or reuses a brand record using the Shopify store domain as the initial brand name/slug source.
 7. PartnerLinks links `shopify_stores.brand_id` to `brands.id`.
 8. PartnerLinks redirects the merchant to `/brand/setup/:brand_id`.
+
+Product discovery and curation direction:
+
+- The first roughly 20 featured brands should remain PartnerLinks-managed/admin-curated instead of requiring brands to manage products or campaigns themselves.
+- Public product pages use the planned product-level referral URL format: `/r/:brand_slug/:creator_code/:product_slug`.
+- Shopify product auto-pull is planned later through the Shopify Admin API, but pulled products should first be stored as candidates and manually approved/curated before becoming publicly visible.
 9. Brand sets display name, destination URL, and creator commission percentage.
 10. PartnerLinks displays creator onboarding and tracking link formats.
 

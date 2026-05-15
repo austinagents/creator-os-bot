@@ -543,6 +543,15 @@ a {
   border-radius: 18px;
   background: linear-gradient(145deg, rgba(12, 17, 34, 0.94), rgba(18, 24, 46, 0.82));
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 20px 60px rgba(0,0,0,0.18);
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.featured-brand-card:hover,
+.featured-brand-card:focus {
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.16);
+  background: linear-gradient(145deg, rgba(18, 24, 46, 0.98), rgba(25, 31, 58, 0.88));
+  outline: none;
 }
 .brand-logo-placeholder {
   width: 46px;
@@ -592,6 +601,111 @@ a {
   font-weight: 800;
   cursor: pointer;
   box-shadow: 0 16px 34px rgba(155, 92, 255, 0.18);
+}
+.brand-detail-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  gap: 24px;
+  align-items: stretch;
+  padding: 34px 0 42px;
+}
+.brand-detail-hero > div {
+  min-width: 0;
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 24px;
+  background: linear-gradient(145deg, rgba(12, 17, 34, 0.94), rgba(18, 24, 46, 0.82));
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 24px 70px rgba(0,0,0,0.2);
+}
+.brand-detail-hero > div:first-child {
+  padding: 30px;
+}
+.brand-detail-logo {
+  width: 58px;
+  height: 58px;
+  margin: 18px 0;
+  border-radius: 18px;
+}
+.brand-detail-hero h1 {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(3rem, 5vw, 5rem);
+  line-height: 0.95;
+  letter-spacing: -0.05em;
+}
+.brand-detail-hero p {
+  max-width: 620px;
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+.back-link {
+  display: inline-flex;
+  color: rgba(184, 192, 224, 0.78);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.brand-referral-panel {
+  display: grid;
+  align-content: center;
+  gap: 14px;
+  padding: 24px;
+}
+.brand-referral-panel span,
+.product-payout-line {
+  color: rgba(184, 192, 224, 0.78);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.brand-referral-panel .mock-referral-link {
+  display: block;
+}
+.featured-products-section {
+  padding: 10px 0 56px;
+}
+.featured-product-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.featured-product-card {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(12, 17, 34, 0.94), rgba(18, 24, 46, 0.82));
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 20px 60px rgba(0,0,0,0.18);
+}
+.product-image-placeholder {
+  width: 100%;
+  aspect-ratio: 1.35;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 30% 25%, rgba(155, 92, 255, 0.28), transparent 34%),
+    radial-gradient(circle at 78% 72%, rgba(255, 111, 97, 0.18), transparent 34%),
+    rgba(255,255,255,0.045);
+  color: var(--text);
+  font-weight: 900;
+}
+.featured-product-card h3 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+.featured-product-card p {
+  min-height: 42px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
 }
 .proof-panel {
   display: flex;
@@ -1061,8 +1175,12 @@ a {
   .cards-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .featured-brand-grid {
+  .featured-brand-grid,
+  .featured-product-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .brand-detail-hero {
+    grid-template-columns: 1fr;
   }
   .proof-panel {
     flex-direction: column;
@@ -1193,15 +1311,25 @@ a {
   .cards-row {
     grid-template-columns: 1fr;
   }
-  .featured-brand-grid {
+  .featured-brand-grid,
+  .featured-product-grid {
     grid-template-columns: 1fr;
   }
-  .featured-brands-section {
+  .featured-brands-section,
+  .featured-products-section {
     padding: 24px 0 42px;
   }
-  .featured-brand-card {
+  .featured-brand-card,
+  .featured-product-card {
     padding: 16px;
     border-radius: 14px;
+  }
+  .brand-detail-hero {
+    padding: 24px 0 34px;
+  }
+  .brand-detail-hero > div:first-child,
+  .brand-referral-panel {
+    padding: 20px;
   }
   .site-footer {
     flex-direction: column;

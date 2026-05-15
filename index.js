@@ -38,6 +38,237 @@ const {
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DEFAULT_PLATFORM_FEE_RATE = 5;
+const REFERRAL_LINK_HOST = 'partnerlinks.app';
+const MOCK_FEATURED_BRANDS = [
+  {
+    slug: 'aria-wellness',
+    name: 'Aria Wellness',
+    description: 'Daily ritual goods for balanced routines.',
+    products: [
+      ['Energy Gummies', 'A bright daily boost for morning routines.', 'Est. 20% creator commission'],
+      ['Focus Drops', 'Clean nootropic drops for deep work blocks.', 'Est. 18% creator commission'],
+      ['Reset Tea', 'Evening tea blend for calm recovery.', 'Est. 15% creator commission'],
+      ['Daily Greens', 'Simple greens powder for busy creators.', 'Est. 20% creator commission']
+    ]
+  },
+  {
+    slug: 'novo-loom',
+    name: 'Novo Loom',
+    description: 'Elevated essentials for modern wardrobes.',
+    products: [
+      ['Everyday Rib Tee', 'Soft ribbed staple with a polished fit.', 'Est. 15% creator commission'],
+      ['Studio Wide Pant', 'Relaxed trousers made for work and travel.', 'Est. 18% creator commission'],
+      ['Layer Knit Tank', 'Lightweight knit for year-round styling.', 'Est. 15% creator commission'],
+      ['Travel Wrap', 'Cozy oversized wrap for flights and shoots.', 'Est. 12% creator commission']
+    ]
+  },
+  {
+    slug: 'solace-market',
+    name: 'Solace Market',
+    description: 'Home finds with a calm design point of view.',
+    products: [
+      ['Ceramic Catchall', 'Low-profile tray for entryways and desks.', 'Est. 15% creator commission'],
+      ['Linen Room Spray', 'Soft home scent with warm floral notes.', 'Est. 18% creator commission'],
+      ['Cloud Throw', 'Textured throw for sofas and studio corners.', 'Est. 12% creator commission'],
+      ['Ripple Vase', 'Sculptural vase for everyday arrangements.', 'Est. 15% creator commission']
+    ]
+  },
+  {
+    slug: 'kai-vale',
+    name: 'Kai & Vale',
+    description: 'Clean skincare built for everyday creators.',
+    products: [
+      ['Barrier Cream', 'Hydrating daily cream for dewy skin.', 'Est. 20% creator commission'],
+      ['Glow Cleanser', 'Gentle gel cleanser for AM and PM routines.', 'Est. 18% creator commission'],
+      ['Mineral Mist', 'Refreshing mist for on-camera skin prep.', 'Est. 15% creator commission'],
+      ['Night Oil', 'Lightweight facial oil for overnight repair.', 'Est. 20% creator commission']
+    ]
+  },
+  {
+    slug: 'bright-cart',
+    name: 'Bright Cart',
+    description: 'Smart kitchen tools for simple meal prep.',
+    products: [
+      ['Prep Bento Set', 'Stackable containers for weekly meals.', 'Est. 15% creator commission'],
+      ['Snap Scale', 'Compact kitchen scale with clear display.', 'Est. 12% creator commission'],
+      ['Pour-Over Kit', 'Clean coffee setup for daily rituals.', 'Est. 15% creator commission'],
+      ['Chop Board Duo', 'Color-coded boards for simple prep.', 'Est. 12% creator commission']
+    ]
+  },
+  {
+    slug: 'luna-ridge',
+    name: 'Luna Ridge',
+    description: 'Outdoor basics for weekend adventures.',
+    products: [
+      ['Trail Sling', 'Light pack for hikes and day trips.', 'Est. 15% creator commission'],
+      ['Summit Bottle', 'Insulated bottle for long outdoor days.', 'Est. 12% creator commission'],
+      ['Camp Beanie', 'Warm knit beanie for cold starts.', 'Est. 15% creator commission'],
+      ['Field Blanket', 'Packable blanket for picnics and campsites.', 'Est. 12% creator commission']
+    ]
+  },
+  {
+    slug: 'tonic-muse',
+    name: 'Tonic Muse',
+    description: 'Functional beverages with fresh flavor profiles.',
+    products: [
+      ['Citrus Focus Pack', 'Sparkling functional drink for workdays.', 'Est. 20% creator commission'],
+      ['Berry Calm Pack', 'Evening beverage with mellow botanicals.', 'Est. 18% creator commission'],
+      ['Sampler Flight', 'Try every flavor in one discovery box.', 'Est. 20% creator commission'],
+      ['Studio Mini Fridge Pack', 'Creator-ready restock bundle.', 'Est. 15% creator commission']
+    ]
+  },
+  {
+    slug: 'ember-vale',
+    name: 'Ember Vale',
+    description: 'Minimal accessories with rich material details.',
+    products: [
+      ['Arc Card Case', 'Slim leather card case for daily carry.', 'Est. 12% creator commission'],
+      ['Soft Tote', 'Unstructured tote with premium hardware.', 'Est. 15% creator commission'],
+      ['Loop Belt', 'Minimal belt with brushed metal finish.', 'Est. 12% creator commission'],
+      ['Studio Pouch', 'Compact pouch for tech and travel extras.', 'Est. 15% creator commission']
+    ]
+  },
+  {
+    slug: 'halo-bottle',
+    name: 'Halo Bottle',
+    description: 'Hydration products for desk-to-gym routines.',
+    products: [
+      ['Halo Sport Bottle', 'Leakproof bottle for workouts and errands.', 'Est. 15% creator commission'],
+      ['Desk Carafe', 'Minimal glass carafe for focused work.', 'Est. 12% creator commission'],
+      ['Infuser Lid', 'Fruit infuser lid for fresh water blends.', 'Est. 15% creator commission'],
+      ['Hydration Starter Set', 'Bottle, sleeve, and cleaning brush bundle.', 'Est. 18% creator commission']
+    ]
+  },
+  {
+    slug: 'paperwild',
+    name: 'Paperwild',
+    description: 'Stationery and planning tools for focused work.',
+    products: [
+      ['Creator Planner', 'Weekly planner for launches and content.', 'Est. 20% creator commission'],
+      ['Deep Work Pad', 'Minimal notepad for daily priorities.', 'Est. 15% creator commission'],
+      ['Idea Cards', 'Prompt cards for campaign brainstorming.', 'Est. 18% creator commission'],
+      ['Desk Reset Kit', 'Planner, pens, and sticky tabs in one bundle.', 'Est. 20% creator commission']
+    ]
+  },
+  {
+    slug: 'studio-pave',
+    name: 'Studio Pave',
+    description: 'Small-batch decor for warm modern homes.',
+    products: [
+      ['Arch Bookend', 'Weighted bookend with soft architectural lines.', 'Est. 12% creator commission'],
+      ['Table Candle Duo', 'Warm candle pair for styled interiors.', 'Est. 15% creator commission'],
+      ['Stone Tray', 'Textured tray for coffee tables and desks.', 'Est. 12% creator commission'],
+      ['Gallery Frame Set', 'Minimal frame set for art walls.', 'Est. 15% creator commission']
+    ]
+  },
+  {
+    slug: 'cedar-row',
+    name: 'Cedar Row',
+    description: 'Heritage-inspired apparel for everyday wear.',
+    products: [
+      ['Market Jacket', 'Light canvas jacket for everyday layering.', 'Est. 15% creator commission'],
+      ['Heritage Crew', 'Soft sweatshirt with classic proportions.', 'Est. 15% creator commission'],
+      ['Rib Sock Trio', 'Durable socks with vintage-inspired colors.', 'Est. 12% creator commission'],
+      ['Field Shirt', 'Button-up shirt made for casual styling.', 'Est. 15% creator commission']
+    ]
+  },
+  {
+    slug: 'moss-bloom',
+    name: 'Moss & Bloom',
+    description: 'Plant care essentials for apartment gardens.',
+    products: [
+      ['Leaf Shine Mist', 'Gentle plant mist for healthy leaves.', 'Est. 15% creator commission'],
+      ['Self-Watering Pot', 'Minimal pot for low-maintenance care.', 'Est. 12% creator commission'],
+      ['Grow Light Bar', 'Slim light bar for shelves and corners.', 'Est. 15% creator commission'],
+      ['Plant Parent Kit', 'Tools and care cards for beginners.', 'Est. 18% creator commission']
+    ]
+  },
+  {
+    slug: 'fable-organics',
+    name: 'Fable Organics',
+    description: 'Pantry staples made with thoughtful ingredients.',
+    products: [
+      ['Golden Granola', 'Small-batch granola with warm spices.', 'Est. 15% creator commission'],
+      ['Pantry Sauce Trio', 'Everyday sauces for quick meals.', 'Est. 18% creator commission'],
+      ['Breakfast Bundle', 'Oats, granola, and nut butter starter kit.', 'Est. 20% creator commission'],
+      ['Herbal Honey', 'Infused honey for tea and toast.', 'Est. 15% creator commission']
+    ]
+  },
+  {
+    slug: 'rivet-works',
+    name: 'Rivet Works',
+    description: 'Durable gear for makers and studio spaces.',
+    products: [
+      ['Utility Apron', 'Canvas apron with smart tool pockets.', 'Est. 15% creator commission'],
+      ['Bench Organizer', 'Modular organizer for creative workspaces.', 'Est. 12% creator commission'],
+      ['Maker Tote', 'Heavy-duty tote for supplies and gear.', 'Est. 15% creator commission'],
+      ['Studio Hook Rail', 'Wall rail for tools, bags, and accessories.', 'Est. 12% creator commission']
+    ]
+  },
+  {
+    slug: 'cloud-orchard',
+    name: 'Cloud Orchard',
+    description: 'Sleep and lounge products with soft textures.',
+    products: [
+      ['Lounge Robe', 'Plush robe for slow mornings and evenings.', 'Est. 15% creator commission'],
+      ['Pillow Mist', 'Soft sleep scent with orchard notes.', 'Est. 18% creator commission'],
+      ['Cloud Sheet Set', 'Breathable sheets with a smooth finish.', 'Est. 12% creator commission'],
+      ['Rest Bundle', 'Robe, mist, and eye pillow sleep kit.', 'Est. 18% creator commission']
+    ]
+  },
+  {
+    slug: 'fjord-supply',
+    name: 'Fjord Supply',
+    description: 'Travel accessories designed for light packing.',
+    products: [
+      ['Compression Cube Set', 'Packing cubes for cleaner luggage.', 'Est. 15% creator commission'],
+      ['Passport Folio', 'Slim folio for documents and cards.', 'Est. 12% creator commission'],
+      ['Transit Pouch', 'Compact pouch for cables and small tech.', 'Est. 15% creator commission'],
+      ['Weekender Strap', 'Comfort strap for travel bags.', 'Est. 12% creator commission']
+    ]
+  },
+  {
+    slug: 'aster-valley',
+    name: 'Aster Valley',
+    description: 'Jewelry basics with refined everyday finishes.',
+    products: [
+      ['Everyday Hoops', 'Lightweight hoops for daily styling.', 'Est. 15% creator commission'],
+      ['Fine Chain Stack', 'Layering necklace set with soft shine.', 'Est. 12% creator commission'],
+      ['Signet Ring', 'Minimal ring with a polished finish.', 'Est. 12% creator commission'],
+      ['Travel Jewelry Case', 'Small case for organized travel.', 'Est. 15% creator commission']
+    ]
+  },
+  {
+    slug: 'glyph-beam',
+    name: 'Glyph & Beam',
+    description: 'Lighting accents for creators and home studios.',
+    products: [
+      ['Desk Glow Lamp', 'Compact lamp for warm desk lighting.', 'Est. 15% creator commission'],
+      ['Creator Light Bar', 'Soft light bar for filming corners.', 'Est. 18% creator commission'],
+      ['Ambient Bulb Set', 'Warm bulbs for layered room lighting.', 'Est. 12% creator commission'],
+      ['Studio Mood Kit', 'Lamp, bulbs, and dimmer bundle.', 'Est. 18% creator commission']
+    ]
+  },
+  {
+    slug: 'roam-studio',
+    name: 'Roam Studio',
+    description: 'Creator-friendly tech accessories and desk gear.',
+    products: [
+      ['Magnetic Phone Stand', 'Adjustable stand for filming and calls.', 'Est. 15% creator commission'],
+      ['Cable Dock', 'Weighted dock for cleaner desks.', 'Est. 12% creator commission'],
+      ['Creator Desk Mat', 'Large mat with a smooth filming surface.', 'Est. 15% creator commission'],
+      ['Travel Tech Roll', 'Organizer roll for chargers and adapters.', 'Est. 15% creator commission']
+    ]
+  }
+].map((brand) => ({
+  ...brand,
+  products: brand.products.map(([name, description, payout]) => ({
+    name,
+    slug: generateSlug(name),
+    description,
+    payout
+  }))
+}));
 
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: false }));
@@ -195,6 +426,33 @@ app.get('/', async (req, res) => {
     log('Homepage auth-aware render error:', error);
     res.set('Cache-Control', 'no-store, max-age=0');
     res.send(renderHomepage(null));
+  }
+});
+app.get('/brands/:brandSlug', async (req, res) => {
+  try {
+    const brandSlug = normalizeCode(req.params.brandSlug);
+    const brand = getMockFeaturedBrand(brandSlug);
+    if (!brand) {
+      return res.status(404).send(renderSimpleMessagePage(
+        'Brand not found',
+        'We could not find that featured brand.',
+        '/',
+        'Return home'
+      ));
+    }
+
+    const creator = await getHomepageCreator(req, res);
+    const creatorCode = creator && creator.creator_code ? normalizeCode(creator.creator_code) : 'creator';
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.send(renderBrandDiscoveryPage(brand, creatorCode));
+  } catch (error) {
+    log('Brand discovery page error:', error);
+    res.status(500).send(renderSimpleMessagePage(
+      'Unable to load brand',
+      'Please try again in a moment.',
+      '/',
+      'Return home'
+    ));
   }
 });
 app.get('/signup', (req, res) => {
@@ -627,6 +885,135 @@ function renderHomepageCopyScript() {
           }
 
           var textarea = document.createElement('textarea');
+          textarea.value = value;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          try {
+            document.execCommand('copy');
+            markCopied();
+          } catch (error) {}
+          document.body.removeChild(textarea);
+        });
+      });
+    })();
+  </script>`;
+}
+
+function getMockFeaturedBrand(brandSlug) {
+  const normalizedSlug = normalizeCode(brandSlug);
+  return MOCK_FEATURED_BRANDS.find((brand) => brand.slug === normalizedSlug) || null;
+}
+
+function renderBrandDiscoveryPage(brand, creatorCode) {
+  const safeCreatorCode = normalizeCode(creatorCode) || 'creator';
+  const brandReferralLink = buildDisplayReferralLink(brand.slug, safeCreatorCode);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PartnerLinks | ${escapeHtml(brand.name)}</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header">
+      <a class="brand" href="/">
+        <div class="logo-mark">PL</div>
+        <div>
+          <span class="brand-name">PartnerLinks</span>
+          <span class="brand-tag">Featured Brand</span>
+        </div>
+      </a>
+      <nav class="main-nav">
+        <a href="/">Home</a>
+        <a href="/dashboard">Creator Dashboard</a>
+        <a href="/register-business">Register Your Business</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="brand-detail-hero">
+        <div>
+          <a class="back-link" href="/#featured-brands-title">Featured Brands</a>
+          <div class="brand-logo-placeholder brand-detail-logo">${escapeHtml(getBrandInitials(brand.name))}</div>
+          <h1>${escapeHtml(brand.name)}</h1>
+          <p>${escapeHtml(brand.description)}</p>
+        </div>
+        <div class="brand-referral-panel">
+          <span>Brand referral link</span>
+          <strong class="mock-referral-link" id="brand-referral-link">${escapeHtml(brandReferralLink)}</strong>
+          <button class="featured-copy-button" type="button" data-brand-copy="${escapeHtml(brandReferralLink)}">Copy Link</button>
+        </div>
+      </section>
+
+      <section class="featured-products-section" aria-labelledby="featured-products-title">
+        <div class="section-heading">
+          <h2 id="featured-products-title" class="section-title">Featured Products</h2>
+        </div>
+        <div class="featured-product-grid">
+          ${brand.products.map((product) => renderFeaturedProductCard(brand.slug, safeCreatorCode, product)).join('')}
+        </div>
+      </section>
+    </main>
+  </div>
+  ${renderBrandDiscoveryCopyScript()}
+</body>
+</html>`;
+}
+
+function renderFeaturedProductCard(brandSlug, creatorCode, product) {
+  const referralLink = buildDisplayReferralLink(brandSlug, creatorCode, product.slug);
+  return `<article class="featured-product-card">
+            <div class="product-image-placeholder">${escapeHtml(getBrandInitials(product.name))}</div>
+            <h3>${escapeHtml(product.name)}</h3>
+            <p>${escapeHtml(product.description)}</p>
+            <span class="product-payout-line">${escapeHtml(product.payout)}</span>
+            <div class="mock-referral-link">${escapeHtml(referralLink)}</div>
+            <button class="featured-copy-button" type="button" data-brand-copy="${escapeHtml(referralLink)}">Copy Link</button>
+          </article>`;
+}
+
+function buildDisplayReferralLink(brandSlug, creatorCode, productSlug) {
+  const parts = [REFERRAL_LINK_HOST, 'r', normalizeCode(brandSlug), normalizeCode(creatorCode)];
+  if (productSlug) parts.push(normalizeCode(productSlug));
+  return parts.join('/');
+}
+
+function getBrandInitials(name) {
+  return String(name || '')
+    .split(/\s+|&/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
+}
+
+function renderBrandDiscoveryCopyScript() {
+  return `<script>
+    (function () {
+      document.querySelectorAll('[data-brand-copy]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const value = button.dataset.brandCopy || '';
+          const originalText = button.textContent;
+          const markCopied = () => {
+            button.textContent = 'Copied';
+            window.setTimeout(() => {
+              button.textContent = originalText;
+            }, 1400);
+          };
+
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(value).then(markCopied).catch(() => {});
+            return;
+          }
+
+          const textarea = document.createElement('textarea');
           textarea.value = value;
           textarea.setAttribute('readonly', '');
           textarea.style.position = 'fixed';
