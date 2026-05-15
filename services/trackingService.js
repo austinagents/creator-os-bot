@@ -1,9 +1,10 @@
 const supabase = require('../database/database/supabase');
 const crypto = require('crypto');
-const { generateSlug } = require('../utils/slug');
+const { generateSlug, normalizeCode } = require('../utils/slug');
 
 async function getBrandBySlug(slug) {
-  console.log('getBrandBySlug incoming slug:', slug);
+  const normalizedSlug = normalizeCode(slug);
+  console.log('getBrandBySlug incoming slug:', normalizedSlug);
   const { data: brands, error } = await supabase
     .from('brands')
     .select('*')
@@ -12,8 +13,8 @@ async function getBrandBySlug(slug) {
   console.log('getBrandBySlug candidate brand names:', brands.map(b => b.name));
   for (const brand of brands) {
     const normalized = generateSlug(brand.name);
-    console.log(`getBrandBySlug checking ${brand.name} -> ${normalized} vs ${slug}`);
-    if (normalized === slug) {
+    console.log(`getBrandBySlug checking ${brand.name} -> ${normalized} vs ${normalizedSlug}`);
+    if (normalized === normalizedSlug) {
       console.log('getBrandBySlug matched brand:', brand);
       return brand;
     }
@@ -23,18 +24,31 @@ async function getBrandBySlug(slug) {
 }
 
 async function getCreatorByCodeAndBrand(creatorCode, brandId) {
+  const normalizedCreatorCode = normalizeCode(creatorCode);
   const { data, error } = await supabase
     .from('creators')
     .select('*')
-    .eq('creator_code', creatorCode)
+    .eq('creator_code', normalizedCreatorCode)
     .eq('brand_id', brandId)
     .order('created_at', { ascending: false })
     .limit(1);
   if (error) throw error;
-  if (data && data.length > 1) {
-    console.warn(`Multiple creators found for code ${creatorCode} and brand ${brandId}, returning latest`);
+  if (data && data.length) {
+    if (data.length > 1) {
+      console.warn(`Multiple creators found for code ${normalizedCreatorCode} and brand ${brandId}, returning latest`);
+    }
+    return data[0];
   }
-  return data ? data[0] : null;
+
+  const { data: referralMatches, error: referralError } = await supabase
+    .from('creators')
+    .select('*')
+    .eq('referral_code', normalizedCreatorCode)
+    .eq('brand_id', brandId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (referralError) throw referralError;
+  return referralMatches ? referralMatches[0] : null;
 }
 
 async function recordClick(brandId, creatorId, sessionId, ipHash, userAgent, referrer, destinationUrl) {

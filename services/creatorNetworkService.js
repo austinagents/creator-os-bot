@@ -1,4 +1,5 @@
 const supabase = require('../database/database/supabase');
+const { normalizeCode } = require('../utils/slug');
 
 const LEVEL_ONE_RATE = 30;
 const LEVEL_TWO_RATE = 3;
@@ -10,10 +11,11 @@ const NETWORK_RATES_BY_LEVEL = {
 };
 
 async function getCreatorByInviteCode(inviteCode) {
+  const normalizedInviteCode = normalizeCode(inviteCode);
   const { data: referralMatches, error: referralError } = await supabase
     .from('creators')
     .select('*')
-    .eq('referral_code', inviteCode)
+    .eq('referral_code', normalizedInviteCode)
     .order('created_at', { ascending: false })
     .limit(1);
   if (referralError) throw referralError;
@@ -22,7 +24,7 @@ async function getCreatorByInviteCode(inviteCode) {
   const { data: creatorCodeMatches, error: creatorCodeError } = await supabase
     .from('creators')
     .select('*')
-    .eq('creator_code', inviteCode)
+    .eq('creator_code', normalizedInviteCode)
     .order('created_at', { ascending: false })
     .limit(1);
   if (creatorCodeError) throw creatorCodeError;

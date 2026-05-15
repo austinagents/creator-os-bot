@@ -23,7 +23,7 @@ const {
   generateShopifyState,
   shopifyStateCookieOptions
 } = require("./services/shopifyService");
-const { generateSlug } = require("./utils/slug");
+const { generateSlug, normalizeCode } = require("./utils/slug");
 
 const {
   DISCORD_TOKEN,
@@ -41,7 +41,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/join/brand/:brandId', async (req, res) => {
   try {
-    const brand = await getBrandById(req.params.brandId);
+    const brandCode = normalizeCode(req.params.brandId);
+    const brand = await getBrandByIdentifier(brandCode);
     if (!brand) {
       return res.status(404).json({ error: 'Brand invite not found' });
     }
@@ -54,7 +55,7 @@ app.get('/join/brand/:brandId', async (req, res) => {
     });
     res.clearCookie('partnerlinks_invite_sid');
 
-    res.redirect(`/signup?brand=${encodeURIComponent(brand.id)}`);
+    res.redirect(`/signup?brand=${encodeURIComponent(generateSlug(brand.name))}`);
   } catch (error) {
     log('Brand invite redirect error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -63,7 +64,7 @@ app.get('/join/brand/:brandId', async (req, res) => {
 
 app.get('/join/:creatorCode', async (req, res) => {
   try {
-    const { creatorCode } = req.params;
+    const creatorCode = normalizeCode(req.params.creatorCode);
     const inviter = await getCreatorByInviteCode(creatorCode);
     if (!inviter) {
       return res.status(404).json({ error: 'Creator invite not found' });
@@ -105,7 +106,8 @@ app.get('/join/:creatorCode', async (req, res) => {
 
 app.get('/r/:brandSlug/:creatorCode', async (req, res) => {
   try {
-    const { brandSlug, creatorCode } = req.params;
+    const brandSlug = normalizeCode(req.params.brandSlug);
+    const creatorCode = normalizeCode(req.params.creatorCode);
 
     // Find brand by slug
     const brand = await getBrandBySlug(brandSlug);
@@ -300,7 +302,7 @@ app.get('/register-business', (req, res) => {
 });
 app.get('/brand/setup/:brandId', async (req, res) => {
   try {
-    const setup = await getBrandSetupData(req.params.brandId);
+    const setup = await getBrandSetupData(normalizeCode(req.params.brandId));
     if (!setup) {
       return res.status(404).send(renderSimpleMessagePage(
         'Brand not found',
@@ -323,7 +325,7 @@ app.get('/brand/setup/:brandId', async (req, res) => {
 });
 app.post('/brand/setup/:brandId', async (req, res) => {
   try {
-    const brandId = req.params.brandId;
+    const brandId = normalizeCode(req.params.brandId);
     const name = String(req.body.name || '').trim();
     const destinationUrl = String(req.body.destination_url || '').trim();
     const creatorCommissionRate = Number(req.body.creator_commission_rate);
@@ -492,6 +494,20 @@ async function getBrandSetupData(brandId) {
   };
 }
 
+async function getBrandByIdentifier(brandIdentifier) {
+  const normalizedBrandIdentifier = normalizeCode(brandIdentifier);
+  if (/^\d+$/.test(normalizedBrandIdentifier)) {
+    return getBrandById(normalizedBrandIdentifier);
+  }
+
+  const { data: brands, error } = await supabase
+    .from('brands')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (brands || []).find((brand) => generateSlug(brand.name) === normalizedBrandIdentifier) || null;
+}
+
 async function getBrandById(brandId) {
   const { data, error } = await supabase
     .from('brands')
@@ -569,8 +585,8 @@ function renderBrandSetupSuccessPage(brand, store) {
 function buildBrandLinkExamples(brand) {
   const brandSlug = generateSlug(brand.name);
   return {
-    creatorSignupLink: `${PUBLIC_BASE_URL}/join/brand/${brand.id}`,
-    trackingLinkFormat: `${PUBLIC_BASE_URL}/r/${brandSlug}/:creatorCode`
+    creatorSignupLink: `${PUBLIC_BASE_URL}/join/brand/${brandSlug}`,
+    trackingLinkFormat: `${PUBLIC_BASE_URL}/r/${brandSlug}/:creator_code`
   };
 }
 

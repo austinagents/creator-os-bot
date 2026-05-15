@@ -12,6 +12,7 @@ const {
 } = require('../services/trackingService');
 const { createNetworkEarningsForConversion, getCreatorNetworkStats } = require('../services/creatorNetworkService');
 const { DEFAULT_REF_TEMPLATE, ADMIN_DASHBOARD_CHANNEL_ID, CREATOR_LOG_CHANNEL_ID, BOT_ALERTS_CHANNEL_ID } = require('../config/config/env');
+const { normalizeCode } = require('../utils/slug');
 
 const interactionResponses = new WeakSet();
 
@@ -204,7 +205,7 @@ async function handleTrackingStats(interaction, guild, client) {
 }
 
 async function handleRecordConversion(interaction, guild, client) {
-  const creatorCode = interaction.options.getString('creator_code').trim();
+  const creatorCode = normalizeCode(interaction.options.getString('creator_code'));
   const orderValue = interaction.options.getNumber('order_value');
   const commissionRate = interaction.options.getNumber('commission_rate');
   const orderId = interaction.options.getString('order_id');
@@ -438,11 +439,12 @@ function formatEmbedField(value) {
 }
 
 async function findCreatorForConversion(creatorCode) {
+  const normalizedCreatorCode = normalizeCode(creatorCode);
   const errors = {};
   const { data: creatorCodeMatches, error: creatorCodeError } = await supabase
     .from('creators')
     .select('*')
-    .eq('creator_code', creatorCode)
+    .eq('creator_code', normalizedCreatorCode)
     .order('created_at', { ascending: false });
   if (creatorCodeError) {
     errors.creator_code = {
@@ -454,7 +456,7 @@ async function findCreatorForConversion(creatorCode) {
   const { data: referralCodeMatches, error: referralCodeError } = await supabase
     .from('creators')
     .select('*')
-    .eq('referral_code', creatorCode)
+    .eq('referral_code', normalizedCreatorCode)
     .order('created_at', { ascending: false });
   if (referralCodeError) {
     errors.referral_code = {

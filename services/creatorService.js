@@ -1,5 +1,5 @@
 const supabase = require('../database/database/supabase');
-const { generateSlug, generateUniqueSlug } = require('../utils/slug');
+const { generateSlug, generateUniqueSlug, normalizeCode } = require('../utils/slug');
 const { PUBLIC_BASE_URL } = require('../config/config/env');
 
 async function getCreatorByDiscordUserAndBrand(discordUserId, brandId) {
@@ -18,10 +18,11 @@ async function getCreatorByDiscordUserAndBrand(discordUserId, brandId) {
 }
 
 async function getCreatorByCode(creatorCode, brandId) {
+  const normalizedCreatorCode = normalizeCode(creatorCode);
   const { data, error } = await supabase
     .from('creators')
     .select('*')
-    .eq('creator_code', creatorCode)
+    .eq('creator_code', normalizedCreatorCode)
     .eq('brand_id', brandId)
     .order('created_at', { ascending: false })
     .limit(1);
@@ -33,17 +34,18 @@ async function getCreatorByCode(creatorCode, brandId) {
 }
 
 async function getCreatorByCodeOrReferralCode(creatorCode, brandId) {
+  const normalizedCreatorCode = normalizeCode(creatorCode);
   const { data: creatorCodeMatches, error: creatorCodeError } = await supabase
     .from('creators')
     .select('*')
-    .eq('creator_code', creatorCode)
+    .eq('creator_code', normalizedCreatorCode)
     .order('created_at', { ascending: false });
   if (creatorCodeError) throw creatorCodeError;
 
   const { data: referralCodeMatches, error: referralCodeError } = await supabase
     .from('creators')
     .select('*')
-    .eq('referral_code', creatorCode)
+    .eq('referral_code', normalizedCreatorCode)
     .order('created_at', { ascending: false });
   if (referralCodeError) throw referralCodeError;
 
@@ -64,7 +66,7 @@ async function getCreatorByCodeOrReferralCode(creatorCode, brandId) {
   const unassignedMatch = matches.find((creator) => !creator.brand_id);
   if (unassignedMatch) return unassignedMatch;
 
-  console.warn(`Creator code ${creatorCode} did not match brand ${brandId}; returning latest global match`);
+  console.warn(`Creator code ${normalizedCreatorCode} did not match brand ${brandId}; returning latest global match`);
   return matches[0];
 }
 
@@ -103,17 +105,17 @@ async function getCreatorById(creatorId) {
 
 function buildTrackingLink(brandName, creatorCode) {
   const brandSlug = generateSlug(brandName);
-  return `${PUBLIC_BASE_URL}/r/${brandSlug}/${creatorCode}`;
+  return `${PUBLIC_BASE_URL}/r/${brandSlug}/${normalizeCode(creatorCode)}`;
 }
 
 function buildJoinReferralLink(creatorCode) {
-  return `${PUBLIC_BASE_URL}/join/${creatorCode}`;
+  return `${PUBLIC_BASE_URL}/join/${normalizeCode(creatorCode)}`;
 }
 
 async function createCreator(discordUserId, discordUsername, brandId, refLinkTemplate, brandName) {
   // Generate unique creator code
   const existingCodes = await getAllCreatorCodes(brandId);
-  const creatorCode = generateUniqueSlug(discordUsername, existingCodes);
+  const creatorCode = normalizeCode(generateUniqueSlug(discordUsername, existingCodes));
 
   // Generate referral link (brand's direct link)
   const referralLink = refLinkTemplate.replace(/\{creator_slug\}|\{creator_code\}/g, creatorCode);
@@ -180,12 +182,14 @@ async function ensureTrackingLink(creator, brandName) {
 }
 
 async function ensureCreatorLinks(creator, brandName) {
-  const expectedLink = brandName ? buildTrackingLink(brandName, creator.creator_code) : creator.tracking_link;
-  const expectedJoinLink = buildJoinReferralLink(creator.referral_code || creator.creator_code);
-  const expectedReferralCode = creator.referral_code || creator.creator_code;
+  const expectedCreatorCode = normalizeCode(creator.creator_code);
+  const expectedReferralCode = normalizeCode(creator.referral_code || expectedCreatorCode);
+  const expectedLink = brandName ? buildTrackingLink(brandName, expectedCreatorCode) : creator.tracking_link;
+  const expectedJoinLink = buildJoinReferralLink(expectedReferralCode);
   if (
     creator.tracking_link !== expectedLink ||
     creator.join_referral_link !== expectedJoinLink ||
+    creator.creator_code !== expectedCreatorCode ||
     creator.referral_code !== expectedReferralCode
   ) {
     const { data, error } = await supabase
@@ -193,6 +197,7 @@ async function ensureCreatorLinks(creator, brandName) {
       .update({
         tracking_link: expectedLink,
         join_referral_link: expectedJoinLink,
+        creator_code: expectedCreatorCode,
         referral_code: expectedReferralCode
       })
       .eq('id', creator.id)
@@ -205,7 +210,8 @@ async function ensureCreatorLinks(creator, brandName) {
 }
 
 async function ensureWebCreatorFields(creator, { authUserId, email, displayName, avatarUrl }) {
-  const expectedReferralCode = creator.referral_code || creator.creator_code;
+  const expectedCreatorCode = normalizeCode(creator.creator_code);
+  const expectedReferralCode = normalizeCode(creator.referral_code || expectedCreatorCode);
   const expectedJoinLink = buildJoinReferralLink(expectedReferralCode);
   const updates = {
     auth_user_id: creator.auth_user_id || authUserId,
@@ -213,6 +219,7 @@ async function ensureWebCreatorFields(creator, { authUserId, email, displayName,
     display_name: creator.display_name || displayName,
     avatar_url: creator.avatar_url || avatarUrl,
     signup_source: creator.signup_source || 'google',
+    creator_code: expectedCreatorCode,
     referral_code: expectedReferralCode,
     join_referral_link: expectedJoinLink
   };
@@ -230,7 +237,7 @@ async function ensureWebCreatorFields(creator, { authUserId, email, displayName,
 async function createWebCreator({ authUserId, email, displayName, avatarUrl }) {
   const existingCodes = await getAllCreatorCodesAcrossBrands();
   const baseName = displayName || emailPrefix(email) || 'creator';
-  const creatorCode = generateUniqueSlug(baseName, existingCodes);
+  const creatorCode = normalizeCode(generateUniqueSlug(baseName, existingCodes));
   const insertPayload = {
     discord_user_id: null,
     discord_username: displayName || emailPrefix(email) || creatorCode,
@@ -294,7 +301,7 @@ async function getAllCreatorCodes(brandId) {
     .select('creator_code')
     .eq('brand_id', brandId);
   if (error) throw error;
-  return data.map(row => row.creator_code);
+  return data.map(row => normalizeCode(row.creator_code));
 }
 
 async function getAllCreatorCodesAcrossBrands() {
@@ -302,7 +309,7 @@ async function getAllCreatorCodesAcrossBrands() {
     .from('creators')
     .select('creator_code, referral_code');
   if (error) throw error;
-  return data.flatMap((row) => [row.creator_code, row.referral_code].filter(Boolean));
+  return data.flatMap((row) => [row.creator_code, row.referral_code].filter(Boolean).map(normalizeCode));
 }
 
 async function getLatestBrand() {

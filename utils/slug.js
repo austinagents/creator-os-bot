@@ -14,11 +14,16 @@ function generateSlug(input) {
   return slug;
 }
 
+function normalizeCode(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 function generateUniqueSlug(username, existingSlugs) {
   const originalSlug = generateSlug(username);
   let slug = originalSlug;
+  const normalizedExistingSlugs = existingSlugs.map(normalizeCode);
 
-  while (existingSlugs.includes(slug)) {
+  while (normalizedExistingSlugs.includes(slug)) {
     const suffix = Math.random().toString(36).substring(2, 6);
     slug = `${originalSlug}-${suffix}`;
   }
@@ -28,5 +33,6 @@ function generateUniqueSlug(username, existingSlugs) {
 
 module.exports = {
   generateSlug,
+  normalizeCode,
   generateUniqueSlug
 };
