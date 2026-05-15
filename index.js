@@ -13,17 +13,18 @@ const {
   bindCreatorToInviteSession,
   bindCreatorToBrandOrigin
 } = require("./services/creatorNetworkService");
-const { findOrCreateWebCreator, getCreatorById } = require("./services/creatorService");
+const { findOrCreateWebCreator, getCreatorById, getCreatorByAuthUserId } = require("./services/creatorService");
 const { getCreatorDashboardByCode } = require("./services/creatorDashboardService");
 const { getBrandDashboardBySlug } = require("./services/brandDashboardService");
-const { getGoogleOAuthUrl, exchangeAuthCodeForUser } = require("./services/authService");
+const { getGoogleOAuthUrl, exchangeAuthCodeForUser, getCurrentAuthUser } = require("./services/authService");
 const {
   buildShopifyInstallUrl,
   validateShopifyCallback,
   exchangeShopifyCodeForToken,
   upsertShopifyStore,
   generateShopifyState,
-  shopifyStateCookieOptions
+  shopifyStateCookieOptions,
+  shopifyStateClearCookieOptions
 } = require("./services/shopifyService");
 const { generateSlug, normalizeCode } = require("./utils/slug");
 
@@ -229,8 +230,23 @@ app.get('/creator/welcome', async (req, res) => {
     res.status(500).send('Unable to load creator welcome page.');
   }
 });
-app.get('/dashboard', (req, res) => {
-  res.send(renderCreatorDashboardEntryPage());
+app.get('/dashboard', async (req, res) => {
+  try {
+    const authUser = await getCurrentAuthUser(req, res);
+    if (!authUser) {
+      return res.send(renderCreatorDashboardEntryPage());
+    }
+
+    const creator = await getCreatorByAuthUserId(authUser.id);
+    if (!creator || !creator.creator_code) {
+      return res.send(renderCreatorDashboardEntryPage());
+    }
+
+    res.redirect(`/dashboard/${encodeURIComponent(normalizeCode(creator.creator_code))}`);
+  } catch (error) {
+    log('Creator dashboard session lookup error:', error);
+    res.send(renderCreatorDashboardEntryPage());
+  }
 });
 app.get('/dashboard/:creatorCode', async (req, res) => {
   try {
@@ -265,12 +281,7 @@ app.get('/brand-dashboard/:brandSlug', async (req, res) => {
     const brandSlug = String(req.params.brandSlug || '').trim().toLowerCase();
     const dashboard = await getBrandDashboardBySlug(brandSlug);
     if (!dashboard) {
-      return res.status(404).send(renderSimpleMessagePage(
-        'Brand not found',
-        'We could not find that brand dashboard.',
-        '/brand-dashboard',
-        'Brand dashboard'
-      ));
+      return res.redirect('/register-business');
     }
 
     res.set('Cache-Control', 'no-store, max-age=0');
@@ -345,8 +356,12 @@ app.get('/api/shopify/callback', async (req, res) => {
       accessToken
     });
 
-    res.clearCookie('partnerlinks_shopify_state', shopifyStateCookieOptions());
-    res.clearCookie('partnerlinks_shopify_shop', shopifyStateCookieOptions());
+    res.clearCookie('partnerlinks_shopify_state', shopifyStateClearCookieOptions());
+    res.clearCookie('partnerlinks_shopify_shop', shopifyStateClearCookieOptions());
+    const connectedBrand = await getBrandById(store.brand_id);
+    if (connectedBrand) {
+      res.cookie('partnerlinks_brand_slug', generateSlug(connectedBrand.name), brandStateCookieOptions());
+    }
 
     res.redirect(`/brand/setup/${encodeURIComponent(store.brand_id)}`);
   } catch (error) {
@@ -435,6 +450,7 @@ app.post('/brand/setup/:brandId', async (req, res) => {
       .limit(1);
     if (storeError) throw storeError;
 
+    res.cookie('partnerlinks_brand_slug', generateSlug(brand.name), brandStateCookieOptions());
     res.send(renderBrandSetupSuccessPage(brand, stores ? stores[0] : null));
   } catch (error) {
     log('Brand setup save error:', error);
@@ -1310,7 +1326,8 @@ function renderBrandSetupPage(brand, store) {
 
 function renderBrandSetupSuccessPage(brand, store) {
   const links = buildBrandLinkExamples(brand);
-  const brandDashboardHref = `/brand-dashboard/${encodeURIComponent(generateSlug(brand.name))}`;
+  const brandSlug = generateSlug(brand.name);
+  const brandDashboardHref = `/brand-dashboard/${encodeURIComponent(brandSlug)}`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1338,6 +1355,9 @@ function renderBrandSetupSuccessPage(brand, store) {
       </div>
     </section>
   </main>
+  <script>
+    localStorage.setItem('partnerlinks_brand_slug', '${escapeHtml(brandSlug)}');
+  </script>
 </body>
 </html>`;
 }
@@ -1354,6 +1374,16 @@ function normalizeUrl(value) {
   const trimmed = String(value || '').trim();
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   return `https://${trimmed}`;
+}
+
+function brandStateCookieOptions() {
+  return {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 365 * 24 * 60 * 60 * 1000,
+    path: '/'
+  };
 }
 
 function formatMoney(value, currency = 'USD') {

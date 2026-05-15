@@ -28,7 +28,7 @@ Last updated: 2026-05-14
 - Post-install brand setup is implemented through `/brand/setup/:brand_id`.
 - Brands can now act as origin sponsors when creators sign up through a brand onboarding link.
 - Creator codes, referral codes, and brand URL slugs are canonical lowercase identifiers across routes, lookups, and generated links.
-- Creator Dashboard MVP is available at `/dashboard/:creator_code` with referral, conversion, commission, and network earnings summary. Post-signup welcome pages now include primary Creator Dashboard and secondary Home CTAs using the canonical lowercase creator code.
+- Creator Dashboard MVP is available at `/dashboard/:creator_code` with referral, conversion, commission, and network earnings summary. `/dashboard` resolves the current persisted Supabase auth user to their creator dashboard when available, and otherwise shows a clean sign-in state. Post-signup welcome pages now include primary Creator Dashboard and secondary Home CTAs using the canonical lowercase creator code.
 - Brand Dashboard MVP is available at `/brand-dashboard/:brand_slug` with tracked revenue, creator, conversion, fee, network payout, tracking link, and program performance summaries.
 - Homepage brand navigation stores only a non-sensitive brand slug in browser state after Shopify install/brand setup to switch returning connected brands from Register Your Business to Brand Dashboard.
 - `/creator_dashboard` is available as an admin/operator Discord shortcut for dashboard URL lookup and quick verification.
@@ -394,9 +394,9 @@ npm start
 - `/creator_dashboard creator_code` returns the canonical Creator Dashboard URL and quick stats for admin/operator verification.
 - Slash command registration logs the exact command list on startup, including `/network_stats`, and startup registration refreshes guild commands automatically.
 - `/join/:creator_code` captures invite sessions in a browser cookie. Permanent parent binding from invite session to new creator is completed by the web Google signup flow.
-- Web signup/auth binding is now implemented for Google OAuth. Discord `/start` still cannot reliably read browser invite cookies, so invite parent binding should happen through the web signup flow.
+- Web signup/auth binding is now implemented for Google OAuth. Supabase Auth session cookies are persisted server-side with httpOnly, secure production settings and a 30-day max age, so returning creators can access `/dashboard` without signing in again until the session naturally expires. Discord `/start` still cannot reliably read browser invite cookies, so invite parent binding should happen through the web signup flow.
 - Google-created creators can have `brand_id` null if the database allows it. If the existing production schema requires `brand_id`, the auth helper falls back to the latest brand so creator creation can still complete; review this later when multi-brand web onboarding is formalized.
-- Supabase Google provider and redirect allow-list entries must be configured manually before OAuth works. Railway must also include `SUPABASE_ANON_KEY` and `PUBLIC_BASE_URL=https://partnerlinks.app`; missing either one causes `/auth/google/start` to return `Unable to start Google signup`.
+- Supabase Google provider and redirect allow-list entries must be configured manually before OAuth works. Railway must also include `SUPABASE_ANON_KEY` and `PUBLIC_BASE_URL=https://partnerlinks.app`; missing either one causes `/auth/google/start` to return `Unable to start Google signup`. Auth clear-cookie calls must not include `maxAge`; Shopify and Supabase auth clear paths now use clear-cookie options without expiration metadata.
 - Discord slash command registration happens on bot startup for the configured guild.
 
 ## Next Recommended Steps

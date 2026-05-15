@@ -14,7 +14,7 @@ function createAuthClient(req, res) {
           res.cookie(key, value, authCookieOptions());
         },
         removeItem: (key) => {
-          res.clearCookie(key, authCookieOptions());
+          res.clearCookie(key, authClearCookieOptions());
         }
       }
     }
@@ -53,17 +53,38 @@ async function exchangeAuthCodeForUser(req, res, code) {
   return data.session.user;
 }
 
+async function getCurrentAuthUser(req, res) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Supabase auth is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.');
+  }
+
+  const supabaseAuth = createAuthClient(req, res);
+  const { data, error } = await supabaseAuth.auth.getUser();
+  if (error) return null;
+  return data && data.user ? data.user : null;
+}
+
 function authCookieOptions() {
   return {
     httpOnly: true,
     secure: NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 10 * 60 * 1000,
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    path: '/'
+  };
+}
+
+function authClearCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: NODE_ENV === 'production',
+    sameSite: 'lax',
     path: '/'
   };
 }
 
 module.exports = {
   getGoogleOAuthUrl,
-  exchangeAuthCodeForUser
+  exchangeAuthCodeForUser,
+  getCurrentAuthUser
 };

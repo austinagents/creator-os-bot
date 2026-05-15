@@ -206,6 +206,15 @@ function shopifyStateCookieOptions() {
   };
 }
 
+function shopifyStateClearCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/'
+  };
+}
+
 function assertShopifyConfig() {
   if (!SHOPIFY_API_KEY || !SHOPIFY_API_SECRET) {
     throw new Error('Shopify OAuth is not configured. Set SHOPIFY_API_KEY and SHOPIFY_API_SECRET.');
@@ -227,5 +236,6 @@ module.exports = {
   normalizeShopDomain,
   generateShopifyState,
   ensureBrandForShopifyStore,
-  shopifyStateCookieOptions
+  shopifyStateCookieOptions,
+  shopifyStateClearCookieOptions
 };
