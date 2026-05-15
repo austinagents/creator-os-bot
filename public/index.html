@@ -24,10 +24,10 @@
           </div>
         </div>
         <a href="#about">About</a>
-        <div class="nav-dropdown">
+        <div class="nav-dropdown brand-nav" data-brand-nav>
           <a class="nav-dropdown-trigger" href="/register-business">Register Your Business</a>
           <div class="nav-dropdown-menu">
-            <a href="/brand-dashboard">Brand Dashboard</a>
+            <a href="/register-business">Brand Dashboard</a>
           </div>
         </div>
         <a href="#contact">Contact</a>
@@ -149,5 +149,26 @@
       </div>
     </footer>
   </div>
+  <script>
+    (function () {
+      const brandNav = document.querySelector('[data-brand-nav]');
+      if (!brandNav) return;
+
+      const slugPattern = /^[a-z0-9-]{1,80}$/;
+      const cookieMatch = document.cookie.match(/(?:^|; )partnerlinks_brand_slug=([^;]+)/);
+      const cookieSlug = cookieMatch ? decodeURIComponent(cookieMatch[1]) : '';
+      const storedSlug = localStorage.getItem('partnerlinks_brand_slug') || cookieSlug || '';
+      const brandSlug = storedSlug.trim().toLowerCase();
+
+      if (!slugPattern.test(brandSlug)) {
+        localStorage.removeItem('partnerlinks_brand_slug');
+        return;
+      }
+
+      const href = `/brand-dashboard/${encodeURIComponent(brandSlug)}`;
+      brandNav.className = 'brand-nav-direct';
+      brandNav.innerHTML = `<a href="${href}">Brand Dashboard</a>`;
+    })();
+  </script>
 </body>
 </html>
