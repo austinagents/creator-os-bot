@@ -880,8 +880,51 @@ function renderCreatorDashboardCriticalStyles() {
       .creator-content-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 720px) {
-      .creator-dashboard { padding: 16px; }
-      .creator-sidebar { padding: 16px; border-radius: 14px; }
+      html,
+      body {
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+      .creator-dashboard {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+        padding: 12px;
+        gap: 12px;
+      }
+      .creator-sidebar {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        padding: 14px;
+        border-radius: 14px;
+      }
+      .creator-sidebar-nav {
+        width: 100%;
+        max-width: 100%;
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+      }
+      .creator-sidebar-nav a {
+        min-height: 40px;
+        padding: 0 10px;
+        white-space: nowrap;
+      }
+      .creator-main,
+      .creator-topbar,
+      .creator-action-panel,
+      .creator-stat-grid,
+      .creator-content-grid,
+      .creator-lower-grid,
+      .creator-panel,
+      .creator-stat-card,
+      .creator-earnings-chip {
+        min-width: 0;
+        max-width: 100%;
+      }
       .creator-topbar,
       .creator-action-panel,
       .creator-stat-grid,
@@ -892,12 +935,37 @@ function renderCreatorDashboardCriticalStyles() {
       .creator-action-panel,
       .creator-stat-card,
       .creator-panel {
-        padding: 20px;
+        width: 100%;
+        padding: 16px;
         border-radius: 14px;
       }
-      .creator-topbar h1 { font-size: 2.4rem; }
-      .copy-button { width: 100%; }
-      .panel-heading { display: grid; }
+      .creator-topbar h1 {
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        font-size: clamp(1.85rem, 10vw, 2.35rem);
+        line-height: 1.02;
+      }
+      .creator-action-panel strong,
+      #invite-link,
+      .creator-stat-card strong,
+      .panel-heading strong,
+      .referral-levels strong,
+      .earnings-list strong {
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      .creator-stat-card { min-height: auto; }
+      .creator-stat-card strong { font-size: 1.55rem; }
+      .creator-action-panel { gap: 14px; }
+      .copy-button {
+        width: 100%;
+        min-width: 0;
+      }
+      .panel-heading {
+        display: grid;
+        gap: 8px;
+      }
       .panel-heading strong { text-align: left; }
     }
   `;
