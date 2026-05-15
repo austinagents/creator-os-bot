@@ -228,6 +228,9 @@ app.get('/creator/welcome', async (req, res) => {
     res.status(500).send('Unable to load creator welcome page.');
   }
 });
+app.get('/dashboard', (req, res) => {
+  res.send(renderCreatorDashboardEntryPage());
+});
 app.get('/dashboard/:creatorCode', async (req, res) => {
   try {
     const creatorCode = String(req.params.creatorCode || '').trim().toLowerCase();
@@ -475,6 +478,8 @@ client.login(DISCORD_TOKEN);
 function renderCreatorWelcomePage(creator) {
   const trackingLink = creator.tracking_link || 'Brand tracking link will appear after brand assignment.';
   const inviteLink = creator.join_referral_link || 'Invite link not available yet.';
+  const creatorCode = normalizeCode(creator.creator_code);
+  const dashboardHref = `/dashboard/${encodeURIComponent(creatorCode)}`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -494,6 +499,35 @@ function renderCreatorWelcomePage(creator) {
         <p><strong>Creator code</strong><br>${escapeHtml(creator.creator_code || '')}</p>
         <p><strong>Creator invite link</strong><br>${escapeHtml(inviteLink)}</p>
         <p><strong>Brand tracking link</strong><br>${escapeHtml(trackingLink)}</p>
+      </div>
+      <div class="auth-actions">
+        <a class="auth-primary-button" href="${escapeHtml(dashboardHref)}">Creator Dashboard</a>
+        <a class="auth-secondary-button" href="/">Home</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function renderCreatorDashboardEntryPage() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PartnerLinks | Creator Dashboard</title>
+  <link rel="stylesheet" href="/styles.css?v=creator-dashboard-entry">
+</head>
+<body>
+  <main class="auth-page">
+    <section class="auth-panel">
+      <p class="eyebrow">PartnerLinks</p>
+      <h1>Access your Creator Dashboard</h1>
+      <p>Sign in to continue to your creator workspace.</p>
+      <div class="auth-actions">
+        <a class="auth-primary-button" href="/auth/google/start">Sign in with Google</a>
+        <a class="auth-secondary-button" href="/">Home</a>
       </div>
     </section>
   </main>

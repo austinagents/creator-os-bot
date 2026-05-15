@@ -67,8 +67,10 @@ a {
   display: flex;
   gap: 28px;
   flex-wrap: wrap;
+  align-items: center;
 }
-.main-nav a {
+.main-nav a,
+.nav-dropdown-trigger {
   position: relative;
   color: var(--muted);
   font-size: 0.95rem;
@@ -87,6 +89,43 @@ a {
   height: 2px;
   border-radius: 999px;
   background: linear-gradient(90deg, #9b5cff, #ff6f61);
+}
+.nav-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.nav-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 14px);
+  left: 0;
+  z-index: 20;
+  min-width: 190px;
+  padding: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  background: rgba(8, 13, 28, 0.96);
+  box-shadow: 0 24px 70px rgba(0,0,0,0.28);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.nav-dropdown:hover .nav-dropdown-menu,
+.nav-dropdown:focus-within .nav-dropdown-menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.nav-dropdown-menu a {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 8px;
+}
+.nav-dropdown-menu a:hover {
+  background: rgba(255,255,255,0.07);
 }
 .hero {
   display: grid;
@@ -151,6 +190,17 @@ a {
   color: white;
   font-weight: 700;
   box-shadow: 0 20px 40px rgba(155, 92, 255, 0.22);
+}
+.auth-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 30px;
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  font-weight: 700;
 }
 .secondary-link {
   display: inline-flex;
@@ -432,6 +482,17 @@ a {
   display: grid;
   gap: 14px;
   overflow-wrap: anywhere;
+}
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.auth-actions .auth-primary-button,
+.auth-actions .auth-secondary-button {
+  min-height: 48px;
+  padding: 0 22px;
 }
 .auth-form {
   display: grid;
@@ -821,6 +882,28 @@ a {
   .main-nav {
     gap: 16px;
   }
+  .nav-dropdown {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .nav-dropdown-menu {
+    position: static;
+    display: flex;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+  .nav-dropdown-menu a {
+    min-height: 34px;
+    padding: 0;
+    color: var(--muted);
+  }
   .hero-title {
     font-size: 3rem;
   }
@@ -833,6 +916,14 @@ a {
   .site-footer {
     flex-direction: column;
     align-items: flex-start;
+  }
+  .auth-actions {
+    width: 100%;
+    display: grid;
+  }
+  .auth-actions .auth-primary-button,
+  .auth-actions .auth-secondary-button {
+    width: 100%;
   }
   .dashboard-shell {
     padding: 20px 18px 36px;
