@@ -14,6 +14,7 @@ const {
   bindCreatorToBrandOrigin
 } = require("./services/creatorNetworkService");
 const { findOrCreateWebCreator, getCreatorById } = require("./services/creatorService");
+const { getCreatorDashboardByCode } = require("./services/creatorDashboardService");
 const { getGoogleOAuthUrl, exchangeAuthCodeForUser } = require("./services/authService");
 const {
   buildShopifyInstallUrl,
@@ -221,6 +222,30 @@ app.get('/creator/welcome', async (req, res) => {
   } catch (error) {
     log('Creator welcome error:', error);
     res.status(500).send('Unable to load creator welcome page.');
+  }
+});
+app.get('/dashboard/:creatorCode', async (req, res) => {
+  try {
+    const creatorCode = String(req.params.creatorCode || '').trim().toLowerCase();
+    const dashboard = await getCreatorDashboardByCode(creatorCode);
+    if (!dashboard) {
+      return res.status(404).send(renderSimpleMessagePage(
+        'Creator not found',
+        'We could not find that creator dashboard.',
+        '/',
+        'Return home'
+      ));
+    }
+
+    res.send(renderCreatorDashboardPage(dashboard));
+  } catch (error) {
+    log('Creator dashboard error:', error);
+    res.status(500).send(renderSimpleMessagePage(
+      'Dashboard unavailable',
+      'Unable to load this creator dashboard. Please try again.',
+      '/',
+      'Return home'
+    ));
   }
 });
 app.get('/auth/google', (req, res) => {
@@ -471,6 +496,92 @@ function renderCreatorWelcomePage(creator) {
 </html>`;
 }
 
+function renderCreatorDashboardPage(dashboard) {
+  const inviteLink = dashboard.inviteLink || `${PUBLIC_BASE_URL}/join/${dashboard.creatorCode}`;
+  const statCards = [
+    ['Direct Referrals', dashboard.directReferralsCount],
+    ['Second-Level Referrals', dashboard.secondLevelReferralsCount],
+    ['Third-Level Referrals', dashboard.thirdLevelReferralsCount],
+    ['Total Conversions', dashboard.totalConversions],
+    ['Total Order Value', formatMoney(dashboard.totalOrderValue)],
+    ['Direct Commission Earned', formatMoney(dashboard.directCommissionEarned)],
+    ['Network Earnings Earned', formatMoney(dashboard.networkEarnings)],
+    ['Total Earnings', formatMoney(dashboard.totalEarnings)]
+  ];
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PartnerLinks | Creator Dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="dashboard-shell">
+    <header class="dashboard-header">
+      <a class="brand" href="/">
+        <span class="logo-mark">PL</span>
+        <span>
+          <span class="brand-name">PartnerLinks</span>
+          <span class="brand-tag">Creator Dashboard</span>
+        </span>
+      </a>
+      <nav class="dashboard-nav" aria-label="Creator navigation">
+        <a class="active" href="/dashboard/${escapeHtml(dashboard.creatorCode)}">Overview</a>
+      </nav>
+    </header>
+
+    <section class="dashboard-hero">
+      <div>
+        <p class="eyebrow">Creator</p>
+        <h1>${escapeHtml(dashboard.displayName)}</h1>
+        <p class="dashboard-subtitle">Creator code: <strong>${escapeHtml(dashboard.creatorCode)}</strong></p>
+      </div>
+      <div class="dashboard-total">
+        <span>Total earnings</span>
+        <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
+      </div>
+    </section>
+
+    <section class="dashboard-link-panel" aria-label="Creator invite link">
+      <div>
+        <span>Creator invite link</span>
+        <strong id="invite-link">${escapeHtml(inviteLink)}</strong>
+      </div>
+      <button class="copy-button" type="button" data-copy-target="invite-link">Copy</button>
+    </section>
+
+    <section class="dashboard-grid" aria-label="Creator performance">
+      ${statCards.map(([label, value]) => `
+        <article class="dashboard-card">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value)}</strong>
+        </article>
+      `).join('')}
+    </section>
+  </main>
+  <script>
+    document.querySelectorAll('[data-copy-target]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const target = document.getElementById(button.dataset.copyTarget);
+        if (!target) return;
+        try {
+          await navigator.clipboard.writeText(target.textContent.trim());
+          button.textContent = 'Copied';
+          window.setTimeout(() => {
+            button.textContent = 'Copy';
+          }, 1400);
+        } catch (error) {
+          button.textContent = 'Select link';
+        }
+      });
+    });
+  </script>
+</body>
+</html>`;
+}
+
 async function getBrandSetupData(brandId) {
   const { data: brand, error } = await supabase
     .from('brands')
@@ -594,6 +705,13 @@ function normalizeUrl(value) {
   const trimmed = String(value || '').trim();
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   return `https://${trimmed}`;
+}
+
+function formatMoney(value, currency = 'USD') {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency
+  }).format(Number(value || 0));
 }
 
 function escapeHtml(value) {

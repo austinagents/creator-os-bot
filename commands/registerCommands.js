@@ -93,6 +93,18 @@ const commands = [
     description: 'View top creators by referral sales performance'
   },
   {
+    name: 'creator_dashboard',
+    description: 'Get a creator dashboard URL and quick stats',
+    options: [
+      {
+        name: 'creator_code',
+        type: 3, // STRING
+        description: 'Creator code or referral code',
+        required: true
+      }
+    ]
+  },
+  {
     name: 'network_stats',
     description: 'View your creator invite network performance'
   }

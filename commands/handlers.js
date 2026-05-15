@@ -11,7 +11,8 @@ const {
   getCreatorLeaderboardStats
 } = require('../services/trackingService');
 const { createNetworkEarningsForConversion, getCreatorNetworkStats } = require('../services/creatorNetworkService');
-const { DEFAULT_REF_TEMPLATE, ADMIN_DASHBOARD_CHANNEL_ID, CREATOR_LOG_CHANNEL_ID, BOT_ALERTS_CHANNEL_ID } = require('../config/config/env');
+const { getCreatorDashboardByCode } = require('../services/creatorDashboardService');
+const { DEFAULT_REF_TEMPLATE, ADMIN_DASHBOARD_CHANNEL_ID, CREATOR_LOG_CHANNEL_ID, BOT_ALERTS_CHANNEL_ID, PUBLIC_BASE_URL } = require('../config/config/env');
 const { normalizeCode } = require('../utils/slug');
 
 const interactionResponses = new WeakSet();
@@ -66,6 +67,13 @@ async function handleInteraction(interaction, client) {
           return;
         }
         await handleCreatorLeaderboard(interaction, guild);
+        break;
+      case 'creator_dashboard':
+        if (!isAdmin(member)) {
+          await safeInteractionReply(interaction, { content: 'You do not have permission to use this command.', ephemeral: true });
+          return;
+        }
+        await handleCreatorDashboard(interaction);
         break;
       case 'network_stats':
         await handleNetworkStats(interaction, guild);
@@ -391,6 +399,33 @@ async function handleNetworkStats(interaction, guild) {
       { name: 'Network Earnings Earned', value: formatMoney(stats.networkEarnings), inline: true }
     )
     .setColor(0x6a5acd);
+
+  await safeInteractionReply(interaction, { embeds: [embed], ephemeral: true });
+}
+
+async function handleCreatorDashboard(interaction) {
+  const creatorCode = normalizeCode(interaction.options.getString('creator_code'));
+  const dashboard = await getCreatorDashboardByCode(creatorCode);
+  if (!dashboard) {
+    await safeInteractionReply(interaction, { content: `No creator found for code "${creatorCode}".`, ephemeral: true });
+    return;
+  }
+
+  const dashboardUrl = `${PUBLIC_BASE_URL}/dashboard/${dashboard.creatorCode}`;
+  const embed = new EmbedBuilder()
+    .setTitle('Creator Dashboard')
+    .setDescription(dashboardUrl)
+    .addFields(
+      { name: 'Creator', value: `${dashboard.displayName} (${dashboard.creatorCode})` },
+      { name: 'Invite Link', value: dashboard.inviteLink || 'Not available' },
+      { name: 'Direct Referrals', value: dashboard.directReferralsCount.toString(), inline: true },
+      { name: 'Second-Level', value: dashboard.secondLevelReferralsCount.toString(), inline: true },
+      { name: 'Third-Level', value: dashboard.thirdLevelReferralsCount.toString(), inline: true },
+      { name: 'Conversions', value: dashboard.totalConversions.toString(), inline: true },
+      { name: 'Order Value', value: formatMoney(dashboard.totalOrderValue), inline: true },
+      { name: 'Total Earnings', value: formatMoney(dashboard.totalEarnings), inline: true }
+    )
+    .setColor(0x9b5cff);
 
   await safeInteractionReply(interaction, { embeds: [embed], ephemeral: true });
 }

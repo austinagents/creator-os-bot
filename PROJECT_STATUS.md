@@ -28,6 +28,8 @@ Last updated: 2026-05-14
 - Post-install brand setup is implemented through `/brand/setup/:brand_id`.
 - Brands can now act as origin sponsors when creators sign up through a brand onboarding link.
 - Creator codes, referral codes, and brand URL slugs are canonical lowercase identifiers across routes, lookups, and generated links.
+- Creator Dashboard MVP is available at `/dashboard/:creator_code` with referral, conversion, commission, and network earnings summary.
+- `/creator_dashboard` is available as an admin/operator Discord shortcut for dashboard URL lookup and quick verification.
 
 ## Product Direction
 
@@ -133,6 +135,72 @@ Brands can occupy the origin sponsor position when they directly onboard a creat
 
 Brand-origin rewards are recorded only from explicit `platform_fee_amount`, never from order value or creator campaign commission.
 
+## Product Architecture Direction
+
+Going forward, prioritize product architecture, UI/UX consistency, and complete user journeys over rapidly adding isolated features. Major new pages or capabilities should first be assigned to a user type and placed inside a coherent navigation model.
+
+Primary user types:
+
+- Brand
+- Creator
+- Internal Admin
+
+Before implementing major new features, decide:
+
+- Where the feature lives in the product.
+- Which user type owns it.
+- How users reach it.
+- How users return to it.
+- Whether it belongs inside a dashboard, tab, or navigation section.
+
+Product structure rules:
+
+- Build cohesive Creator and Brand dashboard systems before adding many more isolated backend capabilities.
+- Creator Dashboard MVP now lives at `/dashboard/:creator_code` as the first Creator dashboard surface.
+- Place features inside structured dashboard/navigation systems instead of standalone utility routes whenever practical.
+- Avoid disconnected utility pages and duplicate navigation paths for the same functionality.
+- Add redirects and canonical routes where appropriate.
+- Keep onboarding flows linear, low-friction, and continuous.
+- Avoid exposing internal/admin tooling in public UI.
+- Preserve mobile responsiveness.
+- Optimize for clean SaaS UX, not developer tooling UX.
+
+UI direction:
+
+- Maintain consistent dark PartnerLinks styling.
+- Keep spacing, typography, buttons, gradients, cards, and layouts consistent across public, creator, and brand experiences.
+- Treat new UI work as part of a scalable dashboard/navigation architecture rather than one-off screens.
+
+## Development Workflow Rule
+
+When adding a new PartnerLinks site feature or backend mechanic, evaluate whether it also needs a Discord slash command. Do not add slash commands automatically for every feature.
+
+Website/dashboard UX should remain primary for brands and creators. Discord should act as:
+
+- Admin control layer
+- Testing layer
+- Operational shortcut layer
+- Diagnostics layer
+
+Add slash commands when they help with:
+
+- Admin/operator testing
+- Quick verification
+- Manual overrides
+- Status checks
+- Conversion/referral debugging
+- Brand or creator lookup
+- Payout/earnings inspection
+- Triggering backend workflows manually
+
+Before implementing future features, explicitly check:
+
+1. Website/dashboard route needed?
+2. Backend/service logic needed?
+3. Supabase schema changes needed?
+4. Discord slash command needed?
+5. PROJECT_STATUS.md update needed?
+
 ## Current Tables
 
 Expected base tables:
@@ -178,6 +246,7 @@ Admin-only:
 - `/record_conversion`
 - `/sales_dashboard`
 - `/creator_leaderboard`
+- `/creator_dashboard`
 
 Admin-only means the Discord member must have Administrator or Manage Guild permission.
 
@@ -279,6 +348,7 @@ npm start
 - Discord command replies are routed through `safeInteractionReply`, which only uses `followUp()` after an interaction is replied/deferred and otherwise uses `reply()`; reply errors are logged without being rethrown.
 - `/record_conversion` now runs both exact `creator_code` and exact `referral_code` lookups before deciding a creator is missing, and `safeInteractionReply` guards against duplicate responses per interaction.
 - `/record_conversion` defers once, then edits that single interaction response so failure and success messages cannot both be sent by the same handler.
+- `/creator_dashboard creator_code` returns the canonical Creator Dashboard URL and quick stats for admin/operator verification.
 - Slash command registration logs the exact command list on startup, including `/network_stats`, and startup registration refreshes guild commands automatically.
 - `/join/:creator_code` captures invite sessions in a browser cookie. Permanent parent binding from invite session to new creator is completed by the web Google signup flow.
 - Web signup/auth binding is now implemented for Google OAuth. Discord `/start` still cannot reliably read browser invite cookies, so invite parent binding should happen through the web signup flow.
