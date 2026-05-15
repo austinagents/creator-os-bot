@@ -548,15 +548,69 @@ function renderHomepage(creator) {
   if (!creatorCode) return template;
 
   const dashboardHref = `/dashboard/${encodeURIComponent(creatorCode)}`;
+  const inviteLink = `${PUBLIC_BASE_URL}/join/${creatorCode}`;
   return template
     .replace(
       '<a href="/dashboard">Creator Dashboard</a>',
       `<a href="${escapeHtml(dashboardHref)}">Creator Dashboard</a>`
     )
     .replace(
-      '<a class="primary-button" href="/auth/google">Sign up with Google</a>',
-      `<a class="primary-button" href="${escapeHtml(dashboardHref)}">Creator Dashboard</a>`
-    );
+      `<div class="hero-actions">
+            <a class="primary-button" href="/auth/google">Sign up with Google</a>
+          </div>`,
+      renderHomepageInvitePanel(creatorCode, inviteLink)
+    )
+    .replace('</body>', `${renderHomepageCopyScript()}</body>`);
+}
+
+function renderHomepageInvitePanel(creatorCode, inviteLink) {
+  return `<div class="hero-actions hero-actions-signed-in">
+            <div class="homepage-invite-panel">
+              <div class="homepage-invite-copy">
+                <span>Your creator code</span>
+                <strong>${escapeHtml(creatorCode)}</strong>
+                <p id="homepage-invite-link">${escapeHtml(inviteLink)}</p>
+              </div>
+              <button class="homepage-copy-button" type="button" data-homepage-copy data-copy-value="${escapeHtml(inviteLink)}">Copy Link</button>
+            </div>
+          </div>`;
+}
+
+function renderHomepageCopyScript() {
+  return `<script>
+    (function () {
+      document.querySelectorAll('[data-homepage-copy]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          var value = button.dataset.copyValue || '';
+          var originalText = button.textContent;
+          var markCopied = function () {
+            button.textContent = 'Copied';
+            window.setTimeout(function () {
+              button.textContent = originalText;
+            }, 1400);
+          };
+
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(value).then(markCopied).catch(function () {});
+            return;
+          }
+
+          var textarea = document.createElement('textarea');
+          textarea.value = value;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          try {
+            document.execCommand('copy');
+            markCopied();
+          } catch (error) {}
+          document.body.removeChild(textarea);
+        });
+      });
+    })();
+  </script>`;
 }
 
 function renderCreatorWelcomePage(creator) {
