@@ -97,48 +97,6 @@ async function getCreatorStripeDebugStatus(creator) {
   return debug;
 }
 
-async function resetCreatorStripeTestAccount(creator) {
-  if (!creator || !creator.id) {
-    throw new Error('Creator is required for Stripe reset.');
-  }
-  if (!STRIPE_SECRET_KEY) {
-    throw new Error('STRIPE_SECRET_KEY is not configured.');
-  }
-  if (!isStripeTestMode()) {
-    throw new Error('Stripe reset is only available with a Stripe test secret key.');
-  }
-
-  const accountId = creator.stripe_account_id || null;
-  if (accountId) {
-    try {
-      await stripeRequest(`/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' });
-      log('Stripe test connected account deleted during reset:', {
-        creatorId: creator.id,
-        accountId
-      });
-    } catch (error) {
-      log('Stripe test connected account delete failed during reset; unlinking locally:', {
-        creatorId: creator.id,
-        accountId,
-        message: error.message
-      });
-    }
-  }
-
-  const updatedCreator = await updateCreatorStripeState(creator.id, {
-    stripe_account_id: null,
-    stripe_onboarding_status: 'not_connected'
-  });
-
-  log('Stripe test account reset completed:', {
-    creatorId: creator.id,
-    creatorCode: creator.creator_code || null,
-    previousAccountId: accountId
-  });
-
-  return updatedCreator;
-}
-
 async function createConnectedAccount(creator) {
   const body = new URLSearchParams();
   body.set('type', 'express');
@@ -261,10 +219,6 @@ function getRequirementList(account, key) {
   return account.requirements[key];
 }
 
-function isStripeTestMode() {
-  return Boolean(STRIPE_SECRET_KEY && /^sk_test_/.test(STRIPE_SECRET_KEY));
-}
-
 async function stripeRequest(path, options) {
   const response = await fetch(`${STRIPE_API_BASE}${path}`, {
     ...options,
@@ -287,7 +241,5 @@ async function stripeRequest(path, options) {
 module.exports = {
   createStripeOnboardingLinkForCreator,
   getCreatorStripeDebugStatus,
-  isStripeTestMode,
-  resetCreatorStripeTestAccount,
   refreshCreatorStripeStatus
 };

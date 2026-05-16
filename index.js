@@ -21,8 +21,6 @@ const { getGoogleOAuthUrl, exchangeAuthCodeForUser, getCurrentAuthUser } = requi
 const {
   createStripeOnboardingLinkForCreator,
   getCreatorStripeDebugStatus,
-  isStripeTestMode,
-  resetCreatorStripeTestAccount,
   refreshCreatorStripeStatus
 } = require("./services/stripeConnectService");
 const {
@@ -604,34 +602,6 @@ app.get('/stripe/connect/debug', async (req, res) => {
   } catch (error) {
     log('Stripe Connect debug error:', error);
     res.status(500).json({ error: 'Unable to load Stripe debug status' });
-  }
-});
-app.post('/stripe/connect/reset', async (req, res) => {
-  try {
-    if (!isStripeTestMode()) {
-      return res.status(403).send(renderSimpleMessagePage(
-        'Reset unavailable',
-        'Stripe reset is only available in sandbox/test mode.',
-        '/dashboard',
-        'Back to dashboard'
-      ));
-    }
-
-    const creator = await getSignedInCreator(req, res);
-    if (!creator) {
-      return res.redirect('/dashboard');
-    }
-
-    await resetCreatorStripeTestAccount(creator);
-    res.redirect('/dashboard');
-  } catch (error) {
-    log('Stripe Connect reset error:', error);
-    res.status(500).send(renderSimpleMessagePage(
-      'Unable to reset Stripe test account',
-      'Please try again in a moment.',
-      '/dashboard',
-      'Back to dashboard'
-    ));
   }
 });
 app.get('/stripe/connect/refresh', async (req, res) => {
@@ -1398,17 +1368,11 @@ function renderBrandTopCreators(creators) {
 function renderStripePayoutSetup(dashboard) {
   const hasStripeAccount = Boolean(dashboard.stripeAccountId);
   const status = dashboard.stripeOnboardingStatus || 'not_connected';
-  const resetButton = hasStripeAccount && isStripeTestMode()
-    ? `<form class="stripe-reset-form" action="/stripe/connect/reset" method="POST">
-         <button type="submit">Reset Stripe Test Account</button>
-       </form>`
-    : '';
 
   if (status === 'payouts_enabled') {
     return `<div class="stripe-payout-module stripe-payout-connected">
               <span>Payouts enabled</span>
               <strong>Enabled</strong>
-              ${resetButton}
             </div>`;
   }
 
@@ -1416,7 +1380,6 @@ function renderStripePayoutSetup(dashboard) {
     return `<div class="stripe-payout-module stripe-payout-connected">
               <span>Stripe connected</span>
               <strong>Connected</strong>
-              ${resetButton}
             </div>`;
   }
 
@@ -1424,7 +1387,6 @@ function renderStripePayoutSetup(dashboard) {
     return `<div class="stripe-payout-module">
               <span>Finish payout setup</span>
               <a class="stripe-connect-button" href="/stripe/connect/start">Continue setup</a>
-              ${resetButton}
             </div>`;
   }
 
@@ -1744,28 +1706,12 @@ function renderCreatorDashboardCriticalStyles() {
       grid-template-columns: minmax(0, 1fr) auto;
       align-items: center;
     }
-    .stripe-payout-connected .stripe-reset-form {
-      grid-column: 1 / -1;
-    }
     .stripe-payout-connected strong {
       padding: 7px 10px;
       border-radius: 999px;
       background: rgba(102, 255, 186, 0.12);
       color: #8cffc5;
       font-size: 0.78rem;
-    }
-    .stripe-reset-form { margin: 0; }
-    .stripe-reset-form button {
-      width: 100%;
-      min-height: 34px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: rgba(255,255,255,0.045);
-      color: var(--muted);
-      font: inherit;
-      font-size: 0.76rem;
-      font-weight: 800;
-      cursor: pointer;
     }
     .creator-earnings-chip span,
     .creator-action-panel span,
