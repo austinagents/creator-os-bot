@@ -61,7 +61,7 @@ const MOCK_FEATURED_BRANDS = [
         description: 'A simple wellness product for testing creator referrals.',
         payout: 'Est. 20% creator commission',
         imageLabel: 'Test Product',
-        shopifyProductUrl: 'https://8lae7a17px6eu4be-75054973102.shopifypreview.com/products_preview?preview_key=0055388d3352fb4ac5cc3a8078667adc'
+        shopifyProductUrl: 'https://partnerlinks-test.myshopify.com/products/test-product'
       },
       ['Energy Gummies', 'A bright daily boost for morning routines.', 'Est. 20% creator commission'],
       ['Focus Drops', 'Clean nootropic drops for deep work blocks.', 'Est. 18% creator commission'],
