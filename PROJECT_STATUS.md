@@ -522,6 +522,11 @@ Payout routing bug discovered and patched:
   - Payout routes now use explicit dashboard creator context and ownership verification.
   - Stripe account links now include creator-scoped refresh/return URLs.
   - Claim route now claims only the requested owned creator.
+- Follow-up owner button bug:
+  - Claim button on `/dashboard/test-creator-04` remained disabled even after Stripe status and claimable earnings were correct.
+  - Root cause was the dashboard `ownerCanClaim` render check still using `getSignedInCreator()`, which returned the newest/default creator row (`frostclips`) for the auth user.
+  - Patch changed `/dashboard/:creatorCode` ownership rendering to compare signed-in `authUser.id` directly against the active `dashboard.creator.auth_user_id`.
+  - The server-rendered Claim button should now enable for the active dashboard creator when the signed-in auth user owns that exact creator.
 - Principle reinforced:
   - payout/auth/attribution systems should use explicit resource scoping, ownership checks, deterministic routing, idempotent financial operations, exact-match resolution, and safe failure over ambiguous execution.
 

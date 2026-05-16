@@ -686,8 +686,12 @@ app.get('/dashboard/:creatorCode', async (req, res) => {
       ));
     }
 
-    const signedInCreator = await getSignedInCreator(req, res);
-    const ownerCanClaim = Boolean(signedInCreator && signedInCreator.id === dashboard.creator.id);
+    const authUser = await getCurrentAuthUser(req, res);
+    const ownerCanClaim = Boolean(
+      authUser &&
+      dashboard.creator.auth_user_id &&
+      String(dashboard.creator.auth_user_id) === String(authUser.id)
+    );
     const claimStatus = req.query.claim === 'success' ? 'success' : null;
 
     res.set('Cache-Control', 'no-store, max-age=0');
