@@ -917,7 +917,7 @@ function renderBrandDiscoveryPage(brand, creatorCode) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PartnerLinks | ${escapeHtml(brand.name)}</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=brand-products-1">
 </head>
 <body>
   <div class="page-shell">
