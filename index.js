@@ -18,7 +18,7 @@ const { findOrCreateWebCreator, getCreatorById, getCreatorByAuthUserId } = requi
 const { getCreatorDashboardByCode } = require("./services/creatorDashboardService");
 const { getBrandDashboardBySlug } = require("./services/brandDashboardService");
 const { getGoogleOAuthUrl, exchangeAuthCodeForUser, getCurrentAuthUser } = require("./services/authService");
-const { createStripeOnboardingLinkForCreator, refreshCreatorStripeStatus } = require("./services/stripeConnectService");
+const { createStripeOnboardingLinkForCreator, getCreatorStripeDebugStatus, refreshCreatorStripeStatus } = require("./services/stripeConnectService");
 const {
   buildShopifyInstallUrl,
   validateShopifyCallback,
@@ -583,6 +583,21 @@ app.get('/stripe/connect/start', async (req, res) => {
       '/dashboard',
       'Back to dashboard'
     ));
+  }
+});
+app.get('/stripe/connect/debug', async (req, res) => {
+  try {
+    const creator = await getSignedInCreator(req, res);
+    if (!creator) {
+      return res.status(401).json({ error: 'Sign in required' });
+    }
+
+    const debug = await getCreatorStripeDebugStatus(creator);
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.json(debug);
+  } catch (error) {
+    log('Stripe Connect debug error:', error);
+    res.status(500).json({ error: 'Unable to load Stripe debug status' });
   }
 });
 app.get('/stripe/connect/refresh', async (req, res) => {

@@ -31,6 +31,7 @@ async function createStripeOnboardingLinkForCreator(creator) {
 
   const account = await retrieveConnectedAccount(accountId);
   const updatedCreator = await persistOnboardingStatus(creator.id, account);
+  logStripeDebugState('Stripe onboarding start account decision:', creator, account, updatedCreator.stripe_onboarding_status);
   if (isOnboardingAlreadySubmitted(account)) {
     log('Stripe onboarding already submitted; skipping new account link:', {
       creatorId: creator.id,
@@ -61,6 +62,39 @@ async function refreshCreatorStripeStatus(creator) {
     log('Stripe status refresh failed:', { creatorId: creator.id, message: error.message });
     return creator;
   }
+}
+
+async function getCreatorStripeDebugStatus(creator) {
+  if (!creator || !creator.id) {
+    throw new Error('Creator is required for Stripe debug status.');
+  }
+  if (!STRIPE_SECRET_KEY) {
+    throw new Error('STRIPE_SECRET_KEY is not configured.');
+  }
+
+  if (!creator.stripe_account_id) {
+    return {
+      creator_code: creator.creator_code || null,
+      stripe_account_id: null,
+      stripe_onboarding_status: creator.stripe_onboarding_status || 'not_connected',
+      details_submitted: null,
+      charges_enabled: null,
+      payouts_enabled: null,
+      requirements: {
+        currently_due: [],
+        eventually_due: [],
+        disabled_reason: null
+      },
+      app_decision: 'would_generate_onboarding_link'
+    };
+  }
+
+  const account = await retrieveConnectedAccount(creator.stripe_account_id);
+  const status = getOnboardingStatus(account);
+  const updatedCreator = await persistOnboardingStatus(creator.id, account);
+  const debug = buildStripeDebugPayload(creator, account, updatedCreator.stripe_onboarding_status || status);
+  log('Stripe debug route account state:', debug);
+  return debug;
 }
 
 async function createConnectedAccount(creator) {
@@ -148,8 +182,41 @@ function logStripeAccountState(message, creatorId, account, status) {
     details_submitted: Boolean(account && account.details_submitted),
     charges_enabled: Boolean(account && account.charges_enabled),
     payouts_enabled: Boolean(account && account.payouts_enabled),
+    requirements_currently_due: getRequirementList(account, 'currently_due'),
+    requirements_eventually_due: getRequirementList(account, 'eventually_due'),
+    requirements_disabled_reason: account && account.requirements ? account.requirements.disabled_reason || null : null,
     mappedStatus: status
   });
+}
+
+function logStripeDebugState(message, creator, account, status) {
+  log(message, buildStripeDebugPayload(creator, account, status));
+}
+
+function buildStripeDebugPayload(creator, account, status) {
+  return {
+    creator_code: creator ? creator.creator_code || null : null,
+    stripe_account_id: account ? account.id : creator ? creator.stripe_account_id || null : null,
+    stripe_onboarding_status: status || (creator ? creator.stripe_onboarding_status || 'not_connected' : 'not_connected'),
+    details_submitted: account ? Boolean(account.details_submitted) : null,
+    charges_enabled: account ? Boolean(account.charges_enabled) : null,
+    payouts_enabled: account ? Boolean(account.payouts_enabled) : null,
+    requirements: {
+      currently_due: getRequirementList(account, 'currently_due'),
+      eventually_due: getRequirementList(account, 'eventually_due'),
+      disabled_reason: account && account.requirements ? account.requirements.disabled_reason || null : null
+    },
+    app_decision: account && isOnboardingAlreadySubmitted(account)
+      ? 'show_connected_do_not_generate_onboarding_link'
+      : 'would_generate_onboarding_link'
+  };
+}
+
+function getRequirementList(account, key) {
+  if (!account || !account.requirements || !Array.isArray(account.requirements[key])) {
+    return [];
+  }
+  return account.requirements[key];
 }
 
 async function stripeRequest(path, options) {
@@ -173,5 +240,6 @@ async function stripeRequest(path, options) {
 
 module.exports = {
   createStripeOnboardingLinkForCreator,
+  getCreatorStripeDebugStatus,
   refreshCreatorStripeStatus
 };
