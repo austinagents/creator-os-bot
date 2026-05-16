@@ -1623,6 +1623,14 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
           <p class="muted-panel-copy">Network rewards are calculated only from PartnerLinks platform fees.</p>
         </article>
 
+        <article class="creator-panel creator-payout-history-panel">
+          <div class="panel-heading">
+            <span>Payout History</span>
+            <strong>${escapeHtml(String(dashboard.payoutHistory.length))}</strong>
+          </div>
+          ${renderPayoutHistory(dashboard.payoutHistory)}
+        </article>
+
         <article class="creator-panel" id="settings">
           <div class="panel-heading">
             <span>Referral Tree Preview</span>
@@ -1652,6 +1660,31 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
   </script>
 </body>
 </html>`;
+}
+
+function renderPayoutHistory(payoutHistory) {
+  if (!payoutHistory.length) {
+    return '<p class="muted-panel-copy">No payouts claimed yet.</p>';
+  }
+
+  return `<div class="payout-history-table" role="table" aria-label="Payout claim history">
+            <div class="payout-history-row payout-history-head" role="row">
+              <span role="columnheader">Amount</span>
+              <span role="columnheader">Claimed date</span>
+              <span role="columnheader">Batch id</span>
+              <span role="columnheader">Status</span>
+              <span role="columnheader">Stripe transfer</span>
+            </div>
+            ${payoutHistory.map((claim) => `
+              <div class="payout-history-row" role="row">
+                <strong role="cell">${escapeHtml(formatMoney(claim.total_claimed_amount))}</strong>
+                <span role="cell">${escapeHtml(formatDashboardDate(claim.created_at))}</span>
+                <code role="cell">${escapeHtml(formatBatchId(claim.id))}</code>
+                <span role="cell" class="payout-status-pill">${escapeHtml(formatPayoutStatus(claim.status))}</span>
+                <span role="cell" class="payout-transfer-placeholder">Not created yet</span>
+              </div>
+            `).join('')}
+          </div>`;
 }
 
 function renderCreatorDashboardCriticalStyles() {
@@ -1949,6 +1982,7 @@ function renderCreatorDashboardCriticalStyles() {
       gap: 16px;
     }
     .creator-panel { display: grid; gap: 22px; padding: 24px; }
+    .creator-payout-history-panel { grid-column: 1 / -1; }
     .creator-panel-accent {
       background: linear-gradient(135deg, rgba(155,92,255,0.12), rgba(255,111,97,0.08));
     }
@@ -1973,6 +2007,46 @@ function renderCreatorDashboardCriticalStyles() {
     }
     .referral-levels strong,
     .earnings-list strong { font-size: 1.45rem; }
+    .payout-history-table { display: grid; gap: 10px; min-width: 0; }
+    .payout-history-row {
+      display: grid;
+      grid-template-columns: minmax(90px, 0.9fr) minmax(110px, 1fr) minmax(120px, 1fr) minmax(90px, 0.8fr) minmax(120px, 1fr);
+      gap: 12px;
+      align-items: center;
+      padding: 14px;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.045);
+    }
+    .payout-history-head {
+      background: transparent;
+      border-color: transparent;
+      padding-block: 0;
+    }
+    .payout-history-row span,
+    .payout-history-row code {
+      min-width: 0;
+      color: var(--muted);
+      font-size: 0.84rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .payout-history-row strong {
+      color: var(--text);
+      font-size: 1rem;
+    }
+    .payout-history-row code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+    .payout-status-pill {
+      width: fit-content;
+      padding: 6px 9px;
+      border-radius: 999px;
+      background: rgba(102, 255, 186, 0.1);
+      color: #9dffd0 !important;
+      font-weight: 800;
+    }
+    .payout-transfer-placeholder { color: rgba(154, 167, 193, 0.72) !important; }
     @media (max-width: 1024px) {
       .creator-dashboard { grid-template-columns: 1fr; gap: 18px; }
       .creator-sidebar { position: static; min-height: auto; }
@@ -1980,6 +2054,8 @@ function renderCreatorDashboardCriticalStyles() {
       .creator-sidebar-nav a { flex: 0 0 auto; }
       .creator-stat-grid,
       .creator-lower-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .payout-history-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .payout-history-head { display: none; }
       .creator-content-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 720px) {
@@ -2032,7 +2108,8 @@ function renderCreatorDashboardCriticalStyles() {
       .creator-action-panel,
       .creator-stat-grid,
       .creator-lower-grid,
-      .referral-levels { grid-template-columns: 1fr; }
+      .referral-levels,
+      .payout-history-row { grid-template-columns: 1fr; }
       .creator-topbar > div:first-child,
       .creator-earnings-chip,
       .creator-action-panel,
@@ -2226,6 +2303,33 @@ function formatMoney(value, currency = 'USD') {
 
 function formatPercent(value) {
   return `${Number(value || 0).toFixed(2).replace(/\.00$/, '')}%`;
+}
+
+function formatDashboardDate(value) {
+  if (!value) return 'Not available';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(new Date(value));
+}
+
+function formatBatchId(value) {
+  if (!value) return 'Not available';
+  const batchId = String(value);
+  if (batchId.length <= 12) return batchId;
+  return `${batchId.slice(0, 8)}...${batchId.slice(-4)}`;
+}
+
+function formatPayoutStatus(value) {
+  const normalizedStatus = String(value || 'claimed').toLowerCase();
+  const labels = {
+    claimed: 'Claimed',
+    processing: 'Processing',
+    paid: 'Paid',
+    failed: 'Failed'
+  };
+  return labels[normalizedStatus] || 'Claimed';
 }
 
 function escapeHtml(value) {

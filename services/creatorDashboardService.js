@@ -19,13 +19,15 @@ async function getCreatorDashboardByCode(creatorCode) {
     secondLevelReferralsCount,
     thirdLevelReferralsCount,
     conversionStats,
-    networkEarnings
+    networkEarnings,
+    payoutHistory
   ] = await Promise.all([
     countDirectReferrals(creator.id),
     countNestedReferrals(creator.id, 2),
     countNestedReferrals(creator.id, 3),
     getConversionStats(creator.id),
-    getNetworkEarnings(creator.id)
+    getNetworkEarnings(creator.id),
+    getPayoutHistory(creator.id)
   ]);
 
   const directCommissionEarned = conversionStats.directCommissionEarned;
@@ -50,6 +52,7 @@ async function getCreatorDashboardByCode(creatorCode) {
     claimableEarnings,
     claimedEarnings,
     totalEarnings,
+    payoutHistory,
     stripeAccountId: creator.stripe_account_id || null,
     stripeOnboardingStatus: creator.stripe_onboarding_status || 'not_connected'
   };
@@ -137,6 +140,18 @@ async function getNetworkEarnings(creatorId) {
     claimable: lifecycle.claimable,
     claimed: lifecycle.claimed
   };
+}
+
+async function getPayoutHistory(creatorId) {
+  const { data, error } = await supabase
+    .from('creator_earning_claims')
+    .select('id, created_at, total_claimed_amount, status')
+    .eq('creator_id', creatorId)
+    .order('created_at', { ascending: false })
+    .limit(8);
+  if (error) throw error;
+
+  return data || [];
 }
 
 module.exports = {
