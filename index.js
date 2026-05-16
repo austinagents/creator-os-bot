@@ -562,6 +562,18 @@ app.get('/stripe/connect/start', async (req, res) => {
     }
 
     const onboardingUrl = await createStripeOnboardingLinkForCreator(creator);
+    if (!onboardingUrl) {
+      log('Stripe Connect onboarding start: account already submitted, returning to dashboard', {
+        creatorId: creator.id,
+        creatorCode: creator.creator_code
+      });
+      return res.redirect('/dashboard');
+    }
+
+    log('Stripe Connect onboarding start: redirecting to hosted onboarding', {
+      creatorId: creator.id,
+      creatorCode: creator.creator_code
+    });
     res.redirect(onboardingUrl);
   } catch (error) {
     log('Stripe Connect onboarding start error:', error);
@@ -574,13 +586,21 @@ app.get('/stripe/connect/start', async (req, res) => {
   }
 });
 app.get('/stripe/connect/refresh', async (req, res) => {
+  log('Stripe Connect refresh URL hit; regenerating onboarding link');
   res.redirect('/stripe/connect/start');
 });
 app.get('/stripe/connect/return', async (req, res) => {
   try {
     const creator = await getSignedInCreator(req, res);
     if (creator) {
-      await refreshCreatorStripeStatus(creator);
+      const updatedCreator = await refreshCreatorStripeStatus(creator);
+      log('Stripe Connect return URL hit; status refreshed', {
+        creatorId: creator.id,
+        creatorCode: creator.creator_code,
+        status: updatedCreator ? updatedCreator.stripe_onboarding_status : creator.stripe_onboarding_status
+      });
+    } else {
+      log('Stripe Connect return URL hit without signed-in creator');
     }
   } catch (error) {
     log('Stripe Connect return status refresh error:', error);
@@ -1330,9 +1350,16 @@ function renderStripePayoutSetup(dashboard) {
   const hasStripeAccount = Boolean(dashboard.stripeAccountId);
   const status = dashboard.stripeOnboardingStatus || 'not_connected';
 
-  if (status === 'complete') {
+  if (status === 'payouts_enabled') {
     return `<div class="stripe-payout-module stripe-payout-connected">
-              <span>Payouts connected</span>
+              <span>Payouts enabled</span>
+              <strong>Enabled</strong>
+            </div>`;
+  }
+
+  if (status === 'connected') {
+    return `<div class="stripe-payout-module stripe-payout-connected">
+              <span>Stripe connected</span>
               <strong>Connected</strong>
             </div>`;
   }

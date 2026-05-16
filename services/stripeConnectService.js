@@ -15,6 +15,12 @@ async function createStripeOnboardingLinkForCreator(creator) {
     throw new Error('Stripe Connect onboarding is restricted to test mode for this MVP.');
   }
 
+  log('Stripe onboarding start requested:', {
+    creatorId: creator.id,
+    hasStripeAccount: Boolean(creator.stripe_account_id),
+    currentStatus: creator.stripe_onboarding_status || 'not_connected'
+  });
+
   const accountId = creator.stripe_account_id || await createConnectedAccount(creator);
   if (!creator.stripe_account_id) {
     await updateCreatorStripeState(creator.id, {
@@ -24,9 +30,22 @@ async function createStripeOnboardingLinkForCreator(creator) {
   }
 
   const account = await retrieveConnectedAccount(accountId);
-  await persistOnboardingStatus(creator.id, account);
+  const updatedCreator = await persistOnboardingStatus(creator.id, account);
+  if (isOnboardingAlreadySubmitted(account)) {
+    log('Stripe onboarding already submitted; skipping new account link:', {
+      creatorId: creator.id,
+      accountId,
+      status: updatedCreator.stripe_onboarding_status
+    });
+    return null;
+  }
 
   const link = await createAccountLink(accountId);
+  log('Stripe onboarding account link generated:', {
+    creatorId: creator.id,
+    accountId,
+    status: updatedCreator.stripe_onboarding_status
+  });
   return link.url;
 }
 
@@ -80,6 +99,7 @@ async function createAccountLink(accountId) {
 
 async function persistOnboardingStatus(creatorId, account) {
   const status = getOnboardingStatus(account);
+  logStripeAccountState('Stripe account status refreshed:', creatorId, account, status);
   const { data, error } = await supabase
     .from('creators')
     .update({ stripe_onboarding_status: status })
@@ -104,13 +124,32 @@ async function updateCreatorStripeState(creatorId, values) {
 }
 
 function getOnboardingStatus(account) {
-  if (account && account.details_submitted && account.payouts_enabled) {
-    return 'complete';
+  if (!account) return 'pending';
+  if (account.payouts_enabled) {
+    return 'payouts_enabled';
   }
-  if (account && account.details_submitted) {
-    return 'pending';
+  if (account.details_submitted && account.charges_enabled) {
+    return 'connected';
+  }
+  if (account.details_submitted) {
+    return 'connected';
   }
   return 'pending';
+}
+
+function isOnboardingAlreadySubmitted(account) {
+  return Boolean(account && account.details_submitted);
+}
+
+function logStripeAccountState(message, creatorId, account, status) {
+  log(message, {
+    creatorId,
+    accountId: account ? account.id : null,
+    details_submitted: Boolean(account && account.details_submitted),
+    charges_enabled: Boolean(account && account.charges_enabled),
+    payouts_enabled: Boolean(account && account.payouts_enabled),
+    mappedStatus: status
+  });
 }
 
 async function stripeRequest(path, options) {
