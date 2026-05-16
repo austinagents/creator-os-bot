@@ -42,6 +42,18 @@ async function main() {
     });
   }
 
+  if (args.matrixReport || args.collisionTest || args.replayTest || args.payoutTest || args.stressTest) {
+    await printReliabilityMatrix({
+      context,
+      orderId: args.orderId,
+      creatorCode: args.creatorCode,
+      includeCollision: args.matrixReport || args.collisionTest,
+      includeReplay: args.matrixReport || args.replayTest,
+      includePayout: args.matrixReport || args.payoutTest,
+      includeStress: args.matrixReport || args.stressTest
+    });
+  }
+
   printHeader('Done');
 }
 
@@ -51,6 +63,11 @@ function parseArgs(argv) {
     seedTestCreators: false,
     validateTree: false,
     report: false,
+    collisionTest: false,
+    replayTest: false,
+    payoutTest: false,
+    stressTest: false,
+    matrixReport: false,
     orderId: null,
     creatorCode: null
   };
@@ -61,6 +78,11 @@ function parseArgs(argv) {
     else if (arg === '--seed-test-creators') args.seedTestCreators = true;
     else if (arg === '--validate-tree') args.validateTree = true;
     else if (arg === '--report') args.report = true;
+    else if (arg === '--collision-test') args.collisionTest = true;
+    else if (arg === '--replay-test') args.replayTest = true;
+    else if (arg === '--payout-test') args.payoutTest = true;
+    else if (arg === '--stress-test') args.stressTest = true;
+    else if (arg === '--matrix-report') args.matrixReport = true;
     else if (arg === '--order-id') {
       args.orderId = argv[index + 1] || null;
       index += 1;
@@ -80,7 +102,17 @@ function parseArgs(argv) {
 }
 
 function hasAnyAction(args) {
-  return args.seedTestCreators || args.validateTree || args.report || args.orderId || args.creatorCode || args.dryRun;
+  return args.seedTestCreators ||
+    args.validateTree ||
+    args.report ||
+    args.collisionTest ||
+    args.replayTest ||
+    args.payoutTest ||
+    args.stressTest ||
+    args.matrixReport ||
+    args.orderId ||
+    args.creatorCode ||
+    args.dryRun;
 }
 
 async function loadContext() {
@@ -237,7 +269,7 @@ async function printReport({ context, orderId, creatorCode }) {
 
   const conversionIds = conversions.map((row) => row.id);
   const networkEarnings = await getCreatorNetworkEarnings({
-    testCreatorIds: allTestCreatorIds,
+    testCreatorIds: orderId ? [] : allTestCreatorIds,
     conversionIds
   });
   printRows('Creator Network Earnings', networkEarnings, (row) => ({
@@ -430,6 +462,291 @@ function printEconomicsValidation({
     level_4_plus_rows: levelFourRows.length
   });
   console.log('Brand network earnings for conversion:', brandNetworkEarnings.filter((row) => row.conversion_id === conversion.id).length);
+}
+
+async function printReliabilityMatrix({
+  context,
+  orderId,
+  creatorCode,
+  includeCollision,
+  includeReplay,
+  includePayout,
+  includeStress
+}) {
+  printHeader('Reliability Matrix');
+  console.log('Mode: read-only diagnostics. This does not replay webhooks, alter payout rows, or create Stripe transfers.');
+
+  const creators = await getTestCreators();
+  const scopedCreators = creatorCode
+    ? creators.filter((creator) => normalizeCode(creator.creator_code) === creatorCode)
+    : creators;
+  const creatorIds = scopedCreators.map((creator) => creator.id);
+  const allTestCreatorIds = creators.map((creator) => creator.id);
+  const attributionEvents = await getAttributionEvents({ orderId, creatorCodes: scopedCreators.map((creator) => creator.creator_code) });
+  const clicks = await getClicks({ creatorIds, orderId });
+  const conversions = await getConversions({ creatorIds, orderId });
+  const conversionIds = conversions.map((row) => row.id);
+  const networkEarnings = await getCreatorNetworkEarnings({
+    testCreatorIds: orderId ? [] : allTestCreatorIds,
+    conversionIds
+  });
+  const brandNetworkEarnings = await getBrandNetworkEarnings({ conversionIds });
+
+  const results = [];
+
+  if (includeCollision) {
+    results.push(...await analyzeCollisionSafety({ creators: scopedCreators, attributionEvents }));
+  }
+
+  if (includeReplay) {
+    results.push(...await analyzeReplayIdempotency({ conversions, attributionEvents, networkEarnings, brandNetworkEarnings }));
+  }
+
+  if (includePayout) {
+    results.push(...await analyzePayoutLifecycle({ creators: scopedCreators, conversions, networkEarnings }));
+  }
+
+  if (includeStress) {
+    results.push(...await analyzeAttributionStress({ context, creators: scopedCreators, clicks, attributionEvents }));
+  }
+
+  printRows('Reliability Matrix Results', results, (row) => row);
+  printReliabilitySummary(results);
+  printManualReliabilityChecklist();
+}
+
+async function analyzeCollisionSafety({ creators, attributionEvents }) {
+  printHeader('Collision Testing Diagnostics');
+  const creatorCodes = creators.map((creator) => normalizeCode(creator.creator_code));
+  const recentClicks = await getRecentTestClicks({ creatorCodes, limit: 200 });
+  const clusters = buildClickCollisionClusters(recentClicks, 120000);
+  const ambiguousEvents = attributionEvents.filter((event) => String(event.unmatched_reason || '').includes('ambiguous'));
+  const deterministicEvents = attributionEvents.filter((event) => (
+    event.decision === 'conversion_created' &&
+    event.partnerlinks_ref &&
+    event.fallback_used === false
+  ));
+
+  printRows('Recent Collision Click Clusters', clusters.slice(0, 10), (cluster) => ({
+    shop_domain: cluster.shop_domain,
+    product_slug: cluster.product_slug,
+    click_count: cluster.click_count,
+    creators: cluster.creators,
+    first_click_at: cluster.first_click_at,
+    last_click_at: cluster.last_click_at,
+    window_seconds: cluster.window_seconds
+  }));
+
+  return [
+    reliabilityResult({
+      area: 'collision',
+      check: 'strict ambiguous fallback skips instead of guessing',
+      status: ambiguousEvents.length ? 'PASS' : 'CHECK',
+      detail: ambiguousEvents.length
+        ? `${ambiguousEvents.length} ambiguous fallback event(s) found and skipped.`
+        : 'No ambiguous fallback event found in the current query window; run close-together manual clicks to validate again.'
+    }),
+    reliabilityResult({
+      area: 'collision',
+      check: 'deterministic partnerlinks_ref wins when present',
+      status: deterministicEvents.length ? 'PASS' : 'CHECK',
+      detail: deterministicEvents.length
+        ? `${deterministicEvents.length} deterministic non-fallback conversion event(s) found.`
+        : 'No deterministic non-fallback conversion event found in the current query window.'
+    }),
+    reliabilityResult({
+      area: 'collision',
+      check: 'multiple creator click clusters are visible for operator review',
+      status: clusters.length ? 'PASS' : 'CHECK',
+      detail: clusters.length
+        ? `${clusters.length} close-together multi-creator click cluster(s) found.`
+        : 'No close-together multi-creator click cluster found in recent test clicks.'
+    })
+  ];
+}
+
+async function analyzeReplayIdempotency({
+  conversions,
+  attributionEvents,
+  networkEarnings,
+  brandNetworkEarnings
+}) {
+  printHeader('Replay / Idempotency Diagnostics');
+  const conversionsByOrder = groupBy(conversions, (row) => row.order_id);
+  const duplicateConversionGroups = [...conversionsByOrder.entries()].filter(([, rows]) => rows.length > 1);
+  const duplicateDiagnostics = attributionEvents.filter((event) => event.duplicate_order || event.decision === 'duplicate_skipped');
+  const duplicateNetworkRows = findDuplicateEarningRows(networkEarnings, ['earning_creator_id', 'source_creator_id', 'conversion_id', 'level']);
+  const duplicateBrandRows = findDuplicateEarningRows(brandNetworkEarnings, ['earning_brand_id', 'source_creator_id', 'conversion_id', 'level']);
+
+  printRows('Duplicate Diagnostic Events', duplicateDiagnostics, (event) => ({
+    id: event.id,
+    order_id: event.order_id,
+    decision: event.decision,
+    duplicate_order: event.duplicate_order,
+    unmatched_reason: event.unmatched_reason,
+    created_at: event.created_at
+  }));
+
+  return [
+    reliabilityResult({
+      area: 'idempotency',
+      check: 'no duplicate conversions for same order id in scoped results',
+      status: duplicateConversionGroups.length ? 'FAIL' : 'PASS',
+      detail: duplicateConversionGroups.length
+        ? `${duplicateConversionGroups.length} duplicated order id group(s) found.`
+        : 'No duplicate conversion order_id groups found in scoped results.'
+    }),
+    reliabilityResult({
+      area: 'idempotency',
+      check: 'duplicate webhook diagnostics are explainable when present',
+      status: duplicateDiagnostics.length ? 'PASS' : 'CHECK',
+      detail: duplicateDiagnostics.length
+        ? `${duplicateDiagnostics.length} duplicate_skipped diagnostic event(s) found.`
+        : 'No duplicate webhook replay diagnostic found in scoped results; replay can be tested manually with the original Shopify webhook payload.'
+    }),
+    reliabilityResult({
+      area: 'idempotency',
+      check: 'no duplicate creator network earnings rows for conversion/level',
+      status: duplicateNetworkRows.length ? 'FAIL' : 'PASS',
+      detail: duplicateNetworkRows.length
+        ? `${duplicateNetworkRows.length} duplicate creator network earning key(s) found.`
+        : 'No duplicate creator network earning keys found.'
+    }),
+    reliabilityResult({
+      area: 'idempotency',
+      check: 'no duplicate brand network earnings rows for conversion/level',
+      status: duplicateBrandRows.length ? 'FAIL' : 'PASS',
+      detail: duplicateBrandRows.length
+        ? `${duplicateBrandRows.length} duplicate brand network earning key(s) found.`
+        : 'No duplicate brand network earning keys found.'
+    })
+  ];
+}
+
+async function analyzePayoutLifecycle({ creators, conversions, networkEarnings }) {
+  printHeader('Payout Lifecycle Diagnostics');
+  const creatorIds = creators.map((creator) => creator.id);
+  const claims = await getCreatorClaims({ creatorIds });
+  const reservedRows = [
+    ...conversions.filter((row) => row.claim_batch_id && row.payout_status !== 'claimed'),
+    ...networkEarnings.filter((row) => row.claim_batch_id && row.payout_status !== 'claimed')
+  ];
+  const claimedRowsMissingTimestamp = [
+    ...conversions.filter((row) => row.payout_status === 'claimed' && !row.claimed_at),
+    ...networkEarnings.filter((row) => row.payout_status === 'claimed' && !row.claimed_at)
+  ];
+  const claimTotalsById = new Map(claims.map((claim) => [claim.id, Number(claim.total_claimed_amount || 0)]));
+  const claimedRowTotalsByBatch = sumClaimedRowsByBatch({ conversions, networkEarnings });
+  const mismatchedClaims = [];
+  for (const [claimBatchId, rowTotal] of claimedRowTotalsByBatch.entries()) {
+    const claimTotal = claimTotalsById.get(claimBatchId);
+    if (claimTotal != null && roundCurrency(claimTotal) !== roundCurrency(rowTotal)) {
+      mismatchedClaims.push({ claimBatchId, claimTotal, rowTotal: roundCurrency(rowTotal) });
+    }
+  }
+
+  printRows('Creator Claim Ledger Rows', claims, (claim) => ({
+    id: claim.id,
+    creator_id: claim.creator_id,
+    total_claimed_amount: claim.total_claimed_amount,
+    status: claim.status,
+    stripe_transfer_id: claim.stripe_transfer_id,
+    stripe_transfer_status: claim.stripe_transfer_status,
+    created_at: claim.created_at
+  }));
+
+  return [
+    reliabilityResult({
+      area: 'payout',
+      check: 'claim ledger exists for claimed/processed payouts',
+      status: claims.length ? 'PASS' : 'CHECK',
+      detail: claims.length
+        ? `${claims.length} creator_earning_claims row(s) found for test creators.`
+        : 'No claim ledger rows found for test creators yet.'
+    }),
+    reliabilityResult({
+      area: 'payout',
+      check: 'no stuck reserved claim batches in scoped rows',
+      status: reservedRows.length ? 'CHECK' : 'PASS',
+      detail: reservedRows.length
+        ? `${reservedRows.length} row(s) have claim_batch_id while not claimed; inspect for in-progress or interrupted claim.`
+        : 'No non-claimed rows with claim_batch_id found.'
+    }),
+    reliabilityResult({
+      area: 'payout',
+      check: 'claimed rows have claimed_at timestamps',
+      status: claimedRowsMissingTimestamp.length ? 'FAIL' : 'PASS',
+      detail: claimedRowsMissingTimestamp.length
+        ? `${claimedRowsMissingTimestamp.length} claimed row(s) missing claimed_at.`
+        : 'All scoped claimed rows include claimed_at when present.'
+    }),
+    reliabilityResult({
+      area: 'payout',
+      check: 'claim ledger totals match claimed row totals',
+      status: mismatchedClaims.length ? 'FAIL' : 'PASS',
+      detail: mismatchedClaims.length
+        ? `${mismatchedClaims.length} claim total mismatch(es): ${JSON.stringify(mismatchedClaims)}`
+        : 'No claim ledger total mismatches found in scoped rows.'
+    })
+  ];
+}
+
+async function analyzeAttributionStress({ context, creators, clicks, attributionEvents }) {
+  printHeader('Attribution Persistence Stress Diagnostics');
+  const creatorCodes = creators.map((creator) => normalizeCode(creator.creator_code));
+  const recentClicks = clicks.length ? clicks : await getRecentTestClicks({ creatorCodes, limit: 200 });
+  const repeatedClickGroups = [...groupBy(recentClicks, (click) => [
+    click.creator_code || click.creator_id,
+    click.product_slug || 'no-product',
+    click.shop_domain || 'no-shop'
+  ].join('|')).entries()].filter(([, rows]) => rows.length > 1);
+  const missingPartnerlinksRefClicks = recentClicks.filter((click) => !click.partnerlinks_ref);
+  const deterministicEvents = attributionEvents.filter((event) => (
+    event.decision === 'conversion_created' &&
+    event.partnerlinks_ref &&
+    event.fallback_used === false
+  ));
+  const fallbackEvents = attributionEvents.filter((event) => event.fallback_used);
+  const unmatchedEvents = attributionEvents.filter((event) => event.decision === 'skipped');
+
+  printRows('Repeated Click Groups', repeatedClickGroups.slice(0, 10), ([key, rows]) => ({
+    key,
+    click_count: rows.length,
+    first_click_at: rows[rows.length - 1].created_at,
+    last_click_at: rows[0].created_at,
+    partnerlinks_refs: unique(rows.map((row) => row.partnerlinks_ref)).slice(0, 5)
+  }));
+
+  return [
+    reliabilityResult({
+      area: 'attribution',
+      check: 'test clicks persist partnerlinks_ref',
+      status: missingPartnerlinksRefClicks.length ? 'FAIL' : 'PASS',
+      detail: missingPartnerlinksRefClicks.length
+        ? `${missingPartnerlinksRefClicks.length} recent test click(s) missing partnerlinks_ref.`
+        : 'All recent test clicks include partnerlinks_ref.'
+    }),
+    reliabilityResult({
+      area: 'attribution',
+      check: 'deterministic Shopify attributes can avoid fallback',
+      status: deterministicEvents.length ? 'PASS' : 'CHECK',
+      detail: deterministicEvents.length
+        ? `${deterministicEvents.length} non-fallback conversion event(s) found.`
+        : 'No non-fallback conversion event found in current query; confirm cart permalink env/deploy before next checkout.'
+    }),
+    reliabilityResult({
+      area: 'attribution',
+      check: 'fallback events remain visible and confidence-labeled',
+      status: fallbackEvents.every((event) => event.attribution_confidence === 'low' || event.decision === 'skipped') ? 'PASS' : 'CHECK',
+      detail: `${fallbackEvents.length} fallback event(s), ${unmatchedEvents.length} skipped/unmatched event(s).`
+    }),
+    reliabilityResult({
+      area: 'attribution',
+      check: 'current test target URL',
+      status: 'INFO',
+      detail: `${PUBLIC_BASE_URL}/r/${TEST_BRAND_SLUG}/test-creator-04/${TEST_PRODUCT_SLUG}; brand=${context.brand ? context.brand.id : 'none'}`
+    })
+  ];
 }
 
 async function getShopifyStore(shopDomain) {
@@ -638,6 +955,33 @@ async function getAttributionEvents({ orderId, creatorCodes }) {
   return data || [];
 }
 
+async function getRecentTestClicks({ creatorCodes, limit = 200 }) {
+  const normalizedCreatorCodes = (creatorCodes || []).map(normalizeCode).filter(Boolean);
+  if (!normalizedCreatorCodes.length) return [];
+
+  const { data, error } = await supabase
+    .from('clicks')
+    .select('*')
+    .in('creator_code', normalizedCreatorCodes)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
+async function getCreatorClaims({ creatorIds }) {
+  if (!creatorIds.length) return [];
+  const { data, error } = await supabase
+    .from('creator_earning_claims')
+    .select('*')
+    .in('creator_id', creatorIds)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error && ['42P01', 'PGRST205'].includes(error.code)) return [];
+  if (error) throw error;
+  return data || [];
+}
+
 function printRows(title, rows, mapper) {
   printHeader(`${title} (${rows.length})`);
   if (!rows.length) {
@@ -687,6 +1031,122 @@ function roundCurrency(value) {
 
 function escapeFilter(value) {
   return String(value || '').replace(/,/g, '\\,').replace(/\)/g, '\\)');
+}
+
+function buildClickCollisionClusters(clicks, windowMs) {
+  const sorted = [...(clicks || [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const clusters = [];
+
+  for (let index = 0; index < sorted.length; index += 1) {
+    const base = sorted[index];
+    const baseTime = new Date(base.created_at).getTime();
+    const clusterRows = sorted.filter((candidate) => {
+      if ((candidate.shop_domain || '') !== (base.shop_domain || '')) return false;
+      if ((candidate.product_slug || '') !== (base.product_slug || '')) return false;
+      const candidateTime = new Date(candidate.created_at).getTime();
+      return Math.abs(candidateTime - baseTime) <= windowMs;
+    });
+    const creators = unique(clusterRows.map((row) => normalizeCode(row.creator_code)));
+    if (creators.length < 2) continue;
+
+    const first = clusterRows[0];
+    const last = clusterRows[clusterRows.length - 1];
+    clusters.push({
+      shop_domain: base.shop_domain || null,
+      product_slug: base.product_slug || null,
+      click_count: clusterRows.length,
+      creators,
+      first_click_at: first.created_at,
+      last_click_at: last.created_at,
+      window_seconds: Math.round((new Date(last.created_at) - new Date(first.created_at)) / 1000)
+    });
+  }
+
+  return uniqueCollisionClusters(clusters);
+}
+
+function uniqueCollisionClusters(clusters) {
+  const seen = new Set();
+  const uniqueClusters = [];
+  for (const cluster of clusters) {
+    const key = [
+      cluster.shop_domain,
+      cluster.product_slug,
+      cluster.creators.join(','),
+      cluster.first_click_at,
+      cluster.last_click_at
+    ].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueClusters.push(cluster);
+  }
+  return uniqueClusters;
+}
+
+function findDuplicateEarningRows(rows, keys) {
+  const groups = groupBy(rows || [], (row) => keys.map((key) => row[key] ?? 'null').join('|'));
+  return [...groups.entries()]
+    .filter(([, groupRows]) => groupRows.length > 1)
+    .map(([key, groupRows]) => ({ key, count: groupRows.length, ids: groupRows.map((row) => row.id) }));
+}
+
+function sumClaimedRowsByBatch({ conversions, networkEarnings }) {
+  const totals = new Map();
+  for (const row of [...(conversions || []), ...(networkEarnings || [])]) {
+    if (row.payout_status !== 'claimed' || !row.claim_batch_id) continue;
+    const current = totals.get(row.claim_batch_id) || 0;
+    totals.set(row.claim_batch_id, roundCurrency(current + Number(row.commission_amount || 0)));
+  }
+  return totals;
+}
+
+function groupBy(rows, keyFn) {
+  const groups = new Map();
+  for (const row of rows || []) {
+    const key = keyFn(row);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return groups;
+}
+
+function reliabilityResult({ area, check, status, detail }) {
+  return { area, check, status, detail };
+}
+
+function printReliabilitySummary(results) {
+  printHeader('Reliability Summary');
+  const counts = results.reduce((memo, row) => {
+    memo[row.status] = (memo[row.status] || 0) + 1;
+    return memo;
+  }, {});
+  console.log(JSON.stringify(counts, null, 2));
+}
+
+function printManualReliabilityChecklist() {
+  printHeader('Manual Reliability Test Checklist');
+  console.log(JSON.stringify({
+    collision: [
+      'Open /r/aria-wellness/test-creator-05/test-product and /r/aria-wellness/test-creator-06/test-product close together in separate browsers.',
+      'Complete only one checkout.',
+      'Run --matrix-report --order-id shopify:partnerlinks-test.myshopify.com:{order_id}.',
+      'Expected: exact partnerlinks_ref wins if cart attributes survived; otherwise ambiguous fallback skips instead of guessing.'
+    ],
+    replay: [
+      'Use Shopify/Railway webhook replay only with the original signed payload if available.',
+      'Expected: duplicate_skipped diagnostic, no second conversion, no duplicate network rows.'
+    ],
+    payout: [
+      'Only use Stripe test mode.',
+      'Claim only when Stripe payouts are enabled and claimable > 0.',
+      'Expected: claim ledger row, no duplicate transfer on retry, claimed rows keep claim_batch_id and claimed_at.'
+    ],
+    stress: [
+      'Repeat same creator/product clicks multiple times.',
+      'Try delayed checkout after the click.',
+      'Expected: clicks keep partnerlinks_ref; exact cart/order attributes avoid fallback; fallback remains visible and low confidence when used.'
+    ]
+  }, null, 2));
 }
 
 main().catch((error) => {

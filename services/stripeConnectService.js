@@ -41,7 +41,8 @@ async function createStripeOnboardingLinkForCreator(creator) {
     return null;
   }
 
-  const link = await createAccountLink(accountId);
+  const creatorCode = creator.creator_code || updatedCreator.creator_code || null;
+  const link = await createAccountLink(accountId, creatorCode);
   log('Stripe onboarding account link generated:', {
     creatorId: creator.id,
     accountId,
@@ -238,11 +239,17 @@ async function retrieveConnectedAccount(accountId) {
   return stripeRequest(`/accounts/${encodeURIComponent(accountId)}`, { method: 'GET' });
 }
 
-async function createAccountLink(accountId) {
+async function createAccountLink(accountId, creatorCode) {
   const body = new URLSearchParams();
+  const refreshUrl = new URL('/stripe/connect/refresh', PUBLIC_BASE_URL);
+  const returnUrl = new URL('/stripe/connect/return', PUBLIC_BASE_URL);
+  if (creatorCode) {
+    refreshUrl.searchParams.set('creator_code', creatorCode);
+    returnUrl.searchParams.set('creator_code', creatorCode);
+  }
   body.set('account', accountId);
-  body.set('refresh_url', new URL('/stripe/connect/refresh', PUBLIC_BASE_URL).toString());
-  body.set('return_url', new URL('/stripe/connect/return', PUBLIC_BASE_URL).toString());
+  body.set('refresh_url', refreshUrl.toString());
+  body.set('return_url', returnUrl.toString());
   body.set('type', 'account_onboarding');
 
   return stripeRequest('/account_links', {

@@ -431,6 +431,42 @@ Current confirmed Shopify/Bogus Gateway test result:
 - Full confirmed flow:
   - referral click -> Shopify checkout -> `orders/paid` webhook -> attribution recovery -> conversion -> creator commission -> network earnings -> diagnostics visibility.
 
+Latest deterministic cart-attribute attribution validation:
+
+- Test referral route:
+  - `/r/aria-wellness/test-creator-04/test-product`
+- Confirmed order:
+  - `shopify:partnerlinks-test.myshopify.com:6548682670254`
+- Diagnostic event:
+  - `shopify_attribution_events.id = 7`
+  - `decision = conversion_created`
+  - `attribution_source = partnerlinks_ref`
+  - `attribution_confidence = exact`
+  - `fallback_used = false`
+  - `matched_creator_code = test-creator-04`
+  - `matched_product_slug = test-product`
+  - `click_id = 24`
+  - `conversion_id = 19`
+  - `time_delta_from_click_seconds = 34`
+- Checked sources included:
+  - `note_attributes.brand_slug`
+  - `note_attributes.creator_code`
+  - `note_attributes.partnerlinks_ref`
+  - `note_attributes.product_slug`
+- Economics validation:
+  - conversion order value: `18`
+  - direct creator commission: `2.70`
+  - `platform_fee_amount = 0.90`
+  - Level 1 earning for `test-creator-03`: `0.27`
+  - Level 2 earning for `test-creator-02`: `0.03`
+  - Level 3 earning for `test-creator-01`: `0.02`
+  - no Level 4+ creator-network earnings were created.
+- This confirms:
+  - cart/order attributes now preserve deterministic `partnerlinks_ref`
+  - exact attribution wins before fallback
+  - Level 1/2/3 economics remain correct
+  - strict fallback remains unchanged.
+
 Current webhook behavior:
 
 - Returns `200` for unmatched attribution so Shopify does not retry forever.
@@ -452,11 +488,42 @@ Current Stripe scope:
 
 Current Stripe routes:
 
-- `/stripe/connect/start`
-- `/stripe/connect/refresh`
-- `/stripe/connect/return`
+- `/stripe/connect/start?creator_code=:creatorCode`
+- `/stripe/connect/refresh?creator_code=:creatorCode`
+- `/stripe/connect/return?creator_code=:creatorCode`
 - `/stripe/connect/debug`
 - `/earnings/claim`
+
+Current payout routing safety rule:
+
+- Sensitive payout actions must be scoped to the active dashboard creator.
+- Creator Dashboard Stripe CTA now sends:
+  - `/stripe/connect/start?creator_code=<active_dashboard_creator_code>`
+- Stripe refresh/return URLs preserve the same `creator_code` context.
+- Claim form includes hidden `creator_code`.
+- Server-side Stripe/claim routes verify:
+  - signed-in Supabase auth user exists
+  - requested creator exists by exact creator/referral code
+  - requested creator `auth_user_id` matches signed-in auth user id
+  - action proceeds only for that scoped creator
+- Routes must never silently fall back to the newest/default creator row when an explicit `creator_code` is provided.
+
+Payout routing bug discovered and patched:
+
+- Bug:
+  - `/dashboard/test-creator-04` displayed `test-creator-04`, but Stripe onboarding could start for `frostclips`.
+- Root cause:
+  - Stripe CTA linked to global `/stripe/connect/start`.
+  - `/stripe/connect/start` used `getSignedInCreator()`.
+  - `getSignedInCreator()` resolves creator by auth user via `getCreatorByAuthUserId()`.
+  - `getCreatorByAuthUserId()` returns the newest creator row for that auth user.
+  - The same auth user owned both `frostclips` and `test-creator-04`, so payout routing selected `frostclips`.
+- Patch:
+  - Payout routes now use explicit dashboard creator context and ownership verification.
+  - Stripe account links now include creator-scoped refresh/return URLs.
+  - Claim route now claims only the requested owned creator.
+- Principle reinforced:
+  - payout/auth/attribution systems should use explicit resource scoping, ownership checks, deterministic routing, idempotent financial operations, exact-match resolution, and safe failure over ambiguous execution.
 
 Current onboarding states:
 
@@ -476,19 +543,20 @@ Current payout lifecycle:
 Claim flow:
 
 1. Signed-in creator clicks Claim Earnings.
-2. Server verifies creator ownership.
-3. Server requires `stripe_onboarding_status = payouts_enabled`.
-4. Server requires creator `stripe_account_id`.
-5. Server requires `STRIPE_SECRET_KEY` beginning with `sk_test_`.
-6. Server reserves claimable rows with `claim_batch_id`.
-7. Server creates a claim row in `creator_earning_claims`.
-8. Server creates a Stripe test transfer using claim batch id as idempotency key.
-9. Server stores:
+2. Claim form submits the active dashboard creator code.
+3. Server verifies signed-in auth user owns the requested creator.
+4. Server requires `stripe_onboarding_status = payouts_enabled`.
+5. Server requires creator `stripe_account_id`.
+6. Server requires `STRIPE_SECRET_KEY` beginning with `sk_test_`.
+7. Server reserves claimable rows with `claim_batch_id`.
+8. Server creates a claim row in `creator_earning_claims`.
+9. Server creates a Stripe test transfer using claim batch id as idempotency key.
+10. Server stores:
    - `stripe_transfer_id`
    - `stripe_transfer_status`
    - `stripe_transfer_created_at`
-10. Server marks reserved earnings rows as `claimed`.
-11. Dashboard shows payout history.
+11. Server marks reserved earnings rows as `claimed`.
+12. Dashboard shows payout history.
 
 Claim idempotency/recovery state:
 
@@ -778,6 +846,11 @@ Supported flags:
 - `--report`
 - `--order-id <order_id>`
 - `--creator-code <creator_code>`
+- `--collision-test`
+- `--replay-test`
+- `--payout-test`
+- `--stress-test`
+- `--matrix-report`
 
 Safety behavior:
 
@@ -801,6 +874,7 @@ Safety behavior:
   - `signup_source = production_safety_test`
 - The script refuses to modify creators outside the allowed test namespace.
 - The script does not run SQL migrations, delete rows, create live Stripe transfers, or change payout state.
+- Reliability matrix modes are read-only diagnostics. They inspect existing clicks, conversions, network earnings, claim ledgers, and attribution events without replaying webhooks or mutating payout rows.
 
 Referral tree created/validated:
 
@@ -840,6 +914,75 @@ node scripts/productionSafetyTest.js --report --order-id shopify:partnerlinks-te
 - `test-creator-01` receives Level 3 = 2% of `platform_fee_amount`.
 - No Level 4+ creator-network earning exists.
 - `shopify_attribution_events` contains the webhook decision and diagnostic context.
+
+Reliability matrix commands:
+
+```bash
+node scripts/productionSafetyTest.js --matrix-report
+node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify:partnerlinks-test.myshopify.com:{order_id}
+```
+
+Current reliability matrix coverage:
+
+- Collision diagnostics:
+  - identifies close-together multi-creator click clusters for the same shop/product.
+  - checks for ambiguous fallback events that safely skipped instead of guessing.
+  - checks for deterministic non-fallback conversions when `partnerlinks_ref` survives.
+- Replay/idempotency diagnostics:
+  - checks duplicate conversion rows by `order_id`.
+  - checks duplicate creator-network and brand-network earning keys.
+  - surfaces duplicate webhook diagnostic events when present.
+- Payout lifecycle diagnostics:
+  - reports `creator_earning_claims` for test creators.
+  - checks for stuck reserved `claim_batch_id` rows.
+  - checks claimed rows for `claimed_at`.
+  - compares claim ledger totals against claimed row totals when claims exist.
+- Attribution stress diagnostics:
+  - checks recent test clicks for missing `partnerlinks_ref`.
+  - reports repeated click groups.
+  - summarizes fallback/unmatched visibility and confidence labeling.
+
+Latest read-only reliability matrix result:
+
+- Command:
+  - `node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify:partnerlinks-test.myshopify.com:6548682670254`
+- Summary:
+  - `10 PASS`
+  - `4 CHECK`
+  - `1 INFO`
+- PASS:
+  - deterministic `partnerlinks_ref` attribution exists and avoided fallback.
+  - no duplicate conversions were found for scoped order id.
+  - no duplicate creator-network earnings keys were found.
+  - no duplicate brand-network earnings keys were found.
+  - no stuck reserved claim batches were found in scoped rows.
+  - claimed row timestamp checks passed for scoped data.
+  - recent test clicks include `partnerlinks_ref`.
+- CHECK:
+  - no current close-together multi-creator collision cluster exists in the query window.
+  - no duplicate webhook replay diagnostic exists yet.
+  - no test-creator payout claim ledger rows exist yet.
+  - collision/replay/payout claim scenarios still need manual execution to complete the reliability matrix.
+
+Duplicate webhook replay precheck:
+
+- Target order inspected:
+  - `shopify:partnerlinks-test.myshopify.com:6548718420142`
+- Existing conversion:
+  - `conversions.id = 21`
+  - attributed to `test-creator-06`
+  - `attribution_source = partnerlinks_ref`
+  - `fallback_used = false`
+- Existing diagnostics:
+  - `shopify_attribution_events.id = 9`
+  - `decision = conversion_created`
+  - no duplicate replay diagnostic exists yet.
+- Existing economics:
+  - no duplicate conversion row found for the scoped order.
+  - no creator-network earnings rows exist for the scoped order because `test-creator-06` has no parent chain.
+  - no brand-network earnings rows exist for the scoped order.
+- Raw Shopify webhook payloads are not currently stored in PartnerLinks DB/repo.
+- Safest duplicate replay path still requires explicit approval because it will intentionally create one additional `duplicate_skipped` diagnostics row while leaving conversions/earnings unchanged.
 
 ## Validation Workflow
 
@@ -905,7 +1048,7 @@ node --check scripts/productionSafetyTest.js
 
 Current highest-priority blocker/risk:
 
-- Shopify attribution is now working end-to-end with diagnostics visibility in production. The highest-priority reliability work is no longer basic proof of flow; it is hardening deterministic `partnerlinks_ref` recovery and multi-creator/multi-product collision handling so low-confidence recent-click fallback remains an emergency path, not the normal path.
+- Deterministic Shopify attribution is now working through cart/order attributes and exact `partnerlinks_ref` recovery. The highest-priority reliability work is now completing manual collision, duplicate webhook replay, and Stripe test-claim recovery scenarios across the 10 test creators before scaling onboarding.
 
 Known risks:
 
@@ -934,10 +1077,11 @@ Known non-blocking limitations:
 
 ## Recommended Next Steps
 
-1. Harden deterministic `partnerlinks_ref` attribution so confirmed orders resolve through exact ref/session recovery instead of low-confidence recent-click fallback whenever Shopify preserves enough context.
-   - Keep the confirmed Aria Wellness flow working.
-   - Use `/shopify_attribution_debug` as the operator verification path.
-   - Preserve ambiguity skipping instead of guessing.
+1. Complete the manual production-safety reliability matrix across the 10 test creators.
+   - Collision: click `test-creator-05` and `test-creator-06` close together, complete one checkout, verify exact attribution wins or ambiguity skips safely.
+   - Replay: replay a real signed Shopify `orders/paid` webhook payload if available, verify `duplicate_skipped` diagnostics and no duplicate conversion/earnings rows.
+   - Payout: when test earnings are claimable and Stripe test payouts are enabled, claim once and retry safely to verify claim ledger/idempotency.
+   - Use `node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify:partnerlinks-test.myshopify.com:{order_id}` after each scenario.
 
 2. Register/verify Shopify `orders/paid` webhook setup for connected stores.
    - Confirm whether webhook registration is manual or automated per installed store.

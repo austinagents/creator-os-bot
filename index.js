@@ -14,7 +14,7 @@ const {
   bindCreatorToInviteSession,
   bindCreatorToBrandOrigin
 } = require("./services/creatorNetworkService");
-const { findOrCreateWebCreator, getCreatorById, getCreatorByAuthUserId } = require("./services/creatorService");
+const { findOrCreateWebCreator, getCreatorById, getCreatorByAuthUserId, getCreatorByCodeOrReferralCode } = require("./services/creatorService");
 const { getCreatorDashboardByCode } = require("./services/creatorDashboardService");
 const { getBrandDashboardBySlug } = require("./services/brandDashboardService");
 const { getGoogleOAuthUrl, exchangeAuthCodeForUser, getCurrentAuthUser } = require("./services/authService");
@@ -704,7 +704,10 @@ app.get('/dashboard/:creatorCode', async (req, res) => {
 });
 app.post('/earnings/claim', async (req, res) => {
   try {
-    const creator = await getSignedInCreator(req, res);
+    const creator = await getScopedSignedInCreator(req, res, {
+      creatorCode: req.body ? req.body.creator_code : null,
+      requireExplicitCreatorCode: true
+    });
     if (!creator || !creator.creator_code) {
       return res.redirect('/dashboard');
     }
@@ -757,18 +760,23 @@ app.post('/earnings/claim', async (req, res) => {
 });
 app.get('/stripe/connect/start', async (req, res) => {
   try {
-    const creator = await getSignedInCreator(req, res);
+    const requestedCreatorCode = normalizeCode(req.query.creator_code);
+    const creator = await getScopedSignedInCreator(req, res, {
+      creatorCode: requestedCreatorCode,
+      requireExplicitCreatorCode: Boolean(requestedCreatorCode)
+    });
     if (!creator) {
       return res.redirect('/dashboard');
     }
 
     const onboardingUrl = await createStripeOnboardingLinkForCreator(creator);
+    const creatorDashboardPath = `/dashboard/${encodeURIComponent(normalizeCode(creator.creator_code))}`;
     if (!onboardingUrl) {
       log('Stripe Connect onboarding start: account already submitted, returning to dashboard', {
         creatorId: creator.id,
         creatorCode: creator.creator_code
       });
-      return res.redirect('/dashboard');
+      return res.redirect(creatorDashboardPath);
     }
 
     log('Stripe Connect onboarding start: redirecting to hosted onboarding', {
@@ -802,13 +810,23 @@ app.get('/stripe/connect/debug', async (req, res) => {
   }
 });
 app.get('/stripe/connect/refresh', async (req, res) => {
-  log('Stripe Connect refresh URL hit; regenerating onboarding link');
-  res.redirect('/stripe/connect/start');
+  const creatorCode = normalizeCode(req.query.creator_code);
+  log('Stripe Connect refresh URL hit; regenerating onboarding link', {
+    creatorCode: creatorCode || null
+  });
+  const query = creatorCode ? `?creator_code=${encodeURIComponent(creatorCode)}` : '';
+  res.redirect(`/stripe/connect/start${query}`);
 });
 app.get('/stripe/connect/return', async (req, res) => {
+  let redirectPath = '/dashboard';
   try {
-    const creator = await getSignedInCreator(req, res);
+    const requestedCreatorCode = normalizeCode(req.query.creator_code);
+    const creator = await getScopedSignedInCreator(req, res, {
+      creatorCode: requestedCreatorCode,
+      requireExplicitCreatorCode: Boolean(requestedCreatorCode)
+    });
     if (creator) {
+      redirectPath = `/dashboard/${encodeURIComponent(normalizeCode(creator.creator_code))}`;
       const updatedCreator = await refreshCreatorStripeStatus(creator);
       log('Stripe Connect return URL hit; status refreshed', {
         creatorId: creator.id,
@@ -822,7 +840,7 @@ app.get('/stripe/connect/return', async (req, res) => {
     log('Stripe Connect return status refresh error:', error);
   }
 
-  res.redirect('/dashboard');
+  res.redirect(redirectPath);
 });
 app.get('/brand-dashboard', (req, res) => {
   res.send(renderBrandDashboardEntryPage());
@@ -1102,6 +1120,46 @@ async function getSignedInCreator(req, res) {
 
   const creator = await getCreatorByAuthUserId(authUser.id);
   return creator || null;
+}
+
+async function getScopedSignedInCreator(req, res, {
+  creatorCode,
+  requireExplicitCreatorCode = false
+} = {}) {
+  const authUser = await getCurrentAuthUser(req, res);
+  if (!authUser) return null;
+
+  const normalizedCreatorCode = normalizeCode(creatorCode);
+  if (!normalizedCreatorCode) {
+    if (requireExplicitCreatorCode) {
+      log('Scoped creator resolution blocked: missing explicit creator_code', {
+        authUserId: authUser.id
+      });
+      return null;
+    }
+    return await getCreatorByAuthUserId(authUser.id);
+  }
+
+  const creator = await getCreatorByCodeOrReferralCode(normalizedCreatorCode, null);
+  if (!creator) {
+    log('Scoped creator resolution blocked: creator not found', {
+      authUserId: authUser.id,
+      creatorCode: normalizedCreatorCode
+    });
+    return null;
+  }
+
+  if (String(creator.auth_user_id || '') !== String(authUser.id)) {
+    log('Scoped creator resolution blocked: auth user does not own requested creator', {
+      authUserId: authUser.id,
+      requestedCreatorCode: normalizedCreatorCode,
+      creatorId: creator.id,
+      creatorAuthUserId: creator.auth_user_id || null
+    });
+    return null;
+  }
+
+  return creator;
 }
 
 function renderHomepage(creator) {
@@ -1703,18 +1761,19 @@ function renderStripePayoutSetup(dashboard) {
   if (hasStripeAccount) {
     return `<div class="stripe-payout-module">
               <span>Finish payout setup</span>
-              ${renderStripeConnectButton()}
+              ${renderStripeConnectButton(dashboard.creatorCode)}
             </div>`;
   }
 
   return `<div class="stripe-payout-module">
             <span>Connect to withdraw earnings</span>
-            ${renderStripeConnectButton()}
+            ${renderStripeConnectButton(dashboard.creatorCode)}
           </div>`;
 }
 
-function renderStripeConnectButton() {
-  return `<a class="stripe-connect-button" href="/stripe/connect/start" aria-label="Connect with Stripe">
+function renderStripeConnectButton(creatorCode) {
+  const href = `/stripe/connect/start?creator_code=${encodeURIComponent(normalizeCode(creatorCode))}`;
+  return `<a class="stripe-connect-button" href="${escapeHtml(href)}" aria-label="Connect with Stripe">
             <span>Stripe</span>
           </a>`;
 }
@@ -1744,6 +1803,7 @@ function renderCreatorEarningsLifecycle(dashboard, options = {}) {
               <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
             </div>
             <form class="claim-earnings-form" method="POST" action="/earnings/claim">
+              <input type="hidden" name="creator_code" value="${escapeHtml(dashboard.creatorCode)}">
               <button class="claim-earnings-button" type="submit"${canClaim ? '' : ' disabled'}>Claim earnings</button>
             </form>
           </div>`;
