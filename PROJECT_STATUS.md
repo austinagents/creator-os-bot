@@ -38,6 +38,7 @@ Last updated: 2026-05-15
 - Product-level referral link MVP is UI-only through `/brands/:brand_slug`. Featured brand cards click through to a brand product page with manually curated mock products, brand-level referral links, and product-level preview links in the planned `/r/:brand_slug/:creator_code/:product_slug` format. Signed-in creators see their real lowercase creator code; signed-out visitors see `creator` as the placeholder.
 - Brand detail pages distinguish brand-wide referral links from product-specific referral links with peach/gold editorial supporting copy aligned to the homepage hero accent style.
 - Stripe Connect Express payout onboarding MVP is scaffolded in sandbox/test mode. The Creator Dashboard Total Earnings card now shows Not connected, Finish setup, Stripe connected, or Payouts enabled states based on Stripe `details_submitted`, `charges_enabled`, and `payouts_enabled`. This only creates/reuses a creator Stripe connected account and sends creators through hosted onboarding when setup is not already submitted; it does not move money, create transfers, calculate withdrawals, or custody creator earnings.
+- Earnings Lifecycle MVP is scaffolded before real money movement. New direct commissions, creator-network earnings, and brand-origin network earnings are stored as `pending` with a configurable 24-hour claim window, then displayed as pending or claimable on the Creator Dashboard. Claimable earnings can show a disabled Claim earnings CTA when Stripe is connected, but no Stripe transfers or live payouts are created yet.
 - Auth persistence now uses dedicated server-set httpOnly access and refresh token cookies with a 30-day max age instead of relying on Supabase's full session blob cookie, so returning creators can be restored across normal browser returns.
 - Homepage brand navigation stores only a non-sensitive brand slug in browser state after Shopify install/brand setup to switch returning connected brands from Register Your Business to Brand Dashboard.
 - `/creator_dashboard` is available as an admin/operator Discord shortcut for dashboard URL lookup and quick verification.
@@ -294,6 +295,8 @@ Migration files currently present:
 - `database/migrations/006_brand_setup_fields.sql`
 - `database/migrations/007_brand_origin_network.sql`
 - `database/migrations/008_normalize_referral_codes.sql`
+- `database/migrations/009_stripe_connect_creators.sql`
+- `database/migrations/010_earnings_lifecycle.sql`
 
 ## Current Discord Commands
 
@@ -340,6 +343,8 @@ database/migrations/005_shopify_stores.sql
 database/migrations/006_brand_setup_fields.sql
 database/migrations/007_brand_origin_network.sql
 database/migrations/008_normalize_referral_codes.sql
+database/migrations/009_stripe_connect_creators.sql
+database/migrations/010_earnings_lifecycle.sql
 ```
 
 4. Start the app:
@@ -402,8 +407,9 @@ npm start
 - Brand setup displays a brand-origin creator onboarding link at `/join/brand/:brand_slug`.
 - Newly generated brand-origin onboarding links use the lowercase brand slug format `/join/brand/:brand_slug`; existing numeric brand-id links remain accepted.
 - Creators who sign up through a brand onboarding link can be permanently marked with `creators.invited_by_brand_id`.
-- There is no embedded Shopify admin UI, webhook automation, billing, Stripe Connect integration, public marketplace, auth system, or web dashboard yet.
+- There is no embedded Shopify admin UI, webhook automation, billing, live Stripe transfers, public marketplace, or payout automation yet.
 - Current sales recording is manual through `/record_conversion`.
+- Direct commissions and network earnings now carry payout lifecycle fields: `payout_status` and `claimable_at`. The default lifecycle is `pending -> claimable -> claimed`, with new earnings becoming claimable after 24 hours by default. The Creator Dashboard promotes elapsed creator earnings from `pending` to `claimable` on load. The pending window is configurable with `EARNINGS_PENDING_WINDOW_HOURS`.
 - `/record_conversion` now accepts optional `platform_fee_amount`. Creator-network override rows are only created when this value is greater than zero.
 - When `platform_fee_amount` is greater than zero, conversion recording can create creator network earnings and, if the chain reaches a brand origin sponsor before Level 3 is exhausted, a `brand_network_earnings` row.
 - `/record_conversion` slash command registration includes optional numeric `platform_fee_amount`; if omitted, command handling treats it as `0`.

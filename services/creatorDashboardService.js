@@ -1,5 +1,10 @@
 const supabase = require('../database/database/supabase');
 const { normalizeCode } = require('../utils/slug');
+const {
+  EARNING_STATUS_CLAIMABLE,
+  EARNING_STATUS_PENDING,
+  sumLifecycleAmounts
+} = require('./earningsLifecycleService');
 
 async function getCreatorDashboardByCode(creatorCode) {
   const normalizedCreatorCode = normalizeCode(creatorCode);
@@ -7,6 +12,8 @@ async function getCreatorDashboardByCode(creatorCode) {
 
   const creator = await findCreatorByCode(normalizedCreatorCode);
   if (!creator) return null;
+
+  await promoteClaimableEarningsForCreator(creator.id);
 
   const [
     directReferralsCount,
@@ -23,7 +30,10 @@ async function getCreatorDashboardByCode(creatorCode) {
   ]);
 
   const directCommissionEarned = conversionStats.directCommissionEarned;
-  const totalEarnings = directCommissionEarned + networkEarnings;
+  const totalEarnings = directCommissionEarned + networkEarnings.total;
+  const pendingEarnings = conversionStats.pendingCommission + networkEarnings.pending;
+  const claimableEarnings = conversionStats.claimableCommission + networkEarnings.claimable;
+  const claimedEarnings = conversionStats.claimedCommission + networkEarnings.claimed;
 
   return {
     creator,
@@ -36,7 +46,10 @@ async function getCreatorDashboardByCode(creatorCode) {
     totalConversions: conversionStats.totalConversions,
     totalOrderValue: conversionStats.totalOrderValue,
     directCommissionEarned,
-    networkEarnings,
+    networkEarnings: networkEarnings.total,
+    pendingEarnings,
+    claimableEarnings,
+    claimedEarnings,
     totalEarnings,
     stripeAccountId: creator.stripe_account_id || null,
     stripeOnboardingStatus: creator.stripe_onboarding_status || 'not_connected'
@@ -95,26 +108,56 @@ async function countNestedReferrals(rootCreatorId, level) {
 async function getConversionStats(creatorId) {
   const { data, error } = await supabase
     .from('conversions')
-    .select('order_value, commission_amount')
+    .select('order_value, commission_amount, payout_status, claimable_at')
     .eq('creator_id', creatorId);
   if (error) throw error;
 
   const conversions = data || [];
+  const lifecycle = sumLifecycleAmounts(conversions);
   return {
     totalConversions: conversions.length,
     totalOrderValue: conversions.reduce((sum, row) => sum + Number(row.order_value || 0), 0),
-    directCommissionEarned: conversions.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0)
+    directCommissionEarned: lifecycle.lifetime,
+    pendingCommission: lifecycle.pending,
+    claimableCommission: lifecycle.claimable,
+    claimedCommission: lifecycle.claimed
   };
 }
 
 async function getNetworkEarnings(creatorId) {
   const { data, error } = await supabase
     .from('creator_network_earnings')
-    .select('commission_amount')
+    .select('commission_amount, payout_status, claimable_at')
     .eq('earning_creator_id', creatorId);
   if (error) throw error;
 
-  return (data || []).reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
+  const lifecycle = sumLifecycleAmounts(data || []);
+  return {
+    total: lifecycle.lifetime,
+    pending: lifecycle.pending,
+    claimable: lifecycle.claimable,
+    claimed: lifecycle.claimed
+  };
+}
+
+async function promoteClaimableEarningsForCreator(creatorId) {
+  const now = new Date().toISOString();
+
+  const { error: conversionError } = await supabase
+    .from('conversions')
+    .update({ payout_status: EARNING_STATUS_CLAIMABLE })
+    .eq('creator_id', creatorId)
+    .eq('payout_status', EARNING_STATUS_PENDING)
+    .lte('claimable_at', now);
+  if (conversionError) throw conversionError;
+
+  const { error: networkError } = await supabase
+    .from('creator_network_earnings')
+    .update({ payout_status: EARNING_STATUS_CLAIMABLE })
+    .eq('earning_creator_id', creatorId)
+    .eq('payout_status', EARNING_STATUS_PENDING)
+    .lte('claimable_at', now);
+  if (networkError) throw networkError;
 }
 
 module.exports = {

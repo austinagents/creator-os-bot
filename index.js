@@ -1396,11 +1396,45 @@ function renderStripePayoutSetup(dashboard) {
           </div>`;
 }
 
+function getStripePayoutStatusLabel(status) {
+  if (status === 'payouts_enabled') return 'Payouts enabled';
+  if (status === 'connected') return 'Stripe connected';
+  if (status === 'pending') return 'Setup incomplete';
+  return 'Not connected';
+}
+
+function renderCreatorEarningsLifecycle(dashboard) {
+  const stripeReady = ['connected', 'payouts_enabled'].includes(dashboard.stripeOnboardingStatus);
+  const canShowClaim = stripeReady && Number(dashboard.claimableEarnings || 0) > 0;
+
+  return `<div class="earnings-lifecycle-summary">
+            <div>
+              <span>Pending earnings</span>
+              <strong>${escapeHtml(formatMoney(dashboard.pendingEarnings))}</strong>
+            </div>
+            <div>
+              <span>Claimable earnings</span>
+              <strong>${escapeHtml(formatMoney(dashboard.claimableEarnings))}</strong>
+            </div>
+            <div>
+              <span>Lifetime earnings</span>
+              <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
+            </div>
+            <div>
+              <span>Stripe payout status</span>
+              <strong>${escapeHtml(getStripePayoutStatusLabel(dashboard.stripeOnboardingStatus))}</strong>
+            </div>
+            ${canShowClaim ? '<button class="claim-earnings-button" type="button" disabled>Claim earnings - coming soon</button>' : ''}
+          </div>`;
+}
+
 function renderCreatorDashboardPage(dashboard) {
   const inviteLink = dashboard.inviteLink || `${PUBLIC_BASE_URL}/join/${dashboard.creatorCode}`;
   const dashboardPath = `/dashboard/${encodeURIComponent(dashboard.creatorCode)}`;
   const primaryStats = [
-    ['Total Earnings', formatMoney(dashboard.totalEarnings), 'Campaign plus network earnings'],
+    ['Pending Earnings', formatMoney(dashboard.pendingEarnings), 'Earnings in the 24-hour pending window'],
+    ['Claimable Earnings', formatMoney(dashboard.claimableEarnings), 'Ready for future claim flow'],
+    ['Lifetime Earnings', formatMoney(dashboard.totalEarnings), 'Campaign plus network earnings'],
     ['Order Value', formatMoney(dashboard.totalOrderValue), 'Attributed creator sales'],
     ['Conversions', dashboard.totalConversions, 'Recorded sales'],
     ['Network Earnings', formatMoney(dashboard.networkEarnings), 'Creator referral overrides']
@@ -1448,6 +1482,7 @@ function renderCreatorDashboardPage(dashboard) {
         </div>
         <div class="creator-earnings-chip">
           ${renderStripePayoutSetup(dashboard)}
+          ${renderCreatorEarningsLifecycle(dashboard)}
           <span>Total earnings</span>
           <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
         </div>
@@ -1501,6 +1536,14 @@ function renderCreatorDashboardPage(dashboard) {
             <div>
               <span>Network earnings</span>
               <strong>${escapeHtml(formatMoney(dashboard.networkEarnings))}</strong>
+            </div>
+            <div>
+              <span>Pending earnings</span>
+              <strong>${escapeHtml(formatMoney(dashboard.pendingEarnings))}</strong>
+            </div>
+            <div>
+              <span>Claimable earnings</span>
+              <strong>${escapeHtml(formatMoney(dashboard.claimableEarnings))}</strong>
             </div>
           </div>
         </article>
@@ -1713,6 +1756,36 @@ function renderCreatorDashboardCriticalStyles() {
       color: #8cffc5;
       font-size: 0.78rem;
     }
+    .earnings-lifecycle-summary {
+      display: grid;
+      gap: 8px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(8, 13, 28, 0.26);
+    }
+    .earnings-lifecycle-summary div {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .earnings-lifecycle-summary strong {
+      color: var(--text);
+      font-size: 0.9rem;
+      text-align: right;
+    }
+    .claim-earnings-button {
+      min-height: 38px;
+      margin-top: 4px;
+      border: 0;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(155, 92, 255, 0.78), rgba(255, 111, 97, 0.78));
+      color: white;
+      font-size: 0.84rem;
+      font-weight: 900;
+      cursor: not-allowed;
+      opacity: 0.72;
+    }
     .creator-earnings-chip span,
     .creator-action-panel span,
     .creator-stat-card span,
@@ -1725,6 +1798,9 @@ function renderCreatorDashboardCriticalStyles() {
     .creator-earnings-chip .stripe-payout-module span {
       color: var(--text);
       font-size: 0.86rem;
+    }
+    .creator-earnings-chip .earnings-lifecycle-summary span {
+      font-size: 0.78rem;
     }
     .creator-earnings-chip > strong { font-size: clamp(2rem, 4vw, 3rem); }
     .creator-action-panel {

@@ -1,6 +1,10 @@
 const supabase = require('../database/database/supabase');
 const crypto = require('crypto');
 const { generateSlug, normalizeCode } = require('../utils/slug');
+const {
+  EARNING_STATUS_PENDING,
+  getClaimableAt
+} = require('./earningsLifecycleService');
 
 async function getBrandBySlug(slug) {
   const normalizedSlug = normalizeCode(slug);
@@ -205,6 +209,8 @@ async function recordConversion({
       commission_rate: commissionRate,
       commission_amount: commissionAmount,
       platform_fee_amount: platformFeeAmount,
+      payout_status: EARNING_STATUS_PENDING,
+      claimable_at: getClaimableAt(),
       source,
       notes: notes || null
     })

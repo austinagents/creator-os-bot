@@ -1129,6 +1129,36 @@ a {
   color: #8cffc5;
   font-size: 0.78rem;
 }
+.earnings-lifecycle-summary {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  background: rgba(8, 13, 28, 0.26);
+}
+.earnings-lifecycle-summary div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.earnings-lifecycle-summary strong {
+  color: var(--text);
+  font-size: 0.9rem;
+  text-align: right;
+}
+.claim-earnings-button {
+  min-height: 38px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(155, 92, 255, 0.78), rgba(255, 111, 97, 0.78));
+  color: white;
+  font-size: 0.84rem;
+  font-weight: 900;
+  cursor: not-allowed;
+  opacity: 0.72;
+}
 .creator-earnings-chip span,
 .creator-action-panel span,
 .creator-stat-card span,
@@ -1141,6 +1171,9 @@ a {
 .creator-earnings-chip .stripe-payout-module span {
   color: var(--text);
   font-size: 0.86rem;
+}
+.creator-earnings-chip .earnings-lifecycle-summary span {
+  font-size: 0.78rem;
 }
 .creator-earnings-chip > strong {
   font-size: clamp(2rem, 4vw, 3rem);

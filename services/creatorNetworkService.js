@@ -1,5 +1,9 @@
 const supabase = require('../database/database/supabase');
 const { normalizeCode } = require('../utils/slug');
+const {
+  EARNING_STATUS_PENDING,
+  getClaimableAt
+} = require('./earningsLifecycleService');
 
 const LEVEL_ONE_RATE = 30;
 const LEVEL_TWO_RATE = 3;
@@ -267,6 +271,8 @@ function buildCreatorEarningRow({
     platform_fee_amount: platformFeeAmount,
     commission_rate: commissionRate,
     commission_amount: roundCurrency(platformFeeAmount * commissionRate / 100),
+    payout_status: EARNING_STATUS_PENDING,
+    claimable_at: getClaimableAt(),
     level,
     notes: `Level ${level} creator-network override from PartnerLinks platform fee`
   };
@@ -287,6 +293,8 @@ function buildBrandEarningRow({
     platform_fee_amount: platformFeeAmount,
     commission_rate: commissionRate,
     commission_amount: roundCurrency(platformFeeAmount * commissionRate / 100),
+    payout_status: EARNING_STATUS_PENDING,
+    claimable_at: getClaimableAt(),
     level,
     notes: `Level ${level} brand-origin network reward from PartnerLinks platform fee`
   };
