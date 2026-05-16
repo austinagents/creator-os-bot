@@ -1386,14 +1386,25 @@ function renderStripePayoutSetup(dashboard) {
   if (hasStripeAccount) {
     return `<div class="stripe-payout-module">
               <span>Finish payout setup</span>
-              <a class="stripe-connect-button" href="/stripe/connect/start">Continue setup</a>
+              ${renderStripeConnectButton()}
+              <p>Secure payout onboarding powered by Stripe.</p>
             </div>`;
   }
 
   return `<div class="stripe-payout-module">
             <span>Connect Stripe to withdraw earnings</span>
-            <a class="stripe-connect-button" href="/stripe/connect/start">Connect with Stripe</a>
+            ${renderStripeConnectButton()}
+            <p>Secure payout onboarding powered by Stripe.</p>
           </div>`;
+}
+
+function renderStripeConnectButton() {
+  return `<a class="stripe-connect-button" href="/stripe/connect/start" aria-label="Connect with Stripe">
+            <svg class="stripe-connect-logo" viewBox="0 0 56 24" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M55.4 12.4c0-3.9-1.9-7-5.6-7s-6 3.1-6 7 2.3 6.9 6.5 6.9c2 0 3.6-.5 4.8-1.1v-3.2c-1.2.6-2.6 1-4.4 1s-3.1-.6-3.3-2.6h8c0-.2 0-.8 0-1ZM47.3 10.6c0-1.9 1.1-2.7 2.4-2.7 1.2 0 2.3.8 2.3 2.7h-4.7ZM37.7 5.4c-1.5 0-2.4.7-2.9 1.2l-.2-1h-3.4v17.8l3.9-.8v-4.3c.6.4 1.4 1 2.6 1 3.1 0 5.9-2.5 5.9-7.1 0-4.2-2.9-6.8-5.9-6.8Zm-.9 10.5c-.8 0-1.3-.3-1.7-.6V9.6c.4-.4 1-.7 1.8-.7 1.4 0 2.7 1.6 2.7 3.5 0 2.2-1.3 3.5-2.8 3.5ZM25.8 4.4l3.9-.8V.5l-3.9.8v3.1Zm0 1.2h3.9V19h-3.9V5.6ZM21.5 6.7l-.2-1.1H18V19h3.9v-9.1c.9-1.1 2.4-.9 2.9-.7V5.6c-.6-.2-2.4-.5-3.3 1.1ZM13.8 2.3l-3.8.8v12.3c0 2.3 1.7 4 4 4 1.3 0 2.2-.2 2.7-.5v-3.2c-.5.2-2.9.9-2.9-1.4V8.9h2.9V5.6h-2.9V2.3ZM3.9 9.5c0-.6.5-.8 1.4-.8 1.3 0 2.9.4 4.2 1.1V6.1C8.1 5.5 6.7 5.3 5.3 5.3 1.9 5.3 0 7.1 0 9.9c0 4.4 6 3.7 6 5.6 0 .7-.6.9-1.5.9-1.4 0-3.2-.6-4.6-1.4v3.7c1.6.7 3.2 1 4.6 1 3.5 0 5.9-1.7 5.9-4.7 0-4.8-6.5-3.9-6.5-5.5Z"/>
+            </svg>
+            <span>Connect with Stripe</span>
+          </a>`;
 }
 
 function renderCreatorEarningsLifecycle(dashboard) {
@@ -1721,18 +1732,39 @@ function renderCreatorDashboardCriticalStyles() {
       font-weight: 800;
       line-height: 1.35;
     }
+    .stripe-payout-module p {
+      margin: -2px 0 0;
+      color: rgba(214, 222, 240, 0.72);
+      font-size: 0.76rem;
+      line-height: 1.35;
+    }
     .stripe-connect-button {
-      min-height: 38px;
+      min-height: 42px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 0 14px;
-      border-radius: 8px;
-      background: linear-gradient(135deg, #9b5cff, #ff6f61);
+      gap: 10px;
+      padding: 0 16px;
+      border: 1px solid rgba(255,255,255,0.16);
+      border-radius: 10px;
+      background: linear-gradient(135deg, #635bff 0%, #7a5cff 48%, #9b5cff 100%);
       color: white;
       font-size: 0.84rem;
       font-weight: 900;
-      box-shadow: 0 14px 30px rgba(155, 92, 255, 0.18);
+      letter-spacing: 0;
+      box-shadow: 0 16px 34px rgba(99, 91, 255, 0.28);
+      transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, filter 160ms ease;
+    }
+    .stripe-connect-button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255,255,255,0.24);
+      filter: saturate(1.04);
+      box-shadow: 0 20px 42px rgba(99, 91, 255, 0.34);
+    }
+    .stripe-connect-logo {
+      width: 58px;
+      height: 25px;
+      flex: 0 0 auto;
     }
     .stripe-payout-connected {
       grid-template-columns: minmax(0, 1fr) auto;
