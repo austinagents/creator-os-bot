@@ -44,6 +44,17 @@ test-creator-01 -> test-creator-02 -> test-creator-03 -> test-creator-04
 - `DIAGNOSTICS`: audit trail, debug commands/routes, operator clarity.
 - `UI_GUARDRAIL`: universal product cards, dashboard visual consistency.
 
+## Guaranteed Behaviors
+
+- `REG-AUTH-001`: Sensitive Stripe routes must require explicit `creator_code` scoping and ownership verification.
+- `REG-AUTH-002`: Dashboard claim eligibility must compare the active dashboard creator `auth_user_id` to the signed-in auth user, not the default/latest creator.
+- `REG-ATTRIBUTION-001`: Exact `partnerlinks_ref` attribution must win before fallback.
+- `REG-ATTRIBUTION-002`: Ambiguous recent-click fallback must skip attribution instead of guessing.
+- `REG-WEBHOOK-001`: Duplicate Shopify order webhook replay must return safely and create duplicate/skipped diagnostics without creating another conversion.
+- `REG-PAYOUT-001`: Claim flow must create one `creator_earning_claims` ledger row and one Stripe transfer per claim batch.
+- `REG-PAYOUT-002`: Claim retry-after-success must not create a second transfer or duplicate ledger.
+- `REG-ECONOMICS-001`: Level 1 = 30%, Level 2 = 3%, Level 3 = 2%, and no Level 4+ payout.
+
 ## Read-Only Baseline
 
 ```bash
@@ -64,6 +75,8 @@ Expected:
 
 ### AUTH_SCOPE-001 - Creator-Scoped Stripe Debug
 
+- Regression ID:
+  - `REG-AUTH-001`
 - Mode: `READ_ONLY`
 - Route:
   - `/stripe/connect/debug?creator_code=test-creator-04`
@@ -79,6 +92,8 @@ Expected:
 
 ### ATTRIBUTION-001 - Exact Shopify Attribution
 
+- Regression ID:
+  - `REG-ATTRIBUTION-001`
 - Mode: `MANUAL_PRODUCTION_SAFE`
 - Test URL:
   - `/r/aria-wellness/test-creator-04/test-product`
@@ -93,6 +108,8 @@ Expected:
 
 ### ECONOMICS-001 - Level 1/2/3 Creator Network Earnings
 
+- Regression ID:
+  - `REG-ECONOMICS-001`
 - Mode: `READ_ONLY`
 - Source conversion:
   - sale by `test-creator-04`
@@ -107,6 +124,8 @@ Expected:
 
 ### WEBHOOK_IDEMPOTENCY-001 - Duplicate Shopify Orders Paid Replay
 
+- Regression ID:
+  - `REG-WEBHOOK-001`
 - Mode: `MANUAL_PRODUCTION_SAFE`
 - Requires:
   - `SHOPIFY_WEBHOOK_SECRET`
@@ -119,10 +138,12 @@ Expected:
   - No duplicate creator network earnings.
   - No duplicate brand network earnings.
 - Status:
-  - `CHECK`
+  - `PASS`
 
 ### PAYOUT_LIFECYCLE-001 - Claim Retry After Success
 
+- Regression ID:
+  - `REG-PAYOUT-002`
 - Mode: `SANDBOX_ACTION`
 - Requires:
   - Stripe test mode only.
@@ -132,10 +153,28 @@ Expected:
   - No duplicate claim ledger.
   - No claimed row loses `claim_batch_id`.
 - Status:
-  - `CHECK`
+  - `PASS`
+
+### PAYOUT_LIFECYCLE-002 - Claim Ledger And Stripe Transfer Per Batch
+
+- Regression ID:
+  - `REG-PAYOUT-001`
+- Mode: `SANDBOX_ACTION`
+- Requires:
+  - Stripe test mode only.
+  - Explicit approval.
+- Expected:
+  - Claim flow reserves eligible rows.
+  - One `creator_earning_claims` row is created per claim batch.
+  - One Stripe transfer is created per claim batch.
+  - Claimed earnings keep `claim_batch_id` and `claimed_at`.
+- Status:
+  - `PASS`
 
 ### ATTRIBUTION-002 - Multi-Creator Collision
 
+- Regression ID:
+  - `REG-ATTRIBUTION-002`
 - Mode: `MANUAL_PRODUCTION_SAFE`
 - Scenario:
   - `test-creator-05` and `test-creator-06` click the same product close together.
@@ -143,8 +182,10 @@ Expected:
 - Expected:
   - Exact cart/order attributes win when present.
   - If deterministic context is missing and fallback is ambiguous, skip instead of guessing.
+  - No conversion, creator earnings, or network earnings are created from an ambiguous fallback decision.
+  - `shopify_attribution_events` records `decision = skipped`, `unmatched_reason = ambiguous_recent_click_fallback`, `attribution_source = unmatched`, and `attribution_confidence = none`.
 - Status:
-  - `CHECK`
+  - `PASS`
 
 ## Test Case Template
 

@@ -36,15 +36,16 @@ Purpose:
 
 - Severity: `SEV2`
 - Category: `WEBHOOK_IDEMPOTENCY`
-- Status: `OPEN`
+- Status: `MITIGATED`
 - Description:
-  - Duplicate order protection exists in code, but signed production replay with valid HMAC still needs execution in an environment with `SHOPIFY_WEBHOOK_SECRET`.
+  - Duplicate order protection exists in code and signed replay has validated idempotent behavior.
 - Safe current behavior:
   - Webhook verifies HMAC.
   - Conversion order ids use `shopify:{shop_domain}:{order_id}`.
   - Duplicate diagnostics path exists.
+  - Duplicate replay returns safely and does not create duplicate conversions or duplicate earnings.
 - Recommended mitigation:
-  - Run approved signed replay and record results in `INCIDENT_LOG.md` or `RELIABILITY_AUDIT.md`.
+  - Keep `REG-WEBHOOK-001` in the regression matrix and rerun before major webhook changes.
 
 ### RISK-003 - Stripe Transfer Failure Recovery Needs Sandbox Drill
 
@@ -83,6 +84,35 @@ Purpose:
 - Recommended mitigation:
   - Never create separate Shopify/test product card rows, badges, or metadata.
 
+### RISK-006 - Ambiguous Fallback Must Stay Strict
+
+- Severity: `SEV1`
+- Category: `ATTRIBUTION`
+- Status: `WATCH`
+- Description:
+  - Recent-click fallback is useful only as a low-confidence emergency path. If broadened, it could misattribute sales when multiple creators promote the same product.
+- Safe current behavior:
+  - Ambiguous fallback skips attribution instead of guessing.
+  - Skipped ambiguous decisions create diagnostic rows.
+  - No conversion or earnings are created from ambiguous fallback.
+- Recommended mitigation:
+  - Preserve `REG-ATTRIBUTION-002`.
+  - Do not loosen fallback without a deterministic Shopify-supported attribution source.
+
+### RISK-007 - Payout Retry Must Stay Idempotent
+
+- Severity: `SEV1`
+- Category: `PAYOUT_LIFECYCLE`
+- Status: `WATCH`
+- Description:
+  - Payout retries can become dangerous if claim batch, ledger, or Stripe transfer recovery behavior regresses.
+- Safe current behavior:
+  - Claim retry-after-success does not create a duplicate transfer or duplicate ledger.
+  - Claimed rows remain linked to claim batch ids.
+- Recommended mitigation:
+  - Preserve `REG-PAYOUT-001` and `REG-PAYOUT-002`.
+  - Keep live payout plans blocked until sandbox failure recovery is drilled.
+
 ## Risk Entry Template
 
 ```markdown
@@ -104,4 +134,3 @@ Purpose:
 - Owner:
   - TBD
 ```
-

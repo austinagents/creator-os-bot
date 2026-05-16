@@ -947,47 +947,21 @@ Current reliability matrix coverage:
   - reports repeated click groups.
   - summarizes fallback/unmatched visibility and confidence labeling.
 
-Latest read-only reliability matrix result:
+Reliability matrix milestone:
 
-- Command:
-  - `node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify:partnerlinks-test.myshopify.com:6548682670254`
-- Summary:
-  - `10 PASS`
-  - `4 CHECK`
-  - `1 INFO`
-- PASS:
-  - deterministic `partnerlinks_ref` attribution exists and avoided fallback.
-  - no duplicate conversions were found for scoped order id.
-  - no duplicate creator-network earnings keys were found.
-  - no duplicate brand-network earnings keys were found.
-  - no stuck reserved claim batches were found in scoped rows.
-  - claimed row timestamp checks passed for scoped data.
-  - recent test clicks include `partnerlinks_ref`.
-- CHECK:
-  - no current close-together multi-creator collision cluster exists in the query window.
-  - no duplicate webhook replay diagnostic exists yet.
-  - no test-creator payout claim ledger rows exist yet.
-  - collision/replay/payout claim scenarios still need manual execution to complete the reliability matrix.
-
-Duplicate webhook replay precheck:
-
-- Target order inspected:
-  - `shopify:partnerlinks-test.myshopify.com:6548718420142`
-- Existing conversion:
-  - `conversions.id = 21`
-  - attributed to `test-creator-06`
-  - `attribution_source = partnerlinks_ref`
-  - `fallback_used = false`
-- Existing diagnostics:
-  - `shopify_attribution_events.id = 9`
-  - `decision = conversion_created`
-  - no duplicate replay diagnostic exists yet.
-- Existing economics:
-  - no duplicate conversion row found for the scoped order.
-  - no creator-network earnings rows exist for the scoped order because `test-creator-06` has no parent chain.
-  - no brand-network earnings rows exist for the scoped order.
-- Raw Shopify webhook payloads are not currently stored in PartnerLinks DB/repo.
-- Safest duplicate replay path still requires explicit approval because it will intentionally create one additional `duplicate_skipped` diagnostics row while leaving conversions/earnings unchanged.
+- Core trust pillars now validated:
+  - deterministic Shopify `partnerlinks_ref` attribution.
+  - Shopify cart/order attributes.
+  - ambiguous recent-click fallback skips instead of guessing.
+  - duplicate Shopify webhook replay is idempotent.
+  - no duplicate conversions/earnings from duplicate webhook replay.
+  - Level 1/2/3 economics work and stop after Level 3.
+  - creator-scoped Stripe onboarding.
+  - creator-scoped claim ownership.
+  - Stripe test payout claim lifecycle.
+  - `creator_earning_claims` ledger integrity.
+- Permanent regression IDs now live in `system-audit/REGRESSION_HISTORY.md` and `system-audit/TEST_MATRIX.md`.
+- Raw Shopify webhook payloads are not currently stored in PartnerLinks DB/repo; replay tests use approved signed payload/script flow.
 
 ## Validation Workflow
 
@@ -1053,7 +1027,7 @@ node --check scripts/productionSafetyTest.js
 
 Current highest-priority blocker/risk:
 
-- Deterministic Shopify attribution is now working through cart/order attributes and exact `partnerlinks_ref` recovery. The highest-priority reliability work is now completing manual collision, duplicate webhook replay, and Stripe test-claim recovery scenarios across the 10 test creators before scaling onboarding.
+- Deterministic Shopify attribution, duplicate webhook idempotency, ambiguous fallback safety, Level 1/2/3 economics, and Stripe test payout claim lifecycle are now validated. The highest-priority reliability work is now preserving these as regression guarantees while completing the remaining Stripe sandbox failure-recovery drill and multi-creator convenience navigation decision before broader onboarding.
 
 Known risks:
 
@@ -1121,6 +1095,29 @@ Rules:
   - `DIAGNOSTICS`
   - `UI_GUARDRAIL`
 
+Permanent regression IDs now tracked in `system-audit/REGRESSION_HISTORY.md` and `system-audit/TEST_MATRIX.md`:
+
+- `REG-AUTH-001`: Sensitive Stripe routes require explicit `creator_code` scoping and ownership verification.
+- `REG-AUTH-002`: Dashboard claim eligibility compares the active dashboard creator `auth_user_id` to the signed-in auth user.
+- `REG-ATTRIBUTION-001`: Exact `partnerlinks_ref` attribution wins before fallback.
+- `REG-ATTRIBUTION-002`: Ambiguous recent-click fallback skips attribution instead of guessing.
+- `REG-WEBHOOK-001`: Duplicate Shopify order webhooks are idempotent and produce duplicate/skipped diagnostics without duplicate conversions.
+- `REG-PAYOUT-001`: Claim flow creates one `creator_earning_claims` ledger row and one Stripe transfer per claim batch.
+- `REG-PAYOUT-002`: Claim retry-after-success does not create a second transfer or duplicate ledger.
+- `REG-ECONOMICS-001`: Level 1 = 30%, Level 2 = 3%, Level 3 = 2%, and no Level 4+ payout.
+
+Guaranteed behaviors:
+
+- Duplicate Shopify order webhooks cannot create duplicate conversions.
+- Duplicate Shopify order webhooks cannot create duplicate creator-network or brand-network earnings.
+- Ambiguous attribution cannot create conversions, creator earnings, network earnings, or payout-eligible rows.
+- Exact `partnerlinks_ref` attribution must win before fallback.
+- Webhook decisions create diagnostics for conversion and skipped outcomes.
+- Stripe onboarding is creator-scoped and ownership-verified.
+- Claim actions are creator-scoped and ownership-verified.
+- Payout claims are idempotent by claim batch and Stripe transfer behavior.
+- Network earnings stop after Level 3 and come only from `platform_fee_amount`.
+
 Last read-only audit run:
 
 ```bash
@@ -1184,19 +1181,19 @@ Audit checklist status:
   - PASS: cart/order attributes preserve `partnerlinks_ref`, `creator_code`, `brand_slug`, and `product_slug`.
   - PASS: exact `partnerlinks_ref` attribution wins before fallback.
   - PASS: strict fallback remains low-confidence and diagnostics-visible.
+  - PASS: ambiguous recent-click fallback skips attribution instead of guessing when deterministic attribution is missing and multiple creators could match.
   - PASS: repeated clicks for `test-creator-04` persist `partnerlinks_ref`.
   - PASS: 12 recent `test-creator-04` clicks were inspected; all included `partnerlinks_ref`.
   - PASS: 7 attribution sessions for `test-creator-04` were inspected with expected `last_click_id` updates.
-  - CHECK: no close-together multi-creator click cluster appeared in the latest scoped matrix window, so collision testing remains a manual scenario to rerun.
   - UNKNOWN: delayed checkout and multi-product attribution still need broader manual coverage.
 - Conversion ingestion:
   - PASS: `orders/paid` webhook requires HMAC.
   - PASS: duplicate conversion prevention is in place by `shopify:{shop_domain}:{order_id}`.
+  - PASS: signed duplicate Shopify webhook replay returns safely with duplicate/skipped diagnostics.
   - PASS: diagnostics ledger explains conversion source/confidence/fallback.
   - PASS: scoped report found no duplicate conversion `order_id` groups.
   - PASS: scoped report found no duplicate creator-network earning keys for conversion/level.
   - PASS: scoped report found no duplicate brand-network earning keys for conversion/level.
-  - UNKNOWN: duplicate replay test still needs the signed replay command run in an environment with `SHOPIFY_WEBHOOK_SECRET`.
 - Creator economics:
   - PASS: direct commission for conversion `19` was `2.70`.
   - PASS: platform fee was `0.90`.
@@ -1213,7 +1210,8 @@ Audit checklist status:
   - PASS: Stripe transfer used test mode.
   - PASS: latest scoped payout diagnostics found no stuck reserved claim batches.
   - PASS: latest scoped payout diagnostics found claimed rows have `claimed_at` timestamps.
-  - UNKNOWN: retry-after-success and failure-recovery paths should still be manually tested or covered with a safe diagnostic harness.
+  - PASS: claim retry-after-success does not create a second transfer or duplicate ledger.
+  - UNKNOWN: failure-recovery path should still be manually tested or covered with a safe diagnostic harness.
 - Security and isolation:
   - PASS: sensitive payout routes now use explicit creator scoping and ownership checks.
   - PASS: Stripe debug visibility now also requires explicit `creator_code` ownership, preventing multi-creator auth users from seeing the wrong Stripe state.
@@ -1228,10 +1226,7 @@ Audit checklist status:
 
 Remaining untested or partially tested edge cases:
 
-- Duplicate Shopify webhook replay with valid HMAC for an existing confirmed order.
-- Claim retry after a successful Stripe transfer to prove no second transfer is created.
 - Stripe transfer failure recovery path with a safe sandbox-only diagnostic.
-- Multi-creator collision after exact cart/order attributes are intentionally missing or stripped.
 - Delayed checkout after a stale click/session.
 - Same creator across multiple real product slugs once more than one Shopify-backed product exists.
 - Auth logout/login/session restore for `test-creator-04` after the scoped payout fixes.
@@ -1261,10 +1256,7 @@ Recommended fixes before broader real brand onboarding:
 - Decide how multi-creator auth users should choose an active creator for convenience routes:
   - temporary safe option: `/dashboard` shows a creator selection page when multiple creators share one auth user.
   - later product option: account switcher.
-- Add explicit operator docs for duplicate webhook replay requirements:
-  - requires `SHOPIFY_WEBHOOK_SECRET`
-  - must hit the real webhook endpoint
-  - must not bypass HMAC verification.
+- Keep duplicate webhook replay and ambiguous fallback tests in the regression matrix before major attribution/webhook changes.
 - Keep all payout retry/failure testing in Stripe test mode only.
 
 ## Recommended Next Steps
@@ -1272,10 +1264,10 @@ Recommended fixes before broader real brand onboarding:
 1. Patch creator-scoped non-mutating navigation where it reduces confusion.
    - `/dashboard` and homepage creator dashboard navigation need a product decision for multi-creator auth users: choose a default, show an account switcher later, or route to a selection state.
 
-2. Complete the remaining manual production-safety reliability matrix.
-   - Replay: run the signed duplicate Shopify webhook replay in an environment with `SHOPIFY_WEBHOOK_SECRET`.
-   - Payout retry: after successful claim, retry claim for `test-creator-04` and verify no duplicate transfer.
+2. Complete the remaining production-safety reliability matrix.
    - Failure recovery: test only with a safe, explicit sandbox diagnostic plan.
+   - Delayed checkout/stale session: verify attribution remains deterministic or skips safely.
+   - Multi-product: repeat tests once more than one Shopify-backed product exists.
 
 3. Register/verify Shopify `orders/paid` webhook setup for connected stores.
    - Confirm whether webhook registration is manual or automated per installed store.

@@ -51,11 +51,33 @@ Last updated: 2026-05-16
   - `PASS`
   - `test-creator-04` completed Stripe test onboarding and successfully claimed direct commission through the real claim route.
 - Duplicate webhook replay:
-  - `CHECK`
-  - Signed replay with valid HMAC still needs to be executed in an environment with `SHOPIFY_WEBHOOK_SECRET`.
+  - `PASS`
+  - Signed duplicate Shopify webhook replay is idempotent: it returns safely, records duplicate diagnostics, and does not create duplicate conversions or earnings.
+- Ambiguous fallback safety:
+  - `PASS`
+  - When deterministic Shopify attribution is missing and multiple recent clicks could match, attribution is skipped instead of guessed.
 - Multi-creator convenience navigation:
   - `CHECK`
   - `/dashboard` and homepage dashboard navigation still use default/latest creator resolution for convenience. Sensitive payout routes are scoped, but UX can be confusing when one auth user owns multiple creators.
+
+## Guaranteed Behaviors
+
+These are permanent regression guarantees. Future changes must preserve them.
+
+- Duplicate Shopify order webhooks cannot create duplicate conversions.
+- Duplicate Shopify order webhooks cannot create duplicate creator-network or brand-network earnings.
+- Ambiguous attribution cannot create conversions, creator earnings, network earnings, or payout-eligible rows.
+- Exact `partnerlinks_ref` attribution must win before any fallback logic.
+- Webhook decisions must create diagnostics for both conversion and skipped outcomes.
+- Stripe onboarding is creator-scoped and ownership-verified.
+- Claim actions are creator-scoped and ownership-verified.
+- Payout claims are idempotent by claim batch and Stripe transfer behavior.
+- A successful claim creates one `creator_earning_claims` ledger row and one Stripe transfer per claim batch.
+- Retry after a successful claim must not create a second transfer or duplicate claim ledger.
+- Creator network economics stop after Level 3.
+- Level 1 = 30%, Level 2 = 3%, Level 3 = 2%.
+- Network earnings come only from `platform_fee_amount`, never from creator direct commission principal.
+- No Level 4+ payout may be created.
 
 ## Latest Audit Entries
 
@@ -100,9 +122,10 @@ node scripts/productionSafetyTest.js --report --matrix-report --creator-code tes
   - Platform fee `$0.90`.
   - Level 1/2/3 earnings `$0.27`, `$0.03`, `$0.02`.
   - Claim ledger and Stripe test transfer for `test-creator-04`.
+  - Ambiguous recent-click fallback skips attribution instead of guessing.
+  - Duplicate Shopify webhook replay is idempotent and produces duplicate/skipped diagnostics.
+  - Claim retry-after-success does not create a duplicate transfer or duplicate ledger.
 - Remaining checks:
-  - Duplicate webhook replay with valid HMAC.
-  - Claim retry after success.
   - Failure recovery test in Stripe sandbox.
 
 ## Audit Entry Template
@@ -131,4 +154,3 @@ node scripts/productionSafetyTest.js --report --matrix-report --creator-code tes
 - Follow-up:
   - Remaining work.
 ```
-
