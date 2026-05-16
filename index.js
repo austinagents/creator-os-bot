@@ -1396,13 +1396,6 @@ function renderStripePayoutSetup(dashboard) {
           </div>`;
 }
 
-function getStripePayoutStatusLabel(status) {
-  if (status === 'payouts_enabled') return 'Payouts enabled';
-  if (status === 'connected') return 'Stripe connected';
-  if (status === 'pending') return 'Setup incomplete';
-  return 'Not connected';
-}
-
 function renderCreatorEarningsLifecycle(dashboard) {
   const stripeReady = ['connected', 'payouts_enabled'].includes(dashboard.stripeOnboardingStatus);
   const canShowClaim = stripeReady && Number(dashboard.claimableEarnings || 0) > 0;
@@ -1419,10 +1412,6 @@ function renderCreatorEarningsLifecycle(dashboard) {
             <div>
               <span>Lifetime earnings</span>
               <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
-            </div>
-            <div>
-              <span>Stripe payout status</span>
-              <strong>${escapeHtml(getStripePayoutStatusLabel(dashboard.stripeOnboardingStatus))}</strong>
             </div>
             ${canShowClaim ? '<button class="claim-earnings-button" type="button" disabled>Claim earnings - coming soon</button>' : ''}
           </div>`;
