@@ -55,6 +55,16 @@ const MOCK_FEATURED_BRANDS = [
     name: 'Aria Wellness',
     description: 'Daily ritual goods for balanced routines.',
     products: [
+      {
+        name: 'Test Product',
+        slug: 'test-product',
+        description: 'Live Shopify storefront test product for conversion attribution.',
+        price: '$1.00',
+        payout: 'Live Shopify test integration',
+        badge: 'Test Product',
+        imageLabel: 'Test Product',
+        shopifyProductUrl: 'https://8lae7a17px6eu4be-75054973102.shopifypreview.com/products_preview?preview_key=0055388d3352fb4ac5cc3a8078667adc'
+      },
       ['Energy Gummies', 'A bright daily boost for morning routines.', 'Est. 20% creator commission'],
       ['Focus Drops', 'Clean nootropic drops for deep work blocks.', 'Est. 18% creator commission'],
       ['Reset Tea', 'Evening tea blend for calm recovery.', 'Est. 15% creator commission'],
@@ -272,12 +282,22 @@ const MOCK_FEATURED_BRANDS = [
   }
 ].map((brand) => ({
   ...brand,
-  products: brand.products.map(([name, description, payout]) => ({
-    name,
-    slug: generateSlug(name),
-    description,
-    payout
-  }))
+  products: brand.products.map((product) => {
+    if (!Array.isArray(product)) {
+      return {
+        ...product,
+        slug: normalizeCode(product.slug || generateSlug(product.name))
+      };
+    }
+
+    const [name, description, payout] = product;
+    return {
+      name,
+      slug: generateSlug(name),
+      description,
+      payout
+    };
+  })
 }));
 
 app.post('/webhooks/shopify/orders-paid', express.raw({ type: '*/*' }), async (req, res) => {
@@ -459,6 +479,72 @@ app.get('/r/:brandSlug/:creatorCode', async (req, res) => {
   }
 });
 
+app.get('/r/:brandSlug/:creatorCode/:productSlug', async (req, res) => {
+  try {
+    const brandSlug = normalizeCode(req.params.brandSlug);
+    const creatorCode = normalizeCode(req.params.creatorCode);
+    const productSlug = normalizeCode(req.params.productSlug);
+    const productDestinationUrl = getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode);
+
+    const brand = await getBrandBySlug(brandSlug);
+    if (!brand) {
+      if (productDestinationUrl) {
+        log('Product referral forwarding without DB brand match:', { brandSlug, creatorCode, productSlug });
+        return res.redirect(productDestinationUrl);
+      }
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const destinationUrl = productDestinationUrl || brand.destination_url;
+    if (!destinationUrl) {
+      return res.status(400).json({ error: 'Product destination URL not configured' });
+    }
+
+    const creator = await getCreatorByCodeAndBrand(creatorCode, brand.id);
+    if (!creator) {
+      if (productDestinationUrl) {
+        log('Product referral forwarding without DB creator match:', { brandId: brand.id, brandSlug, creatorCode, productSlug });
+        return res.redirect(productDestinationUrl);
+      }
+      return res.status(404).json({ error: 'Creator not found' });
+    }
+
+    let sessionId = req.cookies.partnerlinks_sid;
+    if (!sessionId) {
+      sessionId = generateSessionId();
+    }
+
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || '';
+    const ipHash = hashIp(clientIp);
+    const userAgent = req.headers['user-agent'] || '';
+    const referrer = req.headers['referer'] || '';
+
+    const click = await recordClick(
+      brand.id,
+      creator.id,
+      sessionId,
+      ipHash,
+      userAgent,
+      referrer,
+      destinationUrl
+    );
+
+    await upsertAttributionSession(brand.id, sessionId, creator.id, click.id);
+
+    res.cookie('partnerlinks_sid', sessionId, {
+      maxAge: 14 * 24 * 60 * 60 * 1000,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax'
+    });
+
+    res.redirect(destinationUrl);
+  } catch (error) {
+    log('Product referral redirect error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.get('/', async (req, res) => {
   try {
     const creator = await getHomepageCreator(req, res);
@@ -483,8 +569,9 @@ app.get('/brands/:brandSlug', async (req, res) => {
       ));
     }
 
+    const queryCreatorCode = normalizeCode(req.query.creator_code || req.query.referral_code || req.query.partnerlinks_ref || req.query.pl_ref);
     const creator = await getHomepageCreator(req, res);
-    const creatorCode = creator && creator.creator_code ? normalizeCode(creator.creator_code) : 'creator';
+    const creatorCode = queryCreatorCode || (creator && creator.creator_code ? normalizeCode(creator.creator_code) : 'creator');
     res.set('Cache-Control', 'no-store, max-age=0');
     res.send(renderBrandDiscoveryPage(brand, creatorCode));
   } catch (error) {
@@ -1143,13 +1230,19 @@ function renderBrandDiscoveryPage(brand, creatorCode) {
 
 function renderFeaturedProductCard(brandSlug, creatorCode, product) {
   const referralLink = buildDisplayReferralLink(brandSlug, creatorCode, product.slug);
+  const isShopifyProduct = Boolean(product.shopifyProductUrl);
+  const productCtaLabel = isShopifyProduct ? 'View Product' : 'Copy Link';
   return `<article class="featured-product-card">
-            <div class="product-image-placeholder">${escapeHtml(getBrandInitials(product.name))}</div>
+            <div class="product-image-placeholder${isShopifyProduct ? ' shopify-product-image' : ''}">${escapeHtml(product.imageLabel || getBrandInitials(product.name))}</div>
+            ${product.badge ? `<span class="product-test-badge">${escapeHtml(product.badge)}</span>` : ''}
             <h3>${escapeHtml(product.name)}</h3>
             <p>${escapeHtml(product.description)}</p>
+            ${product.price ? `<strong class="product-price">${escapeHtml(product.price)}</strong>` : ''}
             <span class="product-payout-line">${escapeHtml(product.payout)}</span>
             <div class="mock-referral-link">${escapeHtml(referralLink)}</div>
-            <button class="featured-copy-button" type="button" data-brand-copy="${escapeHtml(referralLink)}">Copy Link</button>
+            ${isShopifyProduct
+              ? `<a class="featured-copy-button product-cta-link" href="https://${escapeHtml(referralLink)}">${escapeHtml(productCtaLabel)}</a>`
+              : `<button class="featured-copy-button" type="button" data-brand-copy="${escapeHtml(referralLink)}">${escapeHtml(productCtaLabel)}</button>`}
           </article>`;
 }
 
@@ -1157,6 +1250,22 @@ function buildDisplayReferralLink(brandSlug, creatorCode, productSlug) {
   const parts = [REFERRAL_LINK_HOST, 'r', normalizeCode(brandSlug), normalizeCode(creatorCode)];
   if (productSlug) parts.push(normalizeCode(productSlug));
   return parts.join('/');
+}
+
+function getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode) {
+  const brand = getMockFeaturedBrand(brandSlug);
+  const product = brand ? brand.products.find((item) => normalizeCode(item.slug) === normalizeCode(productSlug)) : null;
+  if (!product || !product.shopifyProductUrl) return null;
+
+  const url = new URL(product.shopifyProductUrl);
+  const normalizedCreatorCode = normalizeCode(creatorCode);
+  if (normalizedCreatorCode && normalizedCreatorCode !== 'creator') {
+    url.searchParams.set('creator_code', normalizedCreatorCode);
+  }
+  url.searchParams.set('partnerlinks_ref', normalizedCreatorCode || 'creator');
+  url.searchParams.set('brand_slug', normalizeCode(brandSlug));
+  url.searchParams.set('product_slug', normalizeCode(productSlug));
+  return url.toString();
 }
 
 function getBrandInitials(name) {
