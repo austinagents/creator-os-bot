@@ -37,6 +37,7 @@ Last updated: 2026-05-15
 - Homepage now includes a UI-only `Featured Brands` discovery section under `How it works?` with 20 imaginary mock brand cards, mock referral links, and client-side copy buttons. This is intentionally not connected to real brand/campaign database logic yet.
 - Product-level referral link MVP is UI-only through `/brands/:brand_slug`. Featured brand cards click through to a brand product page with manually curated mock products, brand-level referral links, and product-level preview links in the planned `/r/:brand_slug/:creator_code/:product_slug` format. Signed-in creators see their real lowercase creator code; signed-out visitors see `creator` as the placeholder.
 - Brand detail pages distinguish brand-wide referral links from product-specific referral links with peach/gold editorial supporting copy aligned to the homepage hero accent style.
+- Stripe Connect Express payout onboarding MVP is scaffolded in sandbox/test mode. The Creator Dashboard Total Earnings card now shows Connect with Stripe, Continue setup, or Payouts connected states. This only creates/reuses a creator Stripe connected account and sends creators through hosted onboarding; it does not move money, create transfers, calculate withdrawals, or custody creator earnings.
 - Auth persistence now uses dedicated server-set httpOnly access and refresh token cookies with a 30-day max age instead of relying on Supabase's full session blob cookie, so returning creators can be restored across normal browser returns.
 - Homepage brand navigation stores only a non-sensitive brand slug in browser state after Shopify install/brand setup to switch returning connected brands from Register Your Business to Brand Dashboard.
 - `/creator_dashboard` is available as an admin/operator Discord shortcut for dashboard URL lookup and quick verification.
@@ -82,6 +83,13 @@ Product discovery and curation direction:
 - The first roughly 20 featured brands should remain PartnerLinks-managed/admin-curated instead of requiring brands to manage products or campaigns themselves.
 - Public product pages use the planned product-level referral URL format: `/r/:brand_slug/:creator_code/:product_slug`.
 - Shopify product auto-pull is planned later through the Shopify Admin API, but pulled products should first be stored as candidates and manually approved/curated before becoming publicly visible.
+
+Stripe Connect payout direction:
+
+- Creator payouts should use connected payout rails, starting with Stripe Connect Express in test mode.
+- Brand -> Stripe Connect payout rails -> Creator is the long-term payment direction.
+- PartnerLinks should not custody creator campaign earnings directly.
+- Current Stripe scope is onboarding/connection state only; withdrawals, transfers, payout calculations, and real-money movement are intentionally out of scope.
 9. Brand sets display name, destination URL, and creator commission percentage.
 10. PartnerLinks displays creator onboarding and tracking link formats.
 

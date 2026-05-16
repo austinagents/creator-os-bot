@@ -18,6 +18,7 @@ const { findOrCreateWebCreator, getCreatorById, getCreatorByAuthUserId } = requi
 const { getCreatorDashboardByCode } = require("./services/creatorDashboardService");
 const { getBrandDashboardBySlug } = require("./services/brandDashboardService");
 const { getGoogleOAuthUrl, exchangeAuthCodeForUser, getCurrentAuthUser } = require("./services/authService");
+const { createStripeOnboardingLinkForCreator, refreshCreatorStripeStatus } = require("./services/stripeConnectService");
 const {
   buildShopifyInstallUrl,
   validateShopifyCallback,
@@ -553,6 +554,40 @@ app.get('/dashboard/:creatorCode', async (req, res) => {
     ));
   }
 });
+app.get('/stripe/connect/start', async (req, res) => {
+  try {
+    const creator = await getSignedInCreator(req, res);
+    if (!creator) {
+      return res.redirect('/dashboard');
+    }
+
+    const onboardingUrl = await createStripeOnboardingLinkForCreator(creator);
+    res.redirect(onboardingUrl);
+  } catch (error) {
+    log('Stripe Connect onboarding start error:', error);
+    res.status(500).send(renderSimpleMessagePage(
+      'Unable to start Stripe setup',
+      'Please confirm Stripe test keys are configured, then try again.',
+      '/dashboard',
+      'Back to dashboard'
+    ));
+  }
+});
+app.get('/stripe/connect/refresh', async (req, res) => {
+  res.redirect('/stripe/connect/start');
+});
+app.get('/stripe/connect/return', async (req, res) => {
+  try {
+    const creator = await getSignedInCreator(req, res);
+    if (creator) {
+      await refreshCreatorStripeStatus(creator);
+    }
+  } catch (error) {
+    log('Stripe Connect return status refresh error:', error);
+  }
+
+  res.redirect('/dashboard');
+});
 app.get('/brand-dashboard', (req, res) => {
   res.send(renderBrandDashboardEntryPage());
 });
@@ -818,14 +853,19 @@ async function getHomepageCreator(req, res) {
 }
 
 async function getSignedInCreatorDashboardPath(req, res) {
-  const authUser = await getCurrentAuthUser(req, res);
-  if (!authUser) return null;
-
-  const creator = await getCreatorByAuthUserId(authUser.id);
+  const creator = await getSignedInCreator(req, res);
   if (!creator || !creator.creator_code) return null;
 
   const creatorCode = normalizeCode(creator.creator_code);
   return creatorCode ? `/dashboard/${encodeURIComponent(creatorCode)}` : null;
+}
+
+async function getSignedInCreator(req, res) {
+  const authUser = await getCurrentAuthUser(req, res);
+  if (!authUser) return null;
+
+  const creator = await getCreatorByAuthUserId(authUser.id);
+  return creator || null;
 }
 
 function renderHomepage(creator) {
@@ -1286,6 +1326,30 @@ function renderBrandTopCreators(creators) {
   `).join('');
 }
 
+function renderStripePayoutSetup(dashboard) {
+  const hasStripeAccount = Boolean(dashboard.stripeAccountId);
+  const status = dashboard.stripeOnboardingStatus || 'not_connected';
+
+  if (status === 'complete') {
+    return `<div class="stripe-payout-module stripe-payout-connected">
+              <span>Payouts connected</span>
+              <strong>Connected</strong>
+            </div>`;
+  }
+
+  if (hasStripeAccount) {
+    return `<div class="stripe-payout-module">
+              <span>Finish payout setup</span>
+              <a class="stripe-connect-button" href="/stripe/connect/start">Continue setup</a>
+            </div>`;
+  }
+
+  return `<div class="stripe-payout-module">
+            <span>Connect Stripe to withdraw earnings</span>
+            <a class="stripe-connect-button" href="/stripe/connect/start">Connect with Stripe</a>
+          </div>`;
+}
+
 function renderCreatorDashboardPage(dashboard) {
   const inviteLink = dashboard.inviteLink || `${PUBLIC_BASE_URL}/join/${dashboard.creatorCode}`;
   const dashboardPath = `/dashboard/${encodeURIComponent(dashboard.creatorCode)}`;
@@ -1337,6 +1401,7 @@ function renderCreatorDashboardPage(dashboard) {
           <p class="creator-code-line">Creator code <strong>${escapeHtml(dashboard.creatorCode)}</strong></p>
         </div>
         <div class="creator-earnings-chip">
+          ${renderStripePayoutSetup(dashboard)}
           <span>Total earnings</span>
           <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
         </div>
@@ -1563,6 +1628,45 @@ function renderCreatorDashboardCriticalStyles() {
       padding: 28px;
       background: linear-gradient(135deg, rgba(155,92,255,0.18), rgba(255,111,97,0.12));
     }
+    .stripe-payout-module {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(8, 13, 28, 0.32);
+    }
+    .stripe-payout-module span {
+      color: var(--text);
+      font-size: 0.86rem;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+    .stripe-connect-button {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 14px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #9b5cff, #ff6f61);
+      color: white;
+      font-size: 0.84rem;
+      font-weight: 900;
+      box-shadow: 0 14px 30px rgba(155, 92, 255, 0.18);
+    }
+    .stripe-payout-connected {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+    }
+    .stripe-payout-connected strong {
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(102, 255, 186, 0.12);
+      color: #8cffc5;
+      font-size: 0.78rem;
+    }
     .creator-earnings-chip span,
     .creator-action-panel span,
     .creator-stat-card span,
@@ -1572,7 +1676,11 @@ function renderCreatorDashboardCriticalStyles() {
       color: var(--muted);
       font-size: 0.9rem;
     }
-    .creator-earnings-chip strong { font-size: clamp(2rem, 4vw, 3rem); }
+    .creator-earnings-chip .stripe-payout-module span {
+      color: var(--text);
+      font-size: 0.86rem;
+    }
+    .creator-earnings-chip > strong { font-size: clamp(2rem, 4vw, 3rem); }
     .creator-action-panel {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;

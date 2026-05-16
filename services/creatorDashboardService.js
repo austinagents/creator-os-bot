@@ -37,7 +37,9 @@ async function getCreatorDashboardByCode(creatorCode) {
     totalOrderValue: conversionStats.totalOrderValue,
     directCommissionEarned,
     networkEarnings,
-    totalEarnings
+    totalEarnings,
+    stripeAccountId: creator.stripe_account_id || null,
+    stripeOnboardingStatus: creator.stripe_onboarding_status || 'not_connected'
   };
 }
 

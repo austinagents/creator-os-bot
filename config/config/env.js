@@ -15,6 +15,8 @@ module.exports = {
   SHOPIFY_API_SECRET: process.env.SHOPIFY_API_SECRET,
   SHOPIFY_SCOPES: process.env.SHOPIFY_SCOPES || 'read_orders,read_customers',
   SHOPIFY_APP_URL: process.env.SHOPIFY_APP_URL || process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+  STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
   NODE_ENV: process.env.NODE_ENV || "development",
   DEFAULT_REF_TEMPLATE: process.env.DEFAULT_REF_TEMPLATE,
   PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
