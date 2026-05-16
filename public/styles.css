@@ -1122,12 +1122,30 @@ a {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
 }
+.stripe-payout-connected .stripe-reset-form {
+  grid-column: 1 / -1;
+}
 .stripe-payout-connected strong {
   padding: 7px 10px;
   border-radius: 999px;
   background: rgba(102, 255, 186, 0.12);
   color: #8cffc5;
   font-size: 0.78rem;
+}
+.stripe-reset-form {
+  margin: 0;
+}
+.stripe-reset-form button {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.045);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
 }
 .creator-earnings-chip span,
 .creator-action-panel span,
