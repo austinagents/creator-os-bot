@@ -16,6 +16,7 @@ module.exports = {
   SHOPIFY_WEBHOOK_SECRET: process.env.SHOPIFY_WEBHOOK_SECRET,
   SHOPIFY_SCOPES: process.env.SHOPIFY_SCOPES || 'read_orders,read_customers',
   SHOPIFY_APP_URL: process.env.SHOPIFY_APP_URL || process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
+  ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID: process.env.ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID,
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
   STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
   NODE_ENV: process.env.NODE_ENV || "development",

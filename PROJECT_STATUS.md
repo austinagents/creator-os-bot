@@ -16,7 +16,7 @@ This file is the current implementation snapshot for starting a new ChatGPT/Code
 - Creator Google signup through Supabase Auth works.
 - Returning creators are restored through server-set httpOnly access/refresh token cookies with a 30-day max age.
 - Shopify OAuth install works end-to-end in production.
-- Shopify paid-order webhook ingestion is implemented and has produced a successful test conversion.
+- Shopify paid-order webhook ingestion is implemented and has produced a successful production Bogus Gateway test conversion with diagnostics visibility.
 - Stripe Connect Express payout onboarding is implemented in sandbox/test mode.
 - Claim Earnings can create Stripe test-mode transfers when claimable earnings exist and creator Stripe payouts are enabled.
 
@@ -312,19 +312,25 @@ Current product attribution flow:
 5. PartnerLinks creates/reuses `partnerlinks_sid`.
 6. PartnerLinks records a `clicks` row with creator, brand, product, shop, destination, and `partnerlinks_ref` metadata.
 7. PartnerLinks upserts `attribution_sessions`.
-8. PartnerLinks redirects to the live Shopify storefront product URL with:
+8. For Shopify-backed products with a configured `shopifyVariantId`, PartnerLinks redirects to a Shopify cart permalink that includes cart/order attributes:
+   - `attributes[partnerlinks_ref]`
+   - `attributes[creator_code]`
+   - `attributes[brand_slug]`
+   - `attributes[product_slug]`
+   - `ref`
+9. If no `shopifyVariantId` is configured, PartnerLinks falls back to the live Shopify storefront product URL with query params:
    - `creator_code`
    - `partnerlinks_ref`
    - `brand_slug`
    - `product_slug`
-9. Shopify checkout completes.
-10. Shopify `orders/paid` webhook posts to `/webhooks/shopify/orders-paid`.
-11. Webhook verifies HMAC using `SHOPIFY_WEBHOOK_SECRET`.
-12. Webhook resolves `shopify_stores.shop_domain -> brand_id`.
-13. Webhook prevents duplicate conversion by `shopify:{shop_domain}:{order_id}`.
-14. Webhook resolves attribution through a deterministic ranked resolver.
-15. Webhook writes an internal attribution diagnostic event when the diagnostics table exists.
-16. Webhook creates conversion and earnings rows when attribution resolves cleanly.
+10. Shopify checkout completes.
+11. Shopify `orders/paid` webhook posts to `/webhooks/shopify/orders-paid`.
+12. Webhook verifies HMAC using `SHOPIFY_WEBHOOK_SECRET`.
+13. Webhook resolves `shopify_stores.shop_domain -> brand_id`.
+14. Webhook prevents duplicate conversion by `shopify:{shop_domain}:{order_id}`.
+15. Webhook resolves attribution through a deterministic ranked resolver.
+16. Webhook writes an internal attribution diagnostic event when the diagnostics table exists.
+17. Webhook creates conversion and earnings rows when attribution resolves cleanly.
 
 Current webhook attribution resolution order:
 
@@ -381,11 +387,19 @@ Current Aria Wellness test flow:
 - Product card uses the universal product card layout.
 - Product referral link format:
   - `partnerlinks.app/r/aria-wellness/:creatorCode/test-product`
+- Internal Shopify-backed product metadata now supports:
+  - `shopifyProductUrl`
+  - `shopifyVariantId`
+- The Test Product variant id is read from `ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID`.
+- When `ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID` is configured, `/r/aria-wellness/:creatorCode/test-product` redirects to a Shopify cart permalink:
+  - `https://partnerlinks-test.myshopify.com/cart/{variantId}:1?attributes[partnerlinks_ref]={partnerlinks_ref}&attributes[creator_code]={creator_code}&attributes[brand_slug]=aria-wellness&attributes[product_slug]=test-product&ref={partnerlinks_ref}`
+- This is intended to persist attribution into Shopify cart/order attributes so the webhook can resolve through exact `partnerlinks_ref`/`note_attributes` before recent-click fallback.
 - Test creator used in production test:
   - `austin-taylor`
 - Live Shopify product URL:
   - `https://partnerlinks-test.myshopify.com/products/test-product`
 - Shopify preview URLs are no longer used for checkout testing.
+- Strict recent-click fallback remains unchanged and still skips ambiguous orders instead of guessing.
 
 Current confirmed Shopify/Bogus Gateway test result:
 
@@ -403,6 +417,19 @@ Current confirmed Shopify/Bogus Gateway test result:
   - `austin-taylor`
 - Direct creator commission was created.
 - Creator/network earnings were created from `platform_fee_amount`.
+- Shopify attribution hardening is working in production.
+- `shopify_attribution_events` inserts successfully.
+- `/shopify_attribution_debug` retrieves attribution decisions.
+- Confirmed diagnostic decision:
+  - order: `shopify:partnerlinks-test.myshopify.com:6548591673518`
+  - decision: `conversion_created`
+  - source: `recent_click_fallback`
+  - confidence: `low`
+  - fallback: yes, click `14`
+  - click delta: `33s`
+  - conversion: `18`
+- Full confirmed flow:
+  - referral click -> Shopify checkout -> `orders/paid` webhook -> attribution recovery -> conversion -> creator commission -> network earnings -> diagnostics visibility.
 
 Current webhook behavior:
 
@@ -624,6 +651,17 @@ Current product card rule:
 - SQL must be run manually by the user in Supabase SQL Editor.
 - No automatic migration runner currently exists.
 
+`scripts/productionSafetyTest.js`
+
+- Test-only Node diagnostic script for production-safety validation.
+- Default behavior is dry-run/read-only.
+- The only write mode is `--seed-test-creators`.
+- Seeding is restricted to the fixed `test-creator-01` through `test-creator-10` namespace.
+- Refuses `--creator-code` outside the allowed test creator list.
+- Does not delete rows.
+- Does not touch attribution resolution, webhook logic, payout logic, UI, or routes.
+- Reports test creator graph, clicks, attribution sessions, conversions, network earnings, brand network earnings, Shopify attribution events, and expected vs actual Level 1/2/3 economics for a provided order id.
+
 ## Environment Variables
 
 Core/Discord:
@@ -658,6 +696,7 @@ Shopify:
 - `SHOPIFY_WEBHOOK_SECRET`
 - `SHOPIFY_SCOPES`
 - `SHOPIFY_APP_URL`
+- `ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID`
 
 Stripe:
 
@@ -723,6 +762,85 @@ Bot runtime:
 - If Discord bot is offline, run `npm start`.
 - If Discord bot is already online, do not run `npm start` again without stopping the existing process.
 
+## Production Safety Test Utility
+
+Script:
+
+```bash
+node scripts/productionSafetyTest.js
+```
+
+Supported flags:
+
+- `--dry-run`
+- `--seed-test-creators`
+- `--validate-tree`
+- `--report`
+- `--order-id <order_id>`
+- `--creator-code <creator_code>`
+
+Safety behavior:
+
+- Running with no flags is dry-run/read-only.
+- `--dry-run` is explicit dry-run/read-only.
+- `--seed-test-creators` is the only flag that writes data.
+- Write mode creates/updates only:
+  - `test-creator-01`
+  - `test-creator-02`
+  - `test-creator-03`
+  - `test-creator-04`
+  - `test-creator-05`
+  - `test-creator-06`
+  - `test-creator-07`
+  - `test-creator-08`
+  - `test-creator-09`
+  - `test-creator-10`
+- Test creators use:
+  - `display_name = TEST Creator XX`
+  - `referral_code = creator_code`
+  - `signup_source = production_safety_test`
+- The script refuses to modify creators outside the allowed test namespace.
+- The script does not run SQL migrations, delete rows, create live Stripe transfers, or change payout state.
+
+Referral tree created/validated:
+
+- `test-creator-01`
+- `test-creator-01 -> test-creator-02`
+- `test-creator-02 -> test-creator-03`
+- `test-creator-03 -> test-creator-04`
+- `test-creator-05` through `test-creator-10` remain available for attribution/collision tests without parent links.
+
+Exact manual production-safety test flow:
+
+1. Seed test creators:
+
+```bash
+node scripts/productionSafetyTest.js --seed-test-creators --validate-tree --report
+```
+
+2. Open the Aria Wellness test product referral link:
+
+```text
+/r/aria-wellness/test-creator-04/test-product
+```
+
+3. Complete Shopify Bogus Gateway checkout.
+
+4. Run the report for the resulting Shopify order id:
+
+```bash
+node scripts/productionSafetyTest.js --report --order-id shopify:partnerlinks-test.myshopify.com:{order_id}
+```
+
+5. Confirm expected economics:
+
+- `test-creator-04` receives direct creator commission in `conversions`.
+- `test-creator-03` receives Level 1 = 30% of `platform_fee_amount`.
+- `test-creator-02` receives Level 2 = 3% of `platform_fee_amount`.
+- `test-creator-01` receives Level 3 = 2% of `platform_fee_amount`.
+- No Level 4+ creator-network earning exists.
+- `shopify_attribution_events` contains the webhook decision and diagnostic context.
+
 ## Validation Workflow
 
 Run `node --check` for every changed JS file.
@@ -777,11 +895,17 @@ node --check commands/handlers.js
 node --check commands/registerCommands.js
 ```
 
+Latest production safety script validation:
+
+```bash
+node --check scripts/productionSafetyTest.js
+```
+
 ## Current Known Blockers And Risks
 
 Current highest-priority blocker/risk:
 
-- Shopify attribution is now more deterministic and inspectable, but it remains the highest-priority reliability area before adding analytics or marketplace complexity. The next layer should verify the new `partnerlinks_ref`-first resolver in production, confirm diagnostics rows are written after migration `014`, and keep hardening multi-creator/multi-product collision handling without breaking the confirmed Aria Wellness test flow.
+- Shopify attribution is now working end-to-end with diagnostics visibility in production. The highest-priority reliability work is no longer basic proof of flow; it is hardening deterministic `partnerlinks_ref` recovery and multi-creator/multi-product collision handling so low-confidence recent-click fallback remains an emergency path, not the normal path.
 
 Known risks:
 
@@ -810,18 +934,18 @@ Known non-blocking limitations:
 
 ## Recommended Next Steps
 
-1. Harden Shopify attribution persistence beyond the current recent-click fallback.
+1. Harden deterministic `partnerlinks_ref` attribution so confirmed orders resolve through exact ref/session recovery instead of low-confidence recent-click fallback whenever Shopify preserves enough context.
    - Keep the confirmed Aria Wellness flow working.
-   - Prefer deterministic `partnerlinks_ref` recovery wherever possible.
-   - Add diagnostics for webhook attribution source and fallback type.
+   - Use `/shopify_attribution_debug` as the operator verification path.
+   - Preserve ambiguity skipping instead of guessing.
 
 2. Register/verify Shopify `orders/paid` webhook setup for connected stores.
    - Confirm whether webhook registration is manual or automated per installed store.
    - Avoid duplicate webhook registrations.
 
-3. Add a small internal/admin attribution diagnostic surface.
-   - Could be Discord-first.
-   - Useful fields: shop domain, latest clicks, `partnerlinks_ref`, product slug, creator code, latest webhook decision.
+3. Expand internal/admin attribution diagnostics only as needed.
+   - Current `/shopify_attribution_debug` works for recent decisions.
+   - Next useful additions would be lookup by `partnerlinks_ref`, latest clicks by creator/product, and unmatched-only filters.
 
 4. Move product data toward admin-curated Shopify-backed products.
    - Keep universal product card layout.

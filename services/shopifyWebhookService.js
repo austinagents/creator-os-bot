@@ -247,9 +247,21 @@ function extractShopifyAttribution(order) {
 
   for (const attribute of order.note_attributes || []) {
     if (!attribute) continue;
-    if (attribute.name) checkedSources.push(`note_attributes.${attribute.name}`);
-    if (attribute.value) {
-      candidates.push(buildAttributionCandidate(`note_attributes.${attribute.name || 'value'}`, attribute.value, 'note_attributes'));
+    const attributeName = normalizeCode(attribute.name);
+    const attributeSource = `note_attributes.${attributeName || 'value'}`;
+    if (attribute.name) checkedSources.push(attributeSource);
+    if (attribute.value != null) {
+      const candidateValue = [...ATTRIBUTION_KEYS, ...CONTEXT_KEYS].includes(attributeName)
+        ? `${attributeName}=${attribute.value}`
+        : attribute.value;
+      if ([...ATTRIBUTION_KEYS, ...CONTEXT_KEYS].includes(attributeName)) {
+        log('Shopify webhook found named attribution attribute:', {
+          source: attributeSource,
+          key: attributeName,
+          hasValue: Boolean(attribute.value)
+        });
+      }
+      candidates.push(buildAttributionCandidate(attributeSource, candidateValue, 'note_attributes'));
     }
   }
 
@@ -284,7 +296,12 @@ function collectNestedAttribution(value, candidates, checkedSources, path = 'ord
 
     if ([...ATTRIBUTION_KEYS, ...CONTEXT_KEYS].includes(normalizedKey) && childValue != null) {
       checkedSources.push(childPath);
-      candidates.push(buildAttributionCandidate(childPath, String(childValue), getNestedSourceGroup(childPath, true)));
+      log('Shopify webhook found nested attribution attribute:', {
+        source: childPath,
+        key: normalizedKey,
+        hasValue: Boolean(childValue)
+      });
+      candidates.push(buildAttributionCandidate(childPath, `${normalizedKey}=${childValue}`, getNestedSourceGroup(childPath, true)));
     }
 
     if (typeof childValue === 'string' && looksAttributionBearing(childValue)) {

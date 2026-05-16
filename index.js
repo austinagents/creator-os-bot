@@ -42,7 +42,8 @@ const { generateSlug, normalizeCode } = require("./utils/slug");
 const {
   DISCORD_TOKEN,
   BOT_ALERTS_CHANNEL_ID,
-  PUBLIC_BASE_URL
+  PUBLIC_BASE_URL,
+  ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID
 } = require("./config/config/env");
 
 const app = express();
@@ -64,7 +65,8 @@ const MOCK_FEATURED_BRANDS = [
         description: 'A simple wellness product for testing creator referrals.',
         payout: 'Est. 20% creator commission',
         imageLabel: 'Test Product',
-        shopifyProductUrl: 'https://partnerlinks-test.myshopify.com/products/test-product'
+        shopifyProductUrl: 'https://partnerlinks-test.myshopify.com/products/test-product',
+        shopifyVariantId: ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID || null
       },
       ['Energy Gummies', 'A bright daily boost for morning routines.', 'Est. 20% creator commission'],
       ['Focus Drops', 'Clean nootropic drops for deep work blocks.', 'Est. 18% creator commission'],
@@ -1265,14 +1267,47 @@ function getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode, pa
   const product = brand ? brand.products.find((item) => normalizeCode(item.slug) === normalizeCode(productSlug)) : null;
   if (!product || !product.shopifyProductUrl) return null;
 
-  const url = new URL(product.shopifyProductUrl);
   const normalizedCreatorCode = normalizeCode(creatorCode);
+  const normalizedBrandSlug = normalizeCode(brandSlug);
+  const normalizedProductSlug = normalizeCode(productSlug);
+  const normalizedPartnerlinksRef = partnerlinksRef || normalizedCreatorCode || 'creator';
+
+  if (product.shopifyVariantId) {
+    const productUrl = new URL(product.shopifyProductUrl);
+    const cartUrl = new URL(`/cart/${encodeURIComponent(String(product.shopifyVariantId))}:1`, productUrl.origin);
+    cartUrl.searchParams.set('attributes[partnerlinks_ref]', normalizedPartnerlinksRef);
+    cartUrl.searchParams.set('attributes[creator_code]', normalizedCreatorCode);
+    cartUrl.searchParams.set('attributes[brand_slug]', normalizedBrandSlug);
+    cartUrl.searchParams.set('attributes[product_slug]', normalizedProductSlug);
+    cartUrl.searchParams.set('ref', normalizedPartnerlinksRef);
+
+    log('Shopify product referral using cart permalink attribution:', {
+      brandSlug: normalizedBrandSlug,
+      productSlug: normalizedProductSlug,
+      creatorCode: normalizedCreatorCode,
+      shopifyVariantId: String(product.shopifyVariantId),
+      destinationUrl: cartUrl.toString(),
+      partnerlinksRefPresent: Boolean(normalizedPartnerlinksRef)
+    });
+
+    return cartUrl.toString();
+  }
+
+  const url = new URL(product.shopifyProductUrl);
   if (normalizedCreatorCode && normalizedCreatorCode !== 'creator') {
     url.searchParams.set('creator_code', normalizedCreatorCode);
   }
-  url.searchParams.set('partnerlinks_ref', partnerlinksRef || normalizedCreatorCode || 'creator');
-  url.searchParams.set('brand_slug', normalizeCode(brandSlug));
-  url.searchParams.set('product_slug', normalizeCode(productSlug));
+  url.searchParams.set('partnerlinks_ref', normalizedPartnerlinksRef);
+  url.searchParams.set('brand_slug', normalizedBrandSlug);
+  url.searchParams.set('product_slug', normalizedProductSlug);
+  log('Shopify product referral using product URL attribution params:', {
+    brandSlug: normalizedBrandSlug,
+    productSlug: normalizedProductSlug,
+    creatorCode: normalizedCreatorCode,
+    variantPathUsed: false,
+    destinationUrl: url.toString(),
+    partnerlinksRefPresent: Boolean(normalizedPartnerlinksRef)
+  });
   return url.toString();
 }
 
