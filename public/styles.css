@@ -734,10 +734,6 @@ a {
   font-size: 0.9rem;
   line-height: 1.45;
 }
-.product-price {
-  color: var(--text);
-  font-size: 1.12rem;
-}
 .proof-panel {
   display: flex;
   justify-content: space-between;

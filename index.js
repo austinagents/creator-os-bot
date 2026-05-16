@@ -58,9 +58,8 @@ const MOCK_FEATURED_BRANDS = [
       {
         name: 'Test Product',
         slug: 'test-product',
-        description: 'Live Shopify storefront test product for conversion attribution.',
-        price: '$1.00',
-        payout: 'Live Shopify test integration',
+        description: 'A simple wellness product for testing creator referrals.',
+        payout: 'Est. 20% creator commission',
         imageLabel: 'Test Product',
         shopifyProductUrl: 'https://8lae7a17px6eu4be-75054973102.shopifypreview.com/products_preview?preview_key=0055388d3352fb4ac5cc3a8078667adc'
       },
@@ -1233,7 +1232,6 @@ function renderFeaturedProductCard(brandSlug, creatorCode, product) {
             <div class="product-image-placeholder">${escapeHtml(product.imageLabel || getBrandInitials(product.name))}</div>
             <h3>${escapeHtml(product.name)}</h3>
             <p>${escapeHtml(product.description)}</p>
-            ${product.price ? `<strong class="product-price">${escapeHtml(product.price)}</strong>` : ''}
             <span class="product-payout-line">${escapeHtml(product.payout)}</span>
             <div class="mock-referral-link">${escapeHtml(referralLink)}</div>
             <button class="featured-copy-button" type="button" data-brand-copy="${escapeHtml(referralLink)}">Copy Link</button>
