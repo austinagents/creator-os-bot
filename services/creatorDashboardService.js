@@ -1,8 +1,7 @@
 const supabase = require('../database/database/supabase');
 const { normalizeCode } = require('../utils/slug');
 const {
-  EARNING_STATUS_CLAIMABLE,
-  EARNING_STATUS_PENDING,
+  promoteClaimableEarningsForCreator,
   sumLifecycleAmounts
 } = require('./earningsLifecycleService');
 
@@ -138,26 +137,6 @@ async function getNetworkEarnings(creatorId) {
     claimable: lifecycle.claimable,
     claimed: lifecycle.claimed
   };
-}
-
-async function promoteClaimableEarningsForCreator(creatorId) {
-  const now = new Date().toISOString();
-
-  const { error: conversionError } = await supabase
-    .from('conversions')
-    .update({ payout_status: EARNING_STATUS_CLAIMABLE })
-    .eq('creator_id', creatorId)
-    .eq('payout_status', EARNING_STATUS_PENDING)
-    .lte('claimable_at', now);
-  if (conversionError) throw conversionError;
-
-  const { error: networkError } = await supabase
-    .from('creator_network_earnings')
-    .update({ payout_status: EARNING_STATUS_CLAIMABLE })
-    .eq('earning_creator_id', creatorId)
-    .eq('payout_status', EARNING_STATUS_PENDING)
-    .lte('claimable_at', now);
-  if (networkError) throw networkError;
 }
 
 module.exports = {

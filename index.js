@@ -23,6 +23,7 @@ const {
   getCreatorStripeDebugStatus,
   refreshCreatorStripeStatus
 } = require("./services/stripeConnectService");
+const { claimCreatorEarnings } = require("./services/earningsLifecycleService");
 const {
   buildShopifyInstallUrl,
   validateShopifyCallback,
@@ -546,8 +547,12 @@ app.get('/dashboard/:creatorCode', async (req, res) => {
       ));
     }
 
+    const signedInCreator = await getSignedInCreator(req, res);
+    const ownerCanClaim = Boolean(signedInCreator && signedInCreator.id === dashboard.creator.id);
+    const claimStatus = req.query.claim === 'success' ? 'success' : null;
+
     res.set('Cache-Control', 'no-store, max-age=0');
-    res.send(renderCreatorDashboardPage(dashboard));
+    res.send(renderCreatorDashboardPage(dashboard, { ownerCanClaim, claimStatus }));
   } catch (error) {
     log('Creator dashboard error:', error);
     res.status(500).send(renderSimpleMessagePage(
@@ -555,6 +560,47 @@ app.get('/dashboard/:creatorCode', async (req, res) => {
       'Unable to load this creator dashboard. Please try again.',
       '/',
       'Return home'
+    ));
+  }
+});
+app.post('/earnings/claim', async (req, res) => {
+  try {
+    const creator = await getSignedInCreator(req, res);
+    if (!creator || !creator.creator_code) {
+      return res.redirect('/dashboard');
+    }
+
+    if (creator.stripe_onboarding_status !== 'payouts_enabled') {
+      log('Claim earnings blocked: Stripe payouts not enabled', {
+        creatorId: creator.id,
+        creatorCode: creator.creator_code,
+        stripeStatus: creator.stripe_onboarding_status
+      });
+      return res.redirect(`/dashboard/${encodeURIComponent(normalizeCode(creator.creator_code))}`);
+    }
+
+    const claimResult = await claimCreatorEarnings({
+      creatorId: creator.id,
+      stripeAccountId: creator.stripe_account_id
+    });
+
+    log('Claim earnings ledger update completed', {
+      creatorId: creator.id,
+      creatorCode: creator.creator_code,
+      claimed: claimResult.claimed,
+      claimBatchId: claimResult.claimBatchId,
+      totalClaimedAmount: claimResult.totalClaimedAmount
+    });
+
+    const query = claimResult.claimed ? '?claim=success' : '';
+    res.redirect(`/dashboard/${encodeURIComponent(normalizeCode(creator.creator_code))}${query}`);
+  } catch (error) {
+    log('Claim earnings error:', error);
+    res.status(500).send(renderSimpleMessagePage(
+      'Unable to claim earnings',
+      'No money was moved. Please try again or contact support if this continues.',
+      '/dashboard',
+      'Back to dashboard'
     ));
   }
 });
@@ -1402,9 +1448,12 @@ function renderStripeConnectButton() {
           </a>`;
 }
 
-function renderCreatorEarningsLifecycle(dashboard) {
-  const stripeReady = ['connected', 'payouts_enabled'].includes(dashboard.stripeOnboardingStatus);
-  const canShowClaim = stripeReady && Number(dashboard.claimableEarnings || 0) > 0;
+function renderCreatorEarningsLifecycle(dashboard, options = {}) {
+  const canClaim = Boolean(
+    options.ownerCanClaim &&
+    dashboard.stripeOnboardingStatus === 'payouts_enabled' &&
+    Number(dashboard.claimableEarnings || 0) > 0
+  );
 
   return `<div class="earnings-lifecycle-summary">
             <div>
@@ -1416,19 +1465,26 @@ function renderCreatorEarningsLifecycle(dashboard) {
               <strong>${escapeHtml(formatMoney(dashboard.claimableEarnings))}</strong>
             </div>
             <div>
+              <span>Claimed earnings</span>
+              <strong>${escapeHtml(formatMoney(dashboard.claimedEarnings))}</strong>
+            </div>
+            <div>
               <span>Lifetime earnings</span>
               <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
             </div>
-            ${canShowClaim ? '<button class="claim-earnings-button" type="button" disabled>Claim earnings - coming soon</button>' : ''}
+            <form class="claim-earnings-form" method="POST" action="/earnings/claim">
+              <button class="claim-earnings-button" type="submit"${canClaim ? '' : ' disabled'}>Claim earnings</button>
+            </form>
           </div>`;
 }
 
-function renderCreatorDashboardPage(dashboard) {
+function renderCreatorDashboardPage(dashboard, options = {}) {
   const inviteLink = dashboard.inviteLink || `${PUBLIC_BASE_URL}/join/${dashboard.creatorCode}`;
   const dashboardPath = `/dashboard/${encodeURIComponent(dashboard.creatorCode)}`;
   const primaryStats = [
     ['Pending Earnings', formatMoney(dashboard.pendingEarnings), 'Earnings in the 24-hour pending window'],
     ['Claimable Earnings', formatMoney(dashboard.claimableEarnings), 'Ready for future claim flow'],
+    ['Claimed Earnings', formatMoney(dashboard.claimedEarnings), 'Internally claimed earnings ledger'],
     ['Lifetime Earnings', formatMoney(dashboard.totalEarnings), 'Campaign plus network earnings'],
     ['Order Value', formatMoney(dashboard.totalOrderValue), 'Attributed creator sales'],
     ['Conversions', dashboard.totalConversions, 'Recorded sales'],
@@ -1477,11 +1533,13 @@ function renderCreatorDashboardPage(dashboard) {
         </div>
         <div class="creator-earnings-chip">
           ${renderStripePayoutSetup(dashboard)}
-          ${renderCreatorEarningsLifecycle(dashboard)}
+          ${renderCreatorEarningsLifecycle(dashboard, options)}
           <span>Total earnings</span>
           <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
         </div>
       </header>
+
+      ${options.claimStatus === 'success' ? '<section class="creator-claim-success">Earnings claimed internally. No Stripe transfer was created.</section>' : ''}
 
       <section class="creator-action-panel" id="links">
         <div>
@@ -1539,6 +1597,10 @@ function renderCreatorDashboardPage(dashboard) {
             <div>
               <span>Claimable earnings</span>
               <strong>${escapeHtml(formatMoney(dashboard.claimableEarnings))}</strong>
+            </div>
+            <div>
+              <span>Claimed earnings</span>
+              <strong>${escapeHtml(formatMoney(dashboard.claimedEarnings))}</strong>
             </div>
           </div>
         </article>
@@ -1778,8 +1840,12 @@ function renderCreatorDashboardCriticalStyles() {
       font-size: 0.9rem;
       text-align: right;
     }
+    .claim-earnings-form {
+      margin: 4px 0 0;
+    }
     .claim-earnings-button {
       min-height: 38px;
+      width: 100%;
       margin-top: 4px;
       border: 0;
       border-radius: 8px;
@@ -1787,8 +1853,26 @@ function renderCreatorDashboardCriticalStyles() {
       color: white;
       font-size: 0.84rem;
       font-weight: 900;
+      cursor: pointer;
+      box-shadow: 0 14px 28px rgba(155, 92, 255, 0.18);
+      transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+    }
+    .claim-earnings-button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 18px 34px rgba(155, 92, 255, 0.24);
+    }
+    .claim-earnings-button:disabled {
       cursor: not-allowed;
       opacity: 0.72;
+    }
+    .creator-claim-success {
+      padding: 14px 18px;
+      border: 1px solid rgba(102, 255, 186, 0.18);
+      border-radius: 14px;
+      background: rgba(102, 255, 186, 0.08);
+      color: #b8ffd9;
+      font-size: 0.9rem;
+      font-weight: 800;
     }
     .creator-earnings-chip span,
     .creator-action-panel span,
