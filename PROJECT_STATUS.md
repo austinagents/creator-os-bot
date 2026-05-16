@@ -1,6 +1,6 @@
 # PartnerLinks / creator-os-bot Project Status
 
-Last updated: 2026-05-15
+Last updated: 2026-05-16
 
 ## Current MVP State
 
@@ -25,6 +25,7 @@ Last updated: 2026-05-15
 - `/auth/google/start` and `/auth/google/start/` both initiate Supabase Google OAuth and redirect to Google.
 - Shopify OAuth MVP install flow is implemented through `/register-business`, `/api/shopify/start`, and `/api/shopify/callback`.
 - Shopify installs now automatically create or reuse a brand record and link `shopify_stores.brand_id` to `brands.id`.
+- Shopify Conversion Webhook MVP is implemented at `POST /webhooks/shopify/orders-paid`. It verifies `X-Shopify-Hmac-Sha256` against `SHOPIFY_WEBHOOK_SECRET` using the raw request body, matches the Shopify shop domain to `shopify_stores.brand_id`, extracts PartnerLinks attribution from discount codes, landing/referring URLs, note attributes, and URL/ref params, then creates conversions and network earnings with the standard pending earnings lifecycle.
 - Post-install brand setup is implemented through `/brand/setup/:brand_id`.
 - Brands can now act as origin sponsors when creators sign up through a brand onboarding link.
 - Creator codes, referral codes, and brand URL slugs are canonical lowercase identifiers across routes, lookups, and generated links.
@@ -411,8 +412,9 @@ npm start
 - Brand setup displays a brand-origin creator onboarding link at `/join/brand/:brand_slug`.
 - Newly generated brand-origin onboarding links use the lowercase brand slug format `/join/brand/:brand_slug`; existing numeric brand-id links remain accepted.
 - Creators who sign up through a brand onboarding link can be permanently marked with `creators.invited_by_brand_id`.
-- There is no embedded Shopify admin UI, webhook automation, billing, live Stripe transfers, public marketplace, or payout automation yet.
+- There is no embedded Shopify admin UI, billing, live Stripe transfers, public marketplace, or payout automation yet.
 - Current sales recording is manual through `/record_conversion`.
+- Shopify paid-order conversion ingestion is available through `POST /webhooks/shopify/orders-paid`. It uses `SHOPIFY_WEBHOOK_SECRET`, skips duplicate `shopify:{shop_domain}:{order_id}` conversions per brand, returns 200 for unmatched/invalid attribution so Shopify does not retry forever, and leaves manual `/record_conversion` as the fallback.
 - Direct commissions and network earnings now carry payout lifecycle fields: `payout_status`, `claimable_at`, `claimed_at`, and `claim_batch_id`. The default lifecycle is `pending -> claimable -> claimed`, with new earnings becoming claimable after 24 hours by default. The Creator Dashboard promotes elapsed creator earnings from `pending` to `claimable` on load. The pending window is configurable with `EARNINGS_PENDING_WINDOW_HOURS`.
 - Claim Earnings Stripe Test Transfer MVP is test-mode only. `/earnings/claim` requires the signed-in creator owner, `stripe_onboarding_status = payouts_enabled`, a creator `stripe_account_id`, and `STRIPE_SECRET_KEY` beginning with `sk_test_`. It reserves claimable direct commissions and creator-network earnings with a `claim_batch_id`, creates a processing claim ledger row before transfer, creates a Stripe test transfer with the claim batch id as the Stripe idempotency key, writes `stripe_transfer_id`, `stripe_transfer_status`, and `stripe_transfer_created_at` to `creator_earning_claims`, then marks reserved earnings rows as `claimed`. If Stripe transfer creation fails, the reservation is cleared and earnings remain claimable. If DB finalization fails after Stripe succeeds, retries recover the reserved batch/claim row and do not intentionally create duplicate transfers.
 - Payout History UI is read-only and displays recent `creator_earning_claims` rows on the Creator Dashboard. Current statuses can show `claimed`, `processing`, `paid`, or `failed`; test transfer claims currently store `paid` when Stripe returns a transfer id.
@@ -443,6 +445,6 @@ npm start
 - Continue hardening the Google signup flow after production traffic, especially duplicate creator edge cases between Discord-created and web-created creators.
 - Replace the temporary `/creator/welcome` placeholder with a real creator account page after auth and brand onboarding mature.
 - Add a simple production health check route later if Railway monitoring needs it.
-- Next product layer should connect setup brands to real Shopify order webhooks and conversion creation.
+- Next Shopify layer should register the `orders/paid` webhook during install and broaden attribution coverage after live order testing.
 - Payout reporting/instructions should come before deeper Stripe/payment routing.
 - Keep automated custody-style payouts, Stripe Connect, dashboards, AI, and marketplace features out of scope until the sales attribution and Shopify onboarding loops are stable.

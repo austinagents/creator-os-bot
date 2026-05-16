@@ -33,6 +33,10 @@ const {
   shopifyStateCookieOptions,
   shopifyStateClearCookieOptions
 } = require("./services/shopifyService");
+const {
+  verifyShopifyWebhookHmac,
+  ingestShopifyOrdersPaidWebhook
+} = require("./services/shopifyWebhookService");
 const { generateSlug, normalizeCode } = require("./utils/slug");
 
 const {
@@ -275,6 +279,38 @@ const MOCK_FEATURED_BRANDS = [
     payout
   }))
 }));
+
+app.post('/webhooks/shopify/orders-paid', express.raw({ type: '*/*' }), async (req, res) => {
+  const shopDomain = String(req.get('X-Shopify-Shop-Domain') || '').trim().toLowerCase();
+  const webhookId = req.get('X-Shopify-Webhook-Id') || null;
+
+  try {
+    const hmac = req.get('X-Shopify-Hmac-Sha256');
+    if (!verifyShopifyWebhookHmac(req.body, hmac)) {
+      log('Shopify orders paid webhook rejected: invalid HMAC', {
+        shopDomain,
+        webhookId
+      });
+      return res.status(401).send('Invalid Shopify webhook signature.');
+    }
+
+    const result = await ingestShopifyOrdersPaidWebhook({
+      rawBody: req.body,
+      shopDomain,
+      webhookId
+    });
+
+    res.status(200).json({ ok: true, ...result });
+  } catch (error) {
+    log('Shopify orders paid webhook error:', {
+      shopDomain,
+      webhookId,
+      message: error.message,
+      stack: error.stack || null
+    });
+    res.status(500).json({ ok: false, error: 'Unable to process Shopify webhook.' });
+  }
+});
 
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: false }));
@@ -597,10 +633,20 @@ app.post('/earnings/claim', async (req, res) => {
     const query = claimResult.claimed ? '?claim=success' : '';
     res.redirect(`/dashboard/${encodeURIComponent(normalizeCode(creator.creator_code))}${query}`);
   } catch (error) {
-    log('Claim earnings error:', error);
+    log('Claim earnings error:', {
+      stripeErrorMessage: error.message,
+      stripeErrorType: error.stripeErrorType || null,
+      stripeErrorCode: error.stripeErrorCode || null,
+      transferPayloadAttempted: error.transferPayloadAttempted || null,
+      creatorStripeAccountId: error.creatorStripeAccountId || null,
+      claimBatchId: error.claimBatchId || null,
+      transferAmount: error.transferAmount || null,
+      transferGroupUsed: Boolean(error.transferGroupUsed),
+      stack: error.stack || null
+    });
     res.status(500).send(renderSimpleMessagePage(
       'Unable to claim earnings',
-      'No money was moved. Please try again or contact support if this continues.',
+      `No money was moved. Stripe sandbox error: ${error.message || 'Unknown Stripe transfer error.'}`,
       '/dashboard',
       'Back to dashboard'
     ));

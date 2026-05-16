@@ -13,6 +13,7 @@ module.exports = {
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   SHOPIFY_API_KEY: process.env.SHOPIFY_API_KEY,
   SHOPIFY_API_SECRET: process.env.SHOPIFY_API_SECRET,
+  SHOPIFY_WEBHOOK_SECRET: process.env.SHOPIFY_WEBHOOK_SECRET,
   SHOPIFY_SCOPES: process.env.SHOPIFY_SCOPES || 'read_orders,read_customers',
   SHOPIFY_APP_URL: process.env.SHOPIFY_APP_URL || process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
