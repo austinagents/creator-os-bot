@@ -1080,35 +1080,224 @@ Known non-blocking limitations:
 - No automated webhook registration during Shopify install documented as fully complete yet.
 - Manual `/record_conversion` remains the fallback for operational conversion entry.
 
+## Creator Systems Reliability Audit
+
+PartnerLinks now has a markdown-first internal reliability audit system at:
+
+- `system-audit/RELIABILITY_AUDIT.md`
+- `system-audit/TEST_MATRIX.md`
+- `system-audit/KNOWN_RISKS.md`
+- `system-audit/INCIDENT_LOG.md`
+- `system-audit/ARCHITECTURE_DECISIONS.md`
+- `system-audit/REGRESSION_HISTORY.md`
+- `system-audit/OPERATIONAL_RUNBOOKS.md`
+
+Purpose:
+
+- Act as an internal reliability analyst/runbook layer.
+- Track tested guarantees, known risks, incidents, regressions, and architecture decisions.
+- Keep PartnerLinks moving toward Shopify/Stripe/SRE-grade reliability standards.
+- Stay markdown-first, Git-friendly, reviewable, and non-autonomous.
+
+Rules:
+
+- Audit docs may record findings, commands, assumptions, and runbooks.
+- `scripts/productionSafetyTest.js` and future audit tools may print suggested entries or append only with explicit operator approval.
+- Audit tooling should default to read-only.
+- Audit tooling must not autonomously mutate attribution, payouts, Stripe transfers, or production data.
+- Severity labels:
+  - `SEV0`: active money movement, attribution, auth, or data integrity failure affecting production users.
+  - `SEV1`: high-risk payout, attribution, webhook, or ownership bug with plausible production impact.
+  - `SEV2`: reliability gap, unsafe assumption, or edge case to fix before scale.
+  - `SEV3`: documentation, workflow, or observability improvement.
+- Regression categories:
+  - `AUTH_SCOPE`
+  - `REFERRAL_ROUTE`
+  - `ATTRIBUTION`
+  - `WEBHOOK_IDEMPOTENCY`
+  - `ECONOMICS`
+  - `PAYOUT_LIFECYCLE`
+  - `SECURITY_ISOLATION`
+  - `DIAGNOSTICS`
+  - `UI_GUARDRAIL`
+
+Last read-only audit run:
+
+```bash
+node scripts/productionSafetyTest.js --report --matrix-report --creator-code test-creator-04
+```
+
+Result:
+
+- `PASS`: 11
+- `CHECK`: 3
+- `INFO`: 1
+- No database writes, webhook replays, payout claims, or Stripe transfers were executed by the audit command.
+
+Primary authorized creator test identity:
+
+- `test-creator-04`
+- Supabase auth email:
+  - `andycoinsolana@gmail.com`
+- Creator id:
+  - `13`
+- Parent chain:
+  - `test-creator-01 -> test-creator-02 -> test-creator-03 -> test-creator-04`
+- Stripe test account:
+  - connected and `payouts_enabled`
+- Claim ledger:
+  - `creator_earning_claims.id = b165c948-b74d-474c-b042-c8b75f6eb037`
+  - `stripe_transfer_id = tr_1TXlwnBcdNgp5p4cywmElHtK`
+  - `total_claimed_amount = 2.70`
+- Confirmed successful creator conversion:
+  - `conversions.id = 19`
+  - `order_id = shopify:partnerlinks-test.myshopify.com:6548682670254`
+  - `commission_amount = 2.70`
+  - `platform_fee_amount = 0.90`
+- Confirmed Shopify attribution diagnostic:
+  - `shopify_attribution_events.id = 7`
+  - `attribution_source = partnerlinks_ref`
+  - `attribution_confidence = exact`
+  - `fallback_used = false`
+  - `click_id = 24`
+  - `product_slug = test-product`
+
+Audit checklist status:
+
+- Creator auth and ownership:
+  - PASS: auth binding exists for `test-creator-04`.
+  - PASS: creator-scoped Stripe start/return/refresh and claim routes verify ownership by `auth_user_id`.
+  - PASS: `/stripe/connect/debug?creator_code=...` is now creator-scoped and verifies ownership before showing Stripe state.
+  - PASS: dashboard `ownerCanClaim` now checks active dashboard creator ownership directly.
+  - PASS: one auth user owning both `frostclips` and `test-creator-04` exposed the old newest/default creator bug, and sensitive payout routes now avoid that implicit context.
+  - GAP: `/dashboard` and homepage still use default/latest creator resolution for convenience navigation when one auth user owns multiple creators. This is not a payout mutation path, but it can be confusing.
+  - UNKNOWN: logout/login and stale-session browser behavior has not been re-tested during this latest reliability audit.
+- Creator referral links:
+  - PASS: `/join/:creatorCode` and `/join/brand/:brandId` redirect signed-in creators to their dashboard instead of rebinding parent/origin.
+  - PASS: invite binding avoids self-referral and does not overwrite existing `parent_creator_id`.
+  - PASS: test creator parent graph is correct:
+    - `test-creator-02.parent_creator_id = test-creator-01.id`
+    - `test-creator-03.parent_creator_id = test-creator-02.id`
+    - `test-creator-04.parent_creator_id = test-creator-03.id`
+  - UNKNOWN: signed-in multi-creator behavior for invite redirects can still land on the default/latest dashboard, not necessarily a chosen active creator.
+- Shopify product attribution:
+  - PASS: cart/order attributes preserve `partnerlinks_ref`, `creator_code`, `brand_slug`, and `product_slug`.
+  - PASS: exact `partnerlinks_ref` attribution wins before fallback.
+  - PASS: strict fallback remains low-confidence and diagnostics-visible.
+  - PASS: repeated clicks for `test-creator-04` persist `partnerlinks_ref`.
+  - PASS: 12 recent `test-creator-04` clicks were inspected; all included `partnerlinks_ref`.
+  - PASS: 7 attribution sessions for `test-creator-04` were inspected with expected `last_click_id` updates.
+  - CHECK: no close-together multi-creator click cluster appeared in the latest scoped matrix window, so collision testing remains a manual scenario to rerun.
+  - UNKNOWN: delayed checkout and multi-product attribution still need broader manual coverage.
+- Conversion ingestion:
+  - PASS: `orders/paid` webhook requires HMAC.
+  - PASS: duplicate conversion prevention is in place by `shopify:{shop_domain}:{order_id}`.
+  - PASS: diagnostics ledger explains conversion source/confidence/fallback.
+  - PASS: scoped report found no duplicate conversion `order_id` groups.
+  - PASS: scoped report found no duplicate creator-network earning keys for conversion/level.
+  - PASS: scoped report found no duplicate brand-network earning keys for conversion/level.
+  - UNKNOWN: duplicate replay test still needs the signed replay command run in an environment with `SHOPIFY_WEBHOOK_SECRET`.
+- Creator economics:
+  - PASS: direct commission for conversion `19` was `2.70`.
+  - PASS: platform fee was `0.90`.
+  - PASS: Level 1/2/3 network earnings were `0.27`, `0.03`, and `0.02`.
+  - PASS: no Level 4+ network earnings were created.
+  - PASS: creator direct commission was not reduced by network rewards.
+  - GAP: network earnings for test parents remain `pending` even though their `claimable_at` timestamps have passed until their dashboards/services promote them. This is expected lazy promotion behavior but should be remembered during reports.
+- Payout system:
+  - PASS: `test-creator-04` completed Stripe test-mode onboarding.
+  - PASS: `test-creator-04` claimed direct commission through the real claim route.
+  - PASS: `claim_batch_id` remained linked to claimed conversion row.
+  - PASS: `claimed_at` is set.
+  - PASS: claim ledger total matches claimed direct commission.
+  - PASS: Stripe transfer used test mode.
+  - PASS: latest scoped payout diagnostics found no stuck reserved claim batches.
+  - PASS: latest scoped payout diagnostics found claimed rows have `claimed_at` timestamps.
+  - UNKNOWN: retry-after-success and failure-recovery paths should still be manually tested or covered with a safe diagnostic harness.
+- Security and isolation:
+  - PASS: sensitive payout routes now use explicit creator scoping and ownership checks.
+  - PASS: Stripe debug visibility now also requires explicit `creator_code` ownership, preventing multi-creator auth users from seeing the wrong Stripe state.
+  - PASS: no client-side service role exposure found in the inspected payout paths.
+  - PASS: webhook replay requires HMAC.
+  - GAP: non-mutating convenience navigation routes should be moved toward explicit creator selection to avoid operator confusion.
+- Operator/admin diagnostics:
+  - PASS: `scripts/productionSafetyTest.js --report --matrix-report --creator-code test-creator-04` shows attribution, conversion, payout ledger, claim state, and matrix results.
+  - PASS: `/shopify_attribution_debug` has source/confidence/fallback/duplicate fields.
+  - PASS: `scripts/productionSafetyTest.js` reports manual test URLs and read-only matrix checks without changing data.
+  - GAP: payout-specific diagnostics could be clearer for retry/idempotency verification.
+
+Remaining untested or partially tested edge cases:
+
+- Duplicate Shopify webhook replay with valid HMAC for an existing confirmed order.
+- Claim retry after a successful Stripe transfer to prove no second transfer is created.
+- Stripe transfer failure recovery path with a safe sandbox-only diagnostic.
+- Multi-creator collision after exact cart/order attributes are intentionally missing or stripped.
+- Delayed checkout after a stale click/session.
+- Same creator across multiple real product slugs once more than one Shopify-backed product exists.
+- Auth logout/login/session restore for `test-creator-04` after the scoped payout fixes.
+- Cross-creator security probes:
+  - authenticated `test-creator-04` attempting Stripe start/claim against another creator code should be blocked.
+  - authenticated `test-creator-04` attempting dashboard claim without explicit `creator_code` should not mutate another creator.
+
+Recommended additions to `scripts/productionSafetyTest.js`:
+
+- Add a `--security-report --creator-code <code>` mode that read-only verifies ownership-sensitive route assumptions from DB state:
+  - creators sharing the same `auth_user_id`
+  - which creator `/dashboard` would currently select by default
+  - which creator has Stripe connected
+  - whether any sensitive claimable earnings exist under other creators for the same auth user.
+- Add a `--claim-retry-report --creator-code <code>` mode that reports:
+  - claimable row count
+  - claimed row count
+  - claim ledger rows
+  - transfer ids
+  - any duplicate claim batch or duplicate transfer indicators.
+- Add a `--collision-window-report` mode that can inspect recent clicks by product/shop across all `test-creator-*` codes, not only the scoped creator.
+- Add a `--route-risk-report` static/read-only summary if useful, but keep actual route authorization enforced in app code.
+
+Recommended fixes before broader real brand onboarding:
+
+- Keep all Stripe diagnostic and payout routes on explicit creator-scoped ownership checks; `/stripe/connect/debug?creator_code=...` now follows the same pattern as start/return/claim.
+- Decide how multi-creator auth users should choose an active creator for convenience routes:
+  - temporary safe option: `/dashboard` shows a creator selection page when multiple creators share one auth user.
+  - later product option: account switcher.
+- Add explicit operator docs for duplicate webhook replay requirements:
+  - requires `SHOPIFY_WEBHOOK_SECRET`
+  - must hit the real webhook endpoint
+  - must not bypass HMAC verification.
+- Keep all payout retry/failure testing in Stripe test mode only.
+
 ## Recommended Next Steps
 
-1. Complete the manual production-safety reliability matrix across the 10 test creators.
-   - Collision: click `test-creator-05` and `test-creator-06` close together, complete one checkout, verify exact attribution wins or ambiguity skips safely.
-   - Replay: replay a real signed Shopify `orders/paid` webhook payload if available, verify `duplicate_skipped` diagnostics and no duplicate conversion/earnings rows.
-   - Payout: when test earnings are claimable and Stripe test payouts are enabled, claim once and retry safely to verify claim ledger/idempotency.
-   - Use `node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify:partnerlinks-test.myshopify.com:{order_id}` after each scenario.
+1. Patch creator-scoped non-mutating navigation where it reduces confusion.
+   - `/dashboard` and homepage creator dashboard navigation need a product decision for multi-creator auth users: choose a default, show an account switcher later, or route to a selection state.
 
-2. Register/verify Shopify `orders/paid` webhook setup for connected stores.
+2. Complete the remaining manual production-safety reliability matrix.
+   - Replay: run the signed duplicate Shopify webhook replay in an environment with `SHOPIFY_WEBHOOK_SECRET`.
+   - Payout retry: after successful claim, retry claim for `test-creator-04` and verify no duplicate transfer.
+   - Failure recovery: test only with a safe, explicit sandbox diagnostic plan.
+
+3. Register/verify Shopify `orders/paid` webhook setup for connected stores.
    - Confirm whether webhook registration is manual or automated per installed store.
    - Avoid duplicate webhook registrations.
 
-3. Expand internal/admin attribution diagnostics only as needed.
+4. Expand internal/admin attribution diagnostics only as needed.
    - Current `/shopify_attribution_debug` works for recent decisions.
    - Next useful additions would be lookup by `partnerlinks_ref`, latest clicks by creator/product, and unmatched-only filters.
 
-4. Move product data toward admin-curated Shopify-backed products.
+5. Move product data toward admin-curated Shopify-backed products.
    - Keep universal product card layout.
    - Do not expose Shopify/test metadata publicly.
    - Auto-pull can come later, but display should remain curated/approved.
 
-5. Continue hardening Stripe claim/payout recovery.
+6. Continue hardening Stripe claim/payout recovery.
    - Keep test-mode guard.
    - Preserve idempotency.
    - Add more operator diagnostics before live payout plans.
 
-6. Keep dashboards cohesive.
+7. Keep dashboards cohesive.
    - Any new brand/creator feature should land inside the appropriate dashboard/navigation system, not as a disconnected utility page.
 
-7. Keep manual operations available.
+8. Keep manual operations available.
    - `/record_conversion` remains useful as fallback.
    - Discord diagnostics should support admin/operator testing without becoming the primary creator/brand UX.

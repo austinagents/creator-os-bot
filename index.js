@@ -800,9 +800,16 @@ app.get('/stripe/connect/start', async (req, res) => {
 });
 app.get('/stripe/connect/debug', async (req, res) => {
   try {
-    const creator = await getSignedInCreator(req, res);
+    const requestedCreatorCode = normalizeCode(req.query.creator_code);
+    const creator = await getScopedSignedInCreator(req, res, {
+      creatorCode: requestedCreatorCode,
+      requireExplicitCreatorCode: true
+    });
     if (!creator) {
-      return res.status(401).json({ error: 'Sign in required' });
+      return res.status(403).json({
+        error: 'Sign in required or creator access denied',
+        creator_code_required: true
+      });
     }
 
     const debug = await getCreatorStripeDebugStatus(creator);
