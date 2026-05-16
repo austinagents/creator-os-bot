@@ -1359,7 +1359,7 @@ a {
   color: #9dffd0 !important;
   font-weight: 800;
 }
-.payout-transfer-placeholder {
+.payout-transfer-id {
   color: rgba(154, 167, 193, 0.72) !important;
 }
 @media (max-width: 1024px) {

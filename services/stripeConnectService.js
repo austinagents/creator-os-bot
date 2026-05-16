@@ -97,6 +97,60 @@ async function getCreatorStripeDebugStatus(creator) {
   return debug;
 }
 
+async function createStripeTestTransfer({
+  amount,
+  currency = 'USD',
+  destinationAccountId,
+  claimBatchId,
+  creatorId
+}) {
+  if (!STRIPE_SECRET_KEY) {
+    throw new Error('STRIPE_SECRET_KEY is not configured.');
+  }
+  if (!/^sk_test_/.test(STRIPE_SECRET_KEY)) {
+    throw new Error('Stripe transfers are restricted to test mode for this MVP.');
+  }
+  if (!destinationAccountId) {
+    throw new Error('Creator Stripe account is required for transfer.');
+  }
+
+  const amountInCents = Math.round(Number(amount || 0) * 100);
+  if (!amountInCents || amountInCents <= 0) {
+    throw new Error('Transfer amount must be greater than zero.');
+  }
+
+  const body = new URLSearchParams();
+  body.set('amount', String(amountInCents));
+  body.set('currency', String(currency || 'USD').toLowerCase());
+  body.set('destination', destinationAccountId);
+  body.set('metadata[claim_batch_id]', claimBatchId);
+  body.set('metadata[creator_id]', String(creatorId));
+
+  log('Stripe test transfer create requested:', {
+    creatorId,
+    destinationAccountId,
+    claimBatchId,
+    amountInCents,
+    currency
+  });
+
+  const transfer = await stripeRequest('/transfers', {
+    method: 'POST',
+    body
+  });
+
+  log('Stripe test transfer created:', {
+    creatorId,
+    destinationAccountId,
+    claimBatchId,
+    transferId: transfer.id,
+    amount: transfer.amount,
+    currency: transfer.currency
+  });
+
+  return transfer;
+}
+
 async function createConnectedAccount(creator) {
   const body = new URLSearchParams();
   body.set('type', 'express');
@@ -240,6 +294,7 @@ async function stripeRequest(path, options) {
 
 module.exports = {
   createStripeOnboardingLinkForCreator,
+  createStripeTestTransfer,
   getCreatorStripeDebugStatus,
   refreshCreatorStripeStatus
 };

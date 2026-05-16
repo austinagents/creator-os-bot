@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const supabase = require('../database/database/supabase');
+const { createStripeTestTransfer } = require('./stripeConnectService');
 
 const DEFAULT_PENDING_WINDOW_HOURS = 24;
 
@@ -63,39 +64,34 @@ async function promoteClaimableEarningsForCreator(creatorId) {
 
 async function claimCreatorEarnings({
   creatorId,
-  stripeAccountId
+  stripeAccountId,
+  currency = 'USD'
 }) {
   await promoteClaimableEarningsForCreator(creatorId);
 
   const claimBatchId = crypto.randomUUID();
   const claimedAt = new Date().toISOString();
 
-  const { data: claimedConversions, error: conversionsError } = await supabase
+  const { data: reservedConversions, error: conversionsError } = await supabase
     .from('conversions')
-    .update({
-      payout_status: EARNING_STATUS_CLAIMED,
-      claimed_at: claimedAt,
-      claim_batch_id: claimBatchId
-    })
+    .update({ claim_batch_id: claimBatchId })
     .eq('creator_id', creatorId)
     .eq('payout_status', EARNING_STATUS_CLAIMABLE)
+    .is('claim_batch_id', null)
     .select('id, commission_amount');
   if (conversionsError) throw conversionsError;
 
-  const { data: claimedNetworkEarnings, error: networkError } = await supabase
+  const { data: reservedNetworkEarnings, error: networkError } = await supabase
     .from('creator_network_earnings')
-    .update({
-      payout_status: EARNING_STATUS_CLAIMED,
-      claimed_at: claimedAt,
-      claim_batch_id: claimBatchId
-    })
+    .update({ claim_batch_id: claimBatchId })
     .eq('earning_creator_id', creatorId)
     .eq('payout_status', EARNING_STATUS_CLAIMABLE)
+    .is('claim_batch_id', null)
     .select('id, commission_amount');
   if (networkError) throw networkError;
 
-  const directCommissionAmount = sumAmounts(claimedConversions);
-  const networkEarningAmount = sumAmounts(claimedNetworkEarnings);
+  const directCommissionAmount = sumAmounts(reservedConversions);
+  const networkEarningAmount = sumAmounts(reservedNetworkEarnings);
   const totalClaimedAmount = roundCurrency(directCommissionAmount + networkEarningAmount);
 
   if (totalClaimedAmount <= 0) {
@@ -108,6 +104,47 @@ async function claimCreatorEarnings({
     };
   }
 
+  let transfer;
+  try {
+    transfer = await createStripeTestTransfer({
+      amount: totalClaimedAmount,
+      currency,
+      destinationAccountId: stripeAccountId,
+      claimBatchId,
+      creatorId
+    });
+  } catch (error) {
+    await clearClaimReservation(claimBatchId);
+    throw error;
+  }
+
+  const transferStatus = transfer && transfer.id ? 'paid' : 'processing';
+  const transferCreatedAt = transfer && transfer.created
+    ? new Date(Number(transfer.created) * 1000).toISOString()
+    : claimedAt;
+
+  const { error: finalizeConversionsError } = await supabase
+    .from('conversions')
+    .update({
+      payout_status: EARNING_STATUS_CLAIMED,
+      claimed_at: claimedAt
+    })
+    .eq('creator_id', creatorId)
+    .eq('claim_batch_id', claimBatchId)
+    .eq('payout_status', EARNING_STATUS_CLAIMABLE);
+  if (finalizeConversionsError) throw finalizeConversionsError;
+
+  const { error: finalizeNetworkError } = await supabase
+    .from('creator_network_earnings')
+    .update({
+      payout_status: EARNING_STATUS_CLAIMED,
+      claimed_at: claimedAt
+    })
+    .eq('earning_creator_id', creatorId)
+    .eq('claim_batch_id', claimBatchId)
+    .eq('payout_status', EARNING_STATUS_CLAIMABLE);
+  if (finalizeNetworkError) throw finalizeNetworkError;
+
   const { data: claimRecord, error: claimError } = await supabase
     .from('creator_earning_claims')
     .insert({
@@ -116,9 +153,13 @@ async function claimCreatorEarnings({
       direct_commission_amount: directCommissionAmount,
       network_earning_amount: networkEarningAmount,
       total_claimed_amount: totalClaimedAmount,
-      stripe_account_id: stripeAccountId || null,
-      status: EARNING_STATUS_CLAIMED,
-      notes: 'Internal ledger claim only. No Stripe transfer created.'
+      currency,
+      stripe_account_id: stripeAccountId,
+      stripe_transfer_id: transfer ? transfer.id : null,
+      stripe_transfer_status: transferStatus,
+      stripe_transfer_created_at: transferCreatedAt,
+      status: transferStatus,
+      notes: 'Stripe test-mode transfer created. No live money movement.'
     })
     .select()
     .single();
@@ -131,8 +172,26 @@ async function claimCreatorEarnings({
     directCommissionAmount,
     networkEarningAmount,
     totalClaimedAmount,
+    stripeTransferId: transfer ? transfer.id : null,
+    stripeTransferStatus: transferStatus,
     claimRecord
   };
+}
+
+async function clearClaimReservation(claimBatchId) {
+  const { error: conversionError } = await supabase
+    .from('conversions')
+    .update({ claim_batch_id: null })
+    .eq('claim_batch_id', claimBatchId)
+    .eq('payout_status', EARNING_STATUS_CLAIMABLE);
+  if (conversionError) throw conversionError;
+
+  const { error: networkError } = await supabase
+    .from('creator_network_earnings')
+    .update({ claim_batch_id: null })
+    .eq('claim_batch_id', claimBatchId)
+    .eq('payout_status', EARNING_STATUS_CLAIMABLE);
+  if (networkError) throw networkError;
 }
 
 function sumAmounts(rows) {

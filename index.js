@@ -589,7 +589,9 @@ app.post('/earnings/claim', async (req, res) => {
       creatorCode: creator.creator_code,
       claimed: claimResult.claimed,
       claimBatchId: claimResult.claimBatchId,
-      totalClaimedAmount: claimResult.totalClaimedAmount
+      totalClaimedAmount: claimResult.totalClaimedAmount,
+      stripeTransferId: claimResult.stripeTransferId || null,
+      stripeTransferStatus: claimResult.stripeTransferStatus || null
     });
 
     const query = claimResult.claimed ? '?claim=success' : '';
@@ -1680,8 +1682,8 @@ function renderPayoutHistory(payoutHistory) {
                 <strong role="cell">${escapeHtml(formatMoney(claim.total_claimed_amount))}</strong>
                 <span role="cell">${escapeHtml(formatDashboardDate(claim.created_at))}</span>
                 <code role="cell">${escapeHtml(formatBatchId(claim.id))}</code>
-                <span role="cell" class="payout-status-pill">${escapeHtml(formatPayoutStatus(claim.status))}</span>
-                <span role="cell" class="payout-transfer-placeholder">Not created yet</span>
+                <span role="cell" class="payout-status-pill">${escapeHtml(formatPayoutStatus(claim.stripe_transfer_status || claim.status))}</span>
+                <code role="cell" class="payout-transfer-id">${escapeHtml(claim.stripe_transfer_id || 'Not created yet')}</code>
               </div>
             `).join('')}
           </div>`;
@@ -2046,7 +2048,7 @@ function renderCreatorDashboardCriticalStyles() {
       color: #9dffd0 !important;
       font-weight: 800;
     }
-    .payout-transfer-placeholder { color: rgba(154, 167, 193, 0.72) !important; }
+    .payout-transfer-id { color: rgba(154, 167, 193, 0.72) !important; }
     @media (max-width: 1024px) {
       .creator-dashboard { grid-template-columns: 1fr; gap: 18px; }
       .creator-sidebar { position: static; min-height: auto; }

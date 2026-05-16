@@ -145,7 +145,7 @@ async function getNetworkEarnings(creatorId) {
 async function getPayoutHistory(creatorId) {
   const { data, error } = await supabase
     .from('creator_earning_claims')
-    .select('id, created_at, total_claimed_amount, status')
+    .select('id, created_at, total_claimed_amount, status, stripe_transfer_id, stripe_transfer_status, stripe_transfer_created_at')
     .eq('creator_id', creatorId)
     .order('created_at', { ascending: false })
     .limit(8);
