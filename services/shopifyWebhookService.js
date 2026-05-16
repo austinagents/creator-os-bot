@@ -8,8 +8,11 @@ const { normalizeCode } = require('../utils/slug');
 
 const DEFAULT_CREATOR_COMMISSION_RATE = 0;
 const DEFAULT_PLATFORM_FEE_RATE = 5;
-const ATTRIBUTION_KEYS = ['creator_code', 'referral_code', 'partnerlinks_ref', 'pl_ref'];
+const CREATOR_ATTRIBUTION_KEYS = ['creator_code', 'referral_code'];
+const REFERENCE_ATTRIBUTION_KEYS = ['partnerlinks_ref', 'pl_ref'];
+const ATTRIBUTION_KEYS = [...CREATOR_ATTRIBUTION_KEYS, ...REFERENCE_ATTRIBUTION_KEYS];
 const CONTEXT_KEYS = ['brand_slug', 'product_slug'];
+const CLICK_ATTRIBUTION_WINDOW_HOURS = 24;
 
 function verifyShopifyWebhookHmac(rawBody, hmacHeader) {
   if (!SHOPIFY_WEBHOOK_SECRET) {
@@ -77,7 +80,11 @@ async function ingestShopifyOrdersPaidWebhook({
     return { status: 'skipped', reason: 'duplicate_order' };
   }
 
-  const attribution = extractShopifyAttribution(order);
+  const extractedAttribution = extractShopifyAttribution(order);
+  const attribution = await resolveShopifyAttributionFromClicks({
+    attribution: extractedAttribution,
+    shopDomain: normalizedShopDomain
+  });
   if (!attribution.creatorCode) {
     log('Shopify orders paid webhook unmatched order: no PartnerLinks attribution found', {
       shopDomain: normalizedShopDomain,
@@ -94,7 +101,9 @@ async function ingestShopifyOrdersPaidWebhook({
     brandId: brand.id,
     creatorCode: attribution.creatorCode,
     source: attribution.source,
+    resolutionSource: attribution.resolutionSource || null,
     attributionKey: attribution.attributionKey,
+    partnerlinksRef: attribution.partnerlinksRef || null,
     brandSlug: attribution.brandSlug || null,
     productSlug: attribution.productSlug || null
   });
@@ -121,6 +130,8 @@ async function ingestShopifyOrdersPaidWebhook({
   const conversion = await recordConversion({
     brandId: brand.id,
     creatorId: creator.id,
+    clickId: attribution.clickId || null,
+    sessionId: attribution.sessionId || null,
     orderId,
     orderValue,
     currency,
@@ -190,7 +201,7 @@ function extractShopifyAttribution(order) {
 
   for (const candidate of candidates) {
     const direct = findAttributionValue(candidate.value);
-    if (direct.creatorCode) {
+    if (direct.creatorCode || direct.partnerlinksRef || direct.brandSlug || direct.productSlug) {
       return {
         ...direct,
         source: candidate.source,
@@ -199,7 +210,7 @@ function extractShopifyAttribution(order) {
     }
   }
 
-  return { creatorCode: null, checkedSources };
+  return { creatorCode: null, partnerlinksRef: null, checkedSources };
 }
 
 function collectNestedAttribution(value, candidates, checkedSources, path = 'order', depth = 0) {
@@ -234,14 +245,15 @@ function collectNestedAttribution(value, candidates, checkedSources, path = 'ord
 
 function findAttributionValue(value) {
   const rawValue = String(value || '').trim();
-  if (!rawValue) return { creatorCode: null };
+  if (!rawValue) return { creatorCode: null, partnerlinksRef: null };
 
   const urlParams = extractUrlParams(rawValue);
-  for (const key of ATTRIBUTION_KEYS) {
+  for (const key of CREATOR_ATTRIBUTION_KEYS) {
     const paramValue = urlParams.get(key);
     if (paramValue) {
       return {
         creatorCode: normalizeCode(paramValue),
+        partnerlinksRef: normalizeReference(urlParams.get('partnerlinks_ref') || urlParams.get('pl_ref')),
         brandSlug: normalizeCode(urlParams.get('brand_slug')),
         productSlug: normalizeCode(urlParams.get('product_slug')),
         attributionKey: key
@@ -249,26 +261,52 @@ function findAttributionValue(value) {
     }
   }
 
-  const keyValueMatch = rawValue.match(/(?:creator_code|referral_code|partnerlinks_ref|pl_ref)\s*[=:]\s*([a-zA-Z0-9_-]+)/i);
-  if (keyValueMatch) {
+  for (const key of REFERENCE_ATTRIBUTION_KEYS) {
+    const paramValue = urlParams.get(key);
+    if (paramValue) {
+      return {
+        creatorCode: null,
+        partnerlinksRef: normalizeReference(paramValue),
+        brandSlug: normalizeCode(urlParams.get('brand_slug')),
+        productSlug: normalizeCode(urlParams.get('product_slug')),
+        attributionKey: key
+      };
+    }
+  }
+
+  const creatorKeyValueMatch = rawValue.match(/(?:creator_code|referral_code)\s*[=:]\s*([a-zA-Z0-9_-]+)/i);
+  if (creatorKeyValueMatch) {
     return {
-      creatorCode: normalizeCode(keyValueMatch[1]),
+      creatorCode: normalizeCode(creatorKeyValueMatch[1]),
+      partnerlinksRef: extractInlineReference(rawValue, 'partnerlinks_ref') || extractInlineReference(rawValue, 'pl_ref'),
       brandSlug: extractInlineValue(rawValue, 'brand_slug'),
       productSlug: extractInlineValue(rawValue, 'product_slug'),
       attributionKey: 'inline'
     };
   }
 
+  const referenceKeyValueMatch = rawValue.match(/(?:partnerlinks_ref|pl_ref)\s*[=:]\s*([a-zA-Z0-9_-]+)/i);
+  if (referenceKeyValueMatch) {
+    return {
+      creatorCode: null,
+      partnerlinksRef: normalizeReference(referenceKeyValueMatch[1]),
+      brandSlug: extractInlineValue(rawValue, 'brand_slug'),
+      productSlug: extractInlineValue(rawValue, 'product_slug'),
+      attributionKey: 'inline_ref'
+    };
+  }
+
   if (/^[a-zA-Z0-9][a-zA-Z0-9_-]{1,80}$/.test(rawValue)) {
     return {
       creatorCode: normalizeCode(rawValue),
+      partnerlinksRef: null,
       brandSlug: null,
       productSlug: null,
       attributionKey: 'direct_code'
     };
   }
 
-  return { creatorCode: null };
+  return { creatorCode: null, partnerlinksRef: null };
 }
 
 function extractUrlParams(rawValue) {
@@ -311,8 +349,127 @@ function extractInlineValue(rawValue, key) {
   return match ? normalizeCode(match[1]) : null;
 }
 
+function extractInlineReference(rawValue, key) {
+  const match = String(rawValue || '').match(new RegExp(`${key}\\s*[=:]\\s*([a-zA-Z0-9_-]+)`, 'i'));
+  return match ? normalizeReference(match[1]) : null;
+}
+
+function normalizeReference(value) {
+  return String(value || '').trim();
+}
+
 function looksAttributionBearing(value) {
   return /creator_code|referral_code|partnerlinks_ref|pl_ref|brand_slug|product_slug|\/r\//i.test(value);
+}
+
+async function resolveShopifyAttributionFromClicks({
+  attribution,
+  shopDomain
+}) {
+  const baseAttribution = attribution || {};
+
+  if (baseAttribution.creatorCode) {
+    const click = await findRecentClickAttribution({
+      shopDomain,
+      partnerlinksRef: baseAttribution.partnerlinksRef,
+      creatorCode: baseAttribution.creatorCode,
+      productSlug: baseAttribution.productSlug
+    });
+
+    if (click) {
+      return mergeClickAttribution(baseAttribution, click, 'shopify_params_with_click_context');
+    }
+
+    return baseAttribution;
+  }
+
+  if (baseAttribution.partnerlinksRef || baseAttribution.productSlug || baseAttribution.brandSlug) {
+    const click = await findRecentClickAttribution({
+      shopDomain,
+      partnerlinksRef: baseAttribution.partnerlinksRef,
+      productSlug: baseAttribution.productSlug,
+      brandSlug: baseAttribution.brandSlug
+    });
+
+    if (click) {
+      log('Shopify orders paid webhook using click fallback attribution:', {
+        shopDomain,
+        clickId: click.id,
+        partnerlinksRef: baseAttribution.partnerlinksRef || click.partnerlinks_ref || null,
+        creatorCode: click.creator_code || null,
+        productSlug: click.product_slug || null,
+        fallbackReason: 'partial_shopify_attribution'
+      });
+      return mergeClickAttribution(baseAttribution, click, 'click_fallback_partial_params');
+    }
+  }
+
+  const recentClick = await findRecentClickAttribution({ shopDomain });
+  if (recentClick) {
+    log('Shopify orders paid webhook using recent shop click fallback attribution:', {
+      shopDomain,
+      clickId: recentClick.id,
+      creatorCode: recentClick.creator_code || null,
+      productSlug: recentClick.product_slug || null,
+      fallbackReason: 'shopify_params_stripped'
+    });
+    return mergeClickAttribution(baseAttribution, recentClick, 'click_fallback_recent_shop');
+  }
+
+  return baseAttribution;
+}
+
+async function findRecentClickAttribution({
+  shopDomain,
+  partnerlinksRef,
+  creatorCode,
+  productSlug,
+  brandSlug
+}) {
+  const normalizedShopDomain = normalizeShopDomain(shopDomain);
+  const windowStart = new Date(Date.now() - CLICK_ATTRIBUTION_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
+
+  let query = supabase
+    .from('clicks')
+    .select('id, creator_id, session_id, creator_code, referral_code, brand_slug, product_slug, shop_domain, partnerlinks_ref, destination_url, created_at')
+    .eq('shop_domain', normalizedShopDomain)
+    .gte('created_at', windowStart)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (partnerlinksRef) query = query.eq('partnerlinks_ref', partnerlinksRef);
+  if (creatorCode) query = query.eq('creator_code', normalizeCode(creatorCode));
+  if (productSlug) query = query.eq('product_slug', normalizeCode(productSlug));
+  if (brandSlug) query = query.eq('brand_slug', normalizeCode(brandSlug));
+
+  const { data, error } = await query;
+  if (error) {
+    if (error.code === '42703' || error.code === 'PGRST204') {
+      log('Shopify click attribution fallback unavailable until click metadata migration is run:', {
+        shopDomain: normalizedShopDomain,
+        error: error.message
+      });
+      return null;
+    }
+    throw error;
+  }
+
+  return data ? data[0] : null;
+}
+
+function mergeClickAttribution(attribution, click, resolutionSource) {
+  return {
+    ...attribution,
+    creatorCode: attribution.creatorCode || normalizeCode(click.creator_code || click.referral_code),
+    partnerlinksRef: attribution.partnerlinksRef || click.partnerlinks_ref || null,
+    brandSlug: attribution.brandSlug || normalizeCode(click.brand_slug),
+    productSlug: attribution.productSlug || normalizeCode(click.product_slug),
+    clickId: click.id || null,
+    sessionId: click.session_id || null,
+    resolutionSource,
+    source: attribution.source || resolutionSource,
+    attributionKey: attribution.attributionKey || 'click_fallback'
+  };
 }
 
 async function findCreatorByReferralCode(creatorCode) {
@@ -384,6 +541,9 @@ function buildConversionNotes({
     `shopify_order_id=${shopifyOrderId}`,
     `attribution_source=${attribution.source || 'unknown'}`,
     `attribution_key=${attribution.attributionKey || 'unknown'}`,
+    attribution.resolutionSource ? `resolution_source=${attribution.resolutionSource}` : null,
+    attribution.partnerlinksRef ? `partnerlinks_ref=${attribution.partnerlinksRef}` : null,
+    attribution.clickId ? `click_id=${attribution.clickId}` : null,
     attribution.productSlug ? `product_slug=${attribution.productSlug}` : null,
     attribution.brandSlug ? `brand_slug=${attribution.brandSlug}` : null
   ].filter(Boolean).join('; ');

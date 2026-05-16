@@ -55,20 +55,49 @@ async function getCreatorByCodeAndBrand(creatorCode, brandId) {
   return referralMatches ? referralMatches[0] : null;
 }
 
-async function recordClick(brandId, creatorId, sessionId, ipHash, userAgent, referrer, destinationUrl) {
+async function recordClick(brandId, creatorId, sessionId, ipHash, userAgent, referrer, destinationUrl, attributionMetadata = {}) {
+  const insertPayload = {
+    brand_id: brandId,
+    creator_id: creatorId,
+    session_id: sessionId,
+    ip_hash: ipHash,
+    user_agent: userAgent,
+    referrer: referrer,
+    destination_url: destinationUrl
+  };
+
+  const enrichedPayload = {
+    ...insertPayload,
+    creator_code: normalizeCode(attributionMetadata.creatorCode),
+    referral_code: normalizeCode(attributionMetadata.referralCode),
+    brand_slug: normalizeCode(attributionMetadata.brandSlug),
+    product_slug: normalizeCode(attributionMetadata.productSlug),
+    shop_domain: normalizeCode(attributionMetadata.shopDomain),
+    partnerlinks_ref: attributionMetadata.partnerlinksRef || null
+  };
+
   const { data, error } = await supabase
     .from('clicks')
-    .insert({
-      brand_id: brandId,
-      creator_id: creatorId,
-      session_id: sessionId,
-      ip_hash: ipHash,
-      user_agent: userAgent,
-      referrer: referrer,
-      destination_url: destinationUrl
-    })
+    .insert(enrichedPayload)
     .select()
     .single();
+
+  if (error && error.code === 'PGRST204') {
+    console.warn('recordClick metadata columns are not available yet; retrying base click insert. Run migration 013_click_product_attribution.sql.', {
+      brandId,
+      creatorId,
+      sessionId,
+      destinationUrl
+    });
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from('clicks')
+      .insert(insertPayload)
+      .select()
+      .single();
+    if (fallbackError) throw fallbackError;
+    return fallbackData;
+  }
+
   if (error) throw error;
   return data;
 }

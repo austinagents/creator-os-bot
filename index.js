@@ -49,6 +49,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DEFAULT_PLATFORM_FEE_RATE = 5;
 const REFERRAL_LINK_HOST = 'partnerlinks.app';
+const PUBLIC_SHOPIFY_BRAND_MAP = {
+  'aria-wellness': 'partnerlinks-test.myshopify.com'
+};
 const MOCK_FEATURED_BRANDS = [
   {
     slug: 'aria-wellness',
@@ -482,12 +485,22 @@ app.get('/r/:brandSlug/:creatorCode/:productSlug', async (req, res) => {
     const brandSlug = normalizeCode(req.params.brandSlug);
     const creatorCode = normalizeCode(req.params.creatorCode);
     const productSlug = normalizeCode(req.params.productSlug);
-    const productDestinationUrl = getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode);
+    let sessionId = req.cookies.partnerlinks_sid;
+    if (!sessionId) {
+      sessionId = generateSessionId();
+    }
+    const productDestinationUrl = getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode, sessionId);
+    const mappedShopDomain = getPublicShopifyBrandDomain(brandSlug);
 
-    const brand = await getBrandBySlug(brandSlug);
+    const brand = await getBrandForProductReferral(brandSlug);
     if (!brand) {
       if (productDestinationUrl) {
-        log('Product referral forwarding without DB brand match:', { brandSlug, creatorCode, productSlug });
+        log('Product referral forwarding without DB brand match:', {
+          brandSlug,
+          creatorCode,
+          productSlug,
+          shopDomain: mappedShopDomain || null
+        });
         return res.redirect(productDestinationUrl);
       }
       return res.status(404).json({ error: 'Brand not found' });
@@ -498,18 +511,13 @@ app.get('/r/:brandSlug/:creatorCode/:productSlug', async (req, res) => {
       return res.status(400).json({ error: 'Product destination URL not configured' });
     }
 
-    const creator = await getCreatorByCodeAndBrand(creatorCode, brand.id);
+    const creator = await getCreatorForProductReferral(creatorCode, brand.id);
     if (!creator) {
       if (productDestinationUrl) {
         log('Product referral forwarding without DB creator match:', { brandId: brand.id, brandSlug, creatorCode, productSlug });
         return res.redirect(productDestinationUrl);
       }
       return res.status(404).json({ error: 'Creator not found' });
-    }
-
-    let sessionId = req.cookies.partnerlinks_sid;
-    if (!sessionId) {
-      sessionId = generateSessionId();
     }
 
     const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || '';
@@ -524,7 +532,15 @@ app.get('/r/:brandSlug/:creatorCode/:productSlug', async (req, res) => {
       ipHash,
       userAgent,
       referrer,
-      destinationUrl
+      destinationUrl,
+      {
+        creatorCode,
+        referralCode: creator.referral_code || creator.creator_code || creatorCode,
+        brandSlug,
+        productSlug,
+        shopDomain: mappedShopDomain,
+        partnerlinksRef: sessionId
+      }
     );
 
     await upsertAttributionSession(brand.id, sessionId, creator.id, click.id);
@@ -1244,7 +1260,7 @@ function buildDisplayReferralLink(brandSlug, creatorCode, productSlug) {
   return parts.join('/');
 }
 
-function getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode) {
+function getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode, partnerlinksRef) {
   const brand = getMockFeaturedBrand(brandSlug);
   const product = brand ? brand.products.find((item) => normalizeCode(item.slug) === normalizeCode(productSlug)) : null;
   if (!product || !product.shopifyProductUrl) return null;
@@ -1254,10 +1270,81 @@ function getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode) {
   if (normalizedCreatorCode && normalizedCreatorCode !== 'creator') {
     url.searchParams.set('creator_code', normalizedCreatorCode);
   }
-  url.searchParams.set('partnerlinks_ref', normalizedCreatorCode || 'creator');
+  url.searchParams.set('partnerlinks_ref', partnerlinksRef || normalizedCreatorCode || 'creator');
   url.searchParams.set('brand_slug', normalizeCode(brandSlug));
   url.searchParams.set('product_slug', normalizeCode(productSlug));
   return url.toString();
+}
+
+function getPublicShopifyBrandDomain(brandSlug) {
+  return PUBLIC_SHOPIFY_BRAND_MAP[normalizeCode(brandSlug)] || null;
+}
+
+async function getBrandForProductReferral(brandSlug) {
+  const normalizedBrandSlug = normalizeCode(brandSlug);
+  const brand = await getBrandBySlug(normalizedBrandSlug);
+  if (brand) return brand;
+
+  const shopDomain = getPublicShopifyBrandDomain(normalizedBrandSlug);
+  if (!shopDomain) return null;
+
+  const { data: stores, error: storeError } = await supabase
+    .from('shopify_stores')
+    .select('brand_id, shop_domain')
+    .eq('shop_domain', shopDomain)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (storeError) throw storeError;
+
+  const store = stores ? stores[0] : null;
+  if (!store || !store.brand_id) {
+    log('Public Shopify brand mapping has no connected store brand:', {
+      brandSlug: normalizedBrandSlug,
+      shopDomain
+    });
+    return null;
+  }
+
+  const { data: brands, error: brandError } = await supabase
+    .from('brands')
+    .select('*')
+    .eq('id', store.brand_id)
+    .limit(1);
+  if (brandError) throw brandError;
+
+  const mappedBrand = brands ? brands[0] : null;
+  if (mappedBrand) {
+    log('Product referral public brand slug mapped to Shopify brand:', {
+      brandSlug: normalizedBrandSlug,
+      shopDomain,
+      brandId: mappedBrand.id
+    });
+  }
+  return mappedBrand || null;
+}
+
+async function getCreatorForProductReferral(creatorCode, brandId) {
+  const normalizedCreatorCode = normalizeCode(creatorCode);
+  const brandCreator = await getCreatorByCodeAndBrand(normalizedCreatorCode, brandId);
+  if (brandCreator) return brandCreator;
+
+  const { data: creatorMatches, error: creatorError } = await supabase
+    .from('creators')
+    .select('*')
+    .eq('creator_code', normalizedCreatorCode)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (creatorError) throw creatorError;
+  if (creatorMatches && creatorMatches[0]) return creatorMatches[0];
+
+  const { data: referralMatches, error: referralError } = await supabase
+    .from('creators')
+    .select('*')
+    .eq('referral_code', normalizedCreatorCode)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (referralError) throw referralError;
+  return referralMatches ? referralMatches[0] : null;
 }
 
 function getBrandInitials(name) {
