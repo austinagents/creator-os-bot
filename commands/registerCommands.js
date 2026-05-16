@@ -107,6 +107,32 @@ const commands = [
   {
     name: 'network_stats',
     description: 'View your creator invite network performance'
+  },
+  {
+    name: 'shopify_attribution_debug',
+    description: 'Inspect recent Shopify webhook attribution decisions',
+    options: [
+      {
+        name: 'order_id',
+        type: 3, // STRING
+        description: 'Optional Shopify/PartnerLinks order id',
+        required: false
+      },
+      {
+        name: 'creator_code',
+        type: 3, // STRING
+        description: 'Optional creator code filter',
+        required: false
+      },
+      {
+        name: 'limit',
+        type: 4, // INTEGER
+        description: 'Number of rows to show, max 10',
+        required: false,
+        min_value: 1,
+        max_value: 10
+      }
+    ]
   }
 ];
 

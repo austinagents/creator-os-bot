@@ -2,293 +2,262 @@
 
 Last updated: 2026-05-16
 
-## Current MVP State
-
-- Homepage V1 is working.
-- Discord bot is working.
-- Supabase connection is working.
-- Creator flow is working through `/start` and `/link`.
-- PartnerLinks-owned tracking links are working, for example `/r/:brand_slug/:creator_code`.
-- Click tracking is working through the `clicks` table.
-- Last-touch attribution sessions are working through the `attribution_sessions` table.
-- Manual conversions are working through the `conversions` table.
-- `/tracking_stats` is working for creator-facing referral performance.
-- `/record_conversion` is working for admin manual sale entry.
-- `/sales_dashboard` is working for admin brand-level sales totals.
-- `/creator_leaderboard` is working for admin creator performance ranking.
-- Creator invite links are scaffolded through `/join/:creator_code`.
-- Creator invite click/session capture is scaffolded through `creator_invite_sessions`.
-- Creator-network override earnings are scaffolded through `creator_network_earnings`.
-- `/network_stats` is available for creator-facing invite network stats.
-- Supabase Google OAuth web signup bridge is implemented through `/signup`, `/auth/google/start`, `/auth/callback`, and `/creator/welcome`.
-- Web signup can create/find creators and permanently bind `parent_creator_id` from invite sessions.
-- `/auth/google/start` and `/auth/google/start/` both initiate Supabase Google OAuth and redirect to Google.
-- Shopify OAuth MVP install flow is implemented through `/register-business`, `/api/shopify/start`, and `/api/shopify/callback`.
-- Shopify installs now automatically create or reuse a brand record and link `shopify_stores.brand_id` to `brands.id`.
-- Shopify Conversion Webhook MVP is implemented at `POST /webhooks/shopify/orders-paid`. It verifies `X-Shopify-Hmac-Sha256` against `SHOPIFY_WEBHOOK_SECRET` using the raw request body, matches the Shopify shop domain to `shopify_stores.brand_id`, extracts PartnerLinks attribution from discount codes, landing/referring URLs, note attributes, URL/ref params, and recent PartnerLinks click metadata, then creates conversions and network earnings with the standard pending earnings lifecycle.
-- Post-install brand setup is implemented through `/brand/setup/:brand_id`.
-- Brands can now act as origin sponsors when creators sign up through a brand onboarding link.
-- Creator codes, referral codes, and brand URL slugs are canonical lowercase identifiers across routes, lookups, and generated links.
-- Creator Dashboard MVP is available at `/dashboard/:creator_code` with referral, conversion, commission, and network earnings summary. `/dashboard` resolves the current persisted Supabase auth user to their creator dashboard when available, and otherwise shows a clean sign-in state. Post-signup welcome pages now include primary Creator Dashboard and secondary Home CTAs using the canonical lowercase creator code.
-- Brand Dashboard MVP is available at `/brand-dashboard/:brand_slug` with tracked revenue, creator, conversion, fee, network payout, tracking link, and program performance summaries.
-- Homepage creator navigation now uses the same persisted Supabase Auth session resolver as `/dashboard`; returning signed-in creators see Creator Dashboard links routed directly to their canonical `/dashboard/:creator_code` page without a separate homepage auth system, and the homepage hero swaps the public Google signup CTA for a compact creator-code/invite-link copy panel.
-- Homepage hero positioning now uses a stacked editorial hierarchy: creator referral growth on top, the gradient divider, and creator-brand monetization below.
-- Homepage affiliate revenue highlight is presented as a labeled `Network Rewards` value proposition with restrained champagne/gold styling.
-- Homepage hero right-side visual now shows the 3-tier PartnerLinks commission structure: 30% Direct L1, 3% Indirect L2, and 2% Third-Tier L3 in a compact dark tree/pyramid card.
-- Homepage now includes a UI-only `Featured Brands` discovery section under `How it works?` with 20 imaginary mock brand cards, mock referral links, and client-side copy buttons. This is intentionally not connected to real brand/campaign database logic yet.
-- Product-level referral link MVP is UI-only through `/brands/:brand_slug`. Featured brand cards click through to a brand product page with manually curated mock products, brand-level referral links, and product-level preview links in the planned `/r/:brand_slug/:creator_code/:product_slug` format. Signed-in creators see their real lowercase creator code; signed-out visitors see `creator` as the placeholder.
-- Aria Wellness now includes a first-position live Shopify `Test Product` card in its `/brands/aria-wellness` storefront section. Product cards now use one universal layout regardless of product source: image/placeholder, title, short description, creator commission line, referral URL pill, and Copy Link button. The Test Product card has no special Shopify/test badge, price row, or metadata row; its primary `Copy Link` CTA copies `/r/aria-wellness/:creator_code/test-product`, and that PartnerLinks route records a click/session, maps the public demo slug `aria-wellness` to the connected Shopify test store `partnerlinks-test.myshopify.com`, and forwards to Shopify with `creator_code`, `partnerlinks_ref`, `brand_slug`, and `product_slug` query params for conversion attribution testing.
-- Brand detail pages distinguish brand-wide referral links from product-specific referral links with peach/gold editorial supporting copy aligned to the homepage hero accent style.
-- Stripe Connect Express payout onboarding MVP is scaffolded in sandbox/test mode. The Creator Dashboard Total Earnings card now shows Not connected, Finish setup, Stripe connected, or Payouts enabled states based on Stripe `details_submitted`, `charges_enabled`, and `payouts_enabled`. The onboarding CTA uses a compact Stripe-branded indigo button. This only creates/reuses a creator Stripe connected account and sends creators through hosted onboarding when setup is not already submitted; it does not move money, create transfers, calculate withdrawals, or custody creator earnings.
-- Earnings Lifecycle MVP is scaffolded before live money movement. New direct commissions, creator-network earnings, and brand-origin network earnings are stored as `pending` with a configurable 24-hour claim window, then displayed as pending, claimable, claimed, and lifetime earnings on the Creator Dashboard. Claimable creator earnings can be claimed when the signed-in owner has Stripe payouts enabled. Claiming reserves claimable rows, creates a Stripe test-mode transfer to the creator connected account, records `stripe_transfer_id` on `creator_earning_claims`, then marks earnings rows as `claimed`. Live Stripe keys and live payouts remain blocked.
-- Auth persistence now uses dedicated server-set httpOnly access and refresh token cookies with a 30-day max age instead of relying on Supabase's full session blob cookie, so returning creators can be restored across normal browser returns.
-- Homepage brand navigation stores only a non-sensitive brand slug in browser state after Shopify install/brand setup to switch returning connected brands from Register Your Business to Brand Dashboard.
-- `/creator_dashboard` is available as an admin/operator Discord shortcut for dashboard URL lookup and quick verification.
-
-## Product Direction
-
-PartnerLinks is focused on sales generated from creator referral links:
-
-Brand connects ecommerce/payment rails -> creator gets PartnerLinks tracking/invite infrastructure -> creator promotes links -> clicks and sales are attributed -> creator commission and PartnerLinks platform fee are calculated separately -> creator-network overrides are calculated only from PartnerLinks platform fee revenue.
-
-Content submission workflows are not the MVP priority unless they directly support sales attribution.
-
-### Future-Facing Onboarding And Payment Model
-
-Brand onboarding should be simplified around ecommerce/payment connections:
-
-1. Connect Shopify.
-2. Set creator commission percentage.
-3. PartnerLinks generates creator onboarding, creator invite links, and brand referral/tracking infrastructure.
-
-Shopify-first is the MVP default for target DTC and creator-commerce brands. Stripe may be added later for deeper payment routing, but it is not the default first integration.
-
-Current Shopify app setup:
-
-- App name: PartnerLinks.
-- App URL: `https://partnerlinks.app`.
-- Redirect URL: `https://partnerlinks.app/api/shopify/callback`.
-- Current scopes: `read_orders`, `read_customers`.
-
-Current Shopify OAuth flow:
-
-1. Brand visits `/register-business`.
-2. Brand enters Shopify store domain and clicks Connect Shopify.
-3. PartnerLinks redirects to Shopify OAuth install.
-4. Shopify redirects back to `/api/shopify/callback`.
-5. PartnerLinks validates the callback, exchanges the code for an access token, and stores the shop domain plus token in Supabase `shopify_stores`.
-6. PartnerLinks creates or reuses a brand record using the Shopify store domain as the initial brand name/slug source.
-7. PartnerLinks links `shopify_stores.brand_id` to `brands.id`.
-8. PartnerLinks redirects the merchant to `/brand/setup/:brand_id`.
-
-Product discovery and curation direction:
-
-- The first roughly 20 featured brands should remain PartnerLinks-managed/admin-curated instead of requiring brands to manage products or campaigns themselves.
-- Public product pages use the planned product-level referral URL format: `/r/:brand_slug/:creator_code/:product_slug`.
-- Shopify-backed product cards can store product-level destination metadata, starting with the Aria Wellness `Test Product`. Product referral forwarding preserves creator attribution from a signed-in creator or URL params such as `?creator_code=...`, appends a durable `partnerlinks_ref` session id to Shopify URLs, and records product/shop attribution metadata on the PartnerLinks click row when the public brand slug can be mapped to a connected Shopify store.
-- Shopify product auto-pull is planned later through the Shopify Admin API, but pulled products should first be stored as candidates and manually approved/curated before becoming publicly visible.
-
-Stripe Connect payout direction:
-
-- Creator payouts should use connected payout rails, starting with Stripe Connect Express in test mode.
-- Brand -> Stripe Connect payout rails -> Creator is the long-term payment direction.
-- PartnerLinks should not custody creator campaign earnings directly.
-- Current Stripe scope is onboarding/connection state only; withdrawals, transfers, payout calculations, and real-money movement are intentionally out of scope.
-9. Brand sets display name, destination URL, and creator commission percentage.
-10. PartnerLinks displays creator onboarding and tracking link formats.
-
-For MVP, `platform_fee_rate` remains an internal field and defaults to 5% server-side during brand setup. It is not shown in the brand-facing setup UI.
-
-Creator onboarding should be low-friction:
-
-1. Join through `/join/:creator_code` or a brand onboarding link like `/join/brand/:brand_slug`.
-2. Sign in with Google.
-3. Set creator code and social handle.
-4. Connect payout destination: bank or PayPal.
-5. Receive creator invite link and brand referral/tracking links.
-
-Do not collect creator tax info, identity verification, or KYC during the MVP. Creators should provide only email/profile/social information and payout destination. Compliance, tax, and KYC can be revisited later if PartnerLinks directly automates payouts at scale.
-
-Payment model:
-
-- PartnerLinks should not custody funds.
-- Long-term, payments should be routed through connected platform/payment rails.
-- Creator commission should route to the creator payout destination.
-- PartnerLinks platform fee should route to PartnerLinks.
-- Brand keeps remaining revenue.
-- Until automated payout routing is implemented, PartnerLinks can generate payout reporting and instructions.
-
-Example economics on a `$100` sale:
-
-- 20% creator commission = `$20` to creator.
-- 5% PartnerLinks platform fee = `$5` to PartnerLinks.
-- Brand keeps `$75`.
-
-Creator-network referral economics are separate from buyer/brand attribution:
-
-Creator invite links use `/join/:creator_code`. Buyer attribution links use `/r/:brand_slug/:creator_code`. Creator-network override earnings are calculated only from explicit PartnerLinks `platform_fee_amount`, not from creator campaign commission.
-
-Canonical referral identifiers are always lowercase:
-
-- `creator_code` is generated, stored, looked up, and linked in lowercase.
-- `referral_code` is generated, stored, looked up, and linked in lowercase.
-- Brand URL slugs/codes are generated and matched in lowercase.
-- Incoming route params are normalized with lowercase trimming before lookup. `/join/:creator_code` explicitly normalizes with `String(...).trim().toLowerCase()` and checks both `referral_code` and `creator_code` case-insensitively before redirecting to `/signup?invite={lowercase_code}`.
-- Display names keep their original casing in UI.
-
-Creator-network example:
-
-- Creator 1 invites Creator 2.
-- Creator 2 invites Creator 3.
-- Creator 3 drives a `$100` sale.
-- Creator 3 earns the creator commission.
-- Creator 2 earns 30% of PartnerLinks' platform fee.
-- Creator 1 earns 3% of PartnerLinks' platform fee.
-- If there is a Level 3 inviter, they earn 2% of PartnerLinks' platform fee.
-- Network overrides never come from creator commission principal.
-
-MVP override rates:
-
-- Level 1 direct invited creator: 30% of PartnerLinks platform fee.
-- Level 2 indirect invited creator: 3% of PartnerLinks platform fee.
-- Level 3 extended invited creator: 2% of PartnerLinks platform fee.
-- No Level 4+ rewards.
-
-Brands can occupy the origin sponsor position when they directly onboard a creator. This uses the same 30% / 3% / 2% capped economics:
-
-- If a brand directly invites Creator 1 and Creator 1 generates a sale, the brand receives the Level 1 reward.
-- If Creator 1 invites Creator 2 and Creator 2 generates a sale, Creator 1 receives Level 1 and the brand receives Level 2.
-- If Creator 2 invites Creator 3 and Creator 3 generates a sale, Creator 2 receives Level 1, Creator 1 receives Level 2, and the brand receives Level 3.
-- If the creator chain already uses all three levels, the brand receives nothing. There is no infinite depth and no Level 4+ reward.
-
-Brand-origin rewards are recorded only from explicit `platform_fee_amount`, never from order value or creator campaign commission.
-
-## Product Architecture Direction
-
-Going forward, prioritize product architecture, UI/UX consistency, and complete user journeys over rapidly adding isolated features. Major new pages or capabilities should first be assigned to a user type and placed inside a coherent navigation model.
-
-Primary user types:
-
-- Brand
-- Creator
-- Internal Admin
-
-Before implementing major new features, decide:
-
-- Where the feature lives in the product.
-- Which user type owns it.
-- How users reach it.
-- How users return to it.
-- Whether it belongs inside a dashboard, tab, or navigation section.
-
-Product structure rules:
-
-- Build cohesive Creator and Brand dashboard systems before adding many more isolated backend capabilities.
-- Creator Dashboard MVP now lives at `/dashboard/:creator_code` as the first Creator dashboard surface. The homepage creator navigation includes a Creator Dashboard dropdown item; signed-in creators are routed directly to their canonical dashboard through the persisted Supabase session, while unauthenticated visitors still use the safe `/dashboard` entry/sign-in state.
-- Brand Dashboard MVP now lives at `/brand-dashboard/:brand_slug` as the first Brand dashboard surface and intentionally reuses the Creator Dashboard visual system, sidebar structure, card styling, responsive behavior, and dark SaaS layout language.
-- Place features inside structured dashboard/navigation systems instead of standalone utility routes whenever practical.
-- Avoid disconnected utility pages and duplicate navigation paths for the same functionality.
-- Add redirects and canonical routes where appropriate.
-- Keep onboarding flows linear, low-friction, and continuous.
-- Avoid exposing internal/admin tooling in public UI.
-- Preserve mobile responsiveness.
-- Optimize for clean SaaS UX, not developer tooling UX.
-
-UI direction:
-
-- Maintain consistent dark PartnerLinks styling.
-- Keep spacing, typography, buttons, gradients, cards, and layouts consistent across public, creator, and brand experiences.
-- Treat new UI work as part of a scalable dashboard/navigation architecture rather than one-off screens.
-
-## Creator Dashboard Design Direction
-
-Creator Dashboard MVP lives at `/dashboard/:creator_code` and should be treated as the first Creator product surface, not a standalone utility page. The dashboard uses a premium dark PartnerLinks UI with a persistent navigation frame, clear earnings hierarchy, compact stat cards, and low-clutter referral/earnings sections.
-
-Design inspiration references for future polish, without directly cloning any product:
-
-- Shopify Partner Dashboard
-- Stripe Express Dashboard
-- Linktree Creator Analytics
-- Beacons.ai
-- Gumroad
-- Fourthwall
-- Kajabi
-- TikTok Creator tools
-- Modern SaaS analytics dashboards
-
-Finalized Creator Dashboard architecture:
-
-- Sidebar navigation: Overview, Referrals, Earnings, Links, Settings.
-- Top area: welcome header, creator code, total earnings summary.
-- Primary action area: creator invite link with copy action.
-- Middle area: stat cards for earnings, order value, conversions, and network earnings.
-- Lower area: referral performance, earnings mix, recent conversions placeholder, network earnings note, referral tree preview.
-
-UI principles:
-
-- Premium, creator-first, modern, minimal, trustworthy.
-- High signal and low clutter.
-- Centered max-width layout with strong spacing rhythm.
-- Subtle gradients, soft borders, dark surfaces, and restrained cards.
-- Responsive sidebar and grids collapse cleanly on mobile with mobile-only overflow protection, tighter padding/gaps, smaller welcome heading, one-column cards, scrollable sidebar nav, and aggressive wrapping for long invite URLs. Dashboard critical CSS is inlined in the `/dashboard/:creator_code` route and the external stylesheet uses cache-busting/no-store headers so production cannot render the dashboard as raw unstyled markup if `/styles.css` is stale.
-- No internal/admin tooling exposed in public creator dashboard UI.
-- Homepage navigation includes a `For Creators` dropdown with `Creator Dashboard` as the first creator journey item; the homepage now checks the same persisted Supabase session used by `/dashboard` and routes signed-in creators directly to `/dashboard/:creator_code`. Signed-in creators also see a premium creator invite panel in place of the public `Sign up with Google` CTA, with canonical lowercase creator code, invite link, and copy action. `/dashboard` still shows a clean sign-in state when no authenticated creator session is available. Creator and brand invite links also avoid forcing signup when a valid creator session already exists, redirecting the returning creator to their dashboard instead. The dropdown is an overlay on hover/focus so it does not shift navbar layout, and the welcome-page Home CTA is styled as a balanced secondary button next to the primary Creator Dashboard CTA.
-- Brand nav is state-aware without full auth: unconnected visitors see `Register Your Business` with a hover/focus `Brand Dashboard` teaser that routes to `/register-business`; connected brands with a stored safe brand slug see `Brand Dashboard` directly, routed to `/brand-dashboard/:brand_slug`. Invalid or missing brand slug state falls back safely to `/register-business`. Brand setup success pages show Brand Dashboard and Home CTAs with the same visual button system as creator onboarding.
-- Homepage dropdown hover behavior uses a shared hover/focus wrapper and invisible hover bridge so users can move from the nav trigger to dropdown items without the menu closing.
-- Website/dashboard remains the primary creator UX; Discord remains an operator shortcut layer.
-- Dashboard rendering fix: `/styles.css` is served with `Cache-Control: no-store`, the dashboard route sets no-store headers, and `/styles.css?v=creator-dashboard-3` plus inline critical CSS ensure current dashboard classes apply in production.
-
-## Development Workflow Rule
-
-When adding a new PartnerLinks site feature or backend mechanic, evaluate whether it also needs a Discord slash command. Do not add slash commands automatically for every feature.
-
-Website/dashboard UX should remain primary for brands and creators. Discord should act as:
-
-- Admin control layer
-- Testing layer
-- Operational shortcut layer
-- Diagnostics layer
-
-Add slash commands when they help with:
-
-- Admin/operator testing
-- Quick verification
-- Manual overrides
-- Status checks
-- Conversion/referral debugging
-- Brand or creator lookup
-- Payout/earnings inspection
-- Triggering backend workflows manually
-
-Before implementing future features, explicitly check:
-
-1. Website/dashboard route needed?
-2. Backend/service logic needed?
-3. Supabase schema changes needed?
-4. Discord slash command needed?
-5. PROJECT_STATUS.md update needed?
-
-## Current Tables
-
-Expected base tables:
+This file is the current implementation snapshot for starting a new ChatGPT/Codex project chat with minimal context loss. Permanent product philosophy, UX guardrails, terminology, and long-term architecture rules live in `CHAT_HANDOFF.md`.
+
+## Current Live State
+
+- Production app is deployed on Railway.
+- GitHub repo is connected: `https://github.com/austinagents/creator-os-bot.git`.
+- Railway redeploys from GitHub pushes.
+- Express listens on `process.env.PORT || 3000` and binds to `0.0.0.0`, so Railway public URL works.
+- Supabase is connected and used for app data, auth-related creator binding, tracking, conversions, Shopify stores, and payout ledger tables.
+- Discord bot starts successfully, logs in, and registers slash commands on startup.
+- Homepage V1 is live and styled with the current dark PartnerLinks SaaS visual system.
+- Creator Google signup through Supabase Auth works.
+- Returning creators are restored through server-set httpOnly access/refresh token cookies with a 30-day max age.
+- Shopify OAuth install works end-to-end in production.
+- Shopify paid-order webhook ingestion is implemented and has produced a successful test conversion.
+- Stripe Connect Express payout onboarding is implemented in sandbox/test mode.
+- Claim Earnings can create Stripe test-mode transfers when claimable earnings exist and creator Stripe payouts are enabled.
+
+## Current Working Systems
+
+### Public Site And Navigation
+
+- Homepage route `/` works.
+- Homepage includes:
+  - creator/brand hero positioning
+  - creator invite CTA/sign-in-aware invite panel
+  - 3-tier commission structure visual
+  - `Featured Brands` mock discovery section
+  - state-aware creator/brand navigation
+- Signed-in creators see their creator code and invite link on the homepage instead of the public Google signup CTA.
+- `For Creators -> Creator Dashboard` routes signed-in creators to `/dashboard/:creator_code`.
+- Signed-out users are routed to the safe dashboard sign-in state.
+- Brand nav is lightweight state-aware:
+  - unconnected visitors see `Register Your Business`
+  - connected brands can see `Brand Dashboard`
+  - invalid/missing brand state falls back to `/register-business`
+
+### Creator Auth And Onboarding
+
+- Supabase Google OAuth starts through `/auth/google/start` and `/auth/google/start/`.
+- OAuth callback route `/auth/callback` exchanges the code for a session.
+- Server stores auth access/refresh tokens in httpOnly cookies.
+- Web signup can create or find a creator by `auth_user_id` or email.
+- Web signup can bind `parent_creator_id` from invite session when available.
+- Discord `/start` still cannot reliably read browser cookies, so permanent creator invite binding should happen through web signup.
+- Creator invite links:
+  - `/join/:creatorCode`
+  - `/join/brand/:brandSlug`
+- Returning signed-in creators who open invite/referral entry routes can be redirected back to their dashboard instead of being forced to sign up again.
+
+### Discord Bot
+
+Creator-facing commands:
+
+- `/start`
+- `/link`
+- `/stats`
+- `/tracking_stats`
+- `/network_stats`
+
+Admin/operator commands:
+
+- `/brand_setup`
+- `/record_conversion`
+- `/sales_dashboard`
+- `/creator_leaderboard`
+- `/creator_dashboard`
+- `/shopify_attribution_debug`
+
+Current Discord behavior:
+
+- Slash command registration refreshes on startup.
+- `/record_conversion` finds creators by exact lowercase `creator_code` or `referral_code`.
+- `/record_conversion` supports Google/web-created creators with no `discord_user_id`.
+- `/record_conversion` does not require creator lookup to match `brand_id`.
+- `/record_conversion` accepts optional numeric `platform_fee_amount`.
+- Creator-network earnings are only created when `platform_fee_amount > 0`.
+- `/shopify_attribution_debug` shows recent Shopify webhook attribution decisions from `shopify_attribution_events`.
+- Discord replies use the safe reply flow to avoid duplicate interaction acknowledgements.
+
+### Brand Onboarding
+
+- Shopify-first brand onboarding is implemented.
+- `/register-business` shows Shopify store input and Connect Shopify CTA.
+- `/api/shopify/start` validates the shop domain, creates state, and redirects to Shopify OAuth.
+- `/api/shopify/callback` validates HMAC/state, exchanges the code for an access token, stores the Shopify store, creates/reuses a brand, links `shopify_stores.brand_id`, and redirects into setup.
+- `/brand/setup/:brandId` lets brands set:
+  - display brand name
+  - destination URL
+  - creator commission percentage
+- `platform_fee_rate` remains internal and defaults to 5% server-side.
+- Brand setup success shows:
+  - connected Shopify store
+  - brand name
+  - creator commission percentage
+  - creator onboarding link
+  - next step to invite creators
+- Brand Dashboard MVP exists at:
+  - `/brand-dashboard`
+  - `/brand-dashboard/:brandSlug`
+
+### Creator Dashboard
+
+- Creator Dashboard MVP exists at:
+  - `/dashboard`
+  - `/dashboard/:creatorCode`
+- `/dashboard` resolves the current persisted Supabase auth user to their canonical creator dashboard when available.
+- Dashboard shows current creator/referral/earnings state:
+  - display name
+  - creator code
+  - invite link
+  - direct referrals
+  - second-level referrals
+  - third-level referrals
+  - total conversions
+  - total order value
+  - direct commission
+  - network earnings
+  - pending earnings
+  - claimable earnings
+  - claimed earnings
+  - lifetime earnings
+  - Stripe payout status
+  - payout history
+- Dashboard UI is dark, premium, responsive, and aligned with the Brand Dashboard visual system.
+
+## Current Routes
+
+Public and discovery:
+
+- `GET /`
+- `GET /signup`
+- `GET /creator/welcome`
+- `GET /brands/:brandSlug`
+
+Creator invite/referral:
+
+- `GET /join/:creatorCode`
+- `GET /join/brand/:brandId`
+- `GET /r/:brandSlug/:creatorCode`
+- `GET /r/:brandSlug/:creatorCode/:productSlug`
+
+Creator dashboard and payout:
+
+- `GET /dashboard`
+- `GET /dashboard/:creatorCode`
+- `POST /earnings/claim`
+- `GET /stripe/connect/start`
+- `GET /stripe/connect/debug`
+- `GET /stripe/connect/refresh`
+- `GET /stripe/connect/return`
+
+Auth:
+
+- `GET /auth/google/start`
+- `GET /auth/google/start/`
+- `GET /auth/callback`
+- `GET /auth/google`
+
+Brand and Shopify:
+
+- `GET /register-business`
+- `GET /api/shopify/start`
+- `GET /api/shopify/callback`
+- `GET /brand/setup/:brandId`
+- `POST /brand/setup/:brandId`
+- `GET /brand-dashboard`
+- `GET /brand-dashboard/:brandSlug`
+
+Webhooks:
+
+- `POST /webhooks/shopify/orders-paid`
+
+Static/runtime:
+
+- `GET /styles.css` with no-store headers for production CSS freshness.
+
+## Current Database Tables
+
+Core:
 
 - `brands`
 - `creators`
 - `submissions`
 
-Tracking and attribution tables:
+Tracking and attribution:
 
 - `clicks`
 - `attribution_sessions`
 - `conversions`
 - `creator_invite_sessions`
+
+Network earnings:
+
 - `creator_network_earnings`
 - `brand_network_earnings`
+
+Shopify:
+
 - `shopify_stores`
+- `shopify_attribution_events`
 
-Brand Dashboard uses existing tables only for this MVP pass: `brands`, `creators`, `clicks`, `conversions`, `creator_network_earnings`, and `shopify_stores`.
+Payout ledger:
 
-Migration files currently present:
+- `creator_earning_claims`
+
+Important current fields:
+
+- `creators.creator_code`
+- `creators.referral_code`
+- `creators.parent_creator_id`
+- `creators.invited_by_brand_id`
+- `creators.join_referral_link`
+- `creators.auth_user_id`
+- `creators.email`
+- `creators.stripe_account_id`
+- `creators.stripe_onboarding_status`
+- `brands.destination_url`
+- `brands.creator_commission_rate`
+- `brands.platform_fee_rate`
+- `brands.setup_completed_at`
+- `shopify_stores.brand_id`
+- `shopify_stores.shop_domain`
+- `shopify_stores.access_token`
+- `shopify_attribution_events.order_id`
+- `shopify_attribution_events.partnerlinks_ref`
+- `shopify_attribution_events.attribution_source`
+- `shopify_attribution_events.attribution_confidence`
+- `shopify_attribution_events.fallback_used`
+- `shopify_attribution_events.decision`
+- `shopify_attribution_events.unmatched_reason`
+- `clicks.creator_code`
+- `clicks.referral_code`
+- `clicks.brand_slug`
+- `clicks.product_slug`
+- `clicks.shop_domain`
+- `clicks.partnerlinks_ref`
+- `conversions.platform_fee_amount`
+- `conversions.payout_status`
+- `conversions.claimable_at`
+- `conversions.claimed_at`
+- `conversions.claim_batch_id`
+- `creator_network_earnings.payout_status`
+- `creator_network_earnings.claimable_at`
+- `creator_network_earnings.claimed_at`
+- `creator_network_earnings.claim_batch_id`
+- `brand_network_earnings.payout_status`
+- `brand_network_earnings.claimable_at`
+- `creator_earning_claims.claim_batch_id`
+- `creator_earning_claims.stripe_transfer_id`
+- `creator_earning_claims.stripe_transfer_status`
+- `creator_earning_claims.stripe_transfer_created_at`
+
+## Current Migrations
+
+Manual SQL migration files currently present:
 
 - `database/migrations/001_tracking_tables.sql`
 - `database/migrations/002_conversions_table.sql`
@@ -303,69 +272,359 @@ Migration files currently present:
 - `database/migrations/011_claim_earnings_ledger.sql`
 - `database/migrations/012_claim_stripe_transfer_fields.sql`
 - `database/migrations/013_click_product_attribution.sql`
+- `database/migrations/014_shopify_attribution_events.sql`
 
-## Current Discord Commands
+Migration policy:
 
-Creator-facing:
+- There is no automated migration runner.
+- Do not execute SQL automatically unless explicitly requested.
+- Add migration files and paste the exact SQL for manual Supabase SQL Editor execution.
+- `013_click_product_attribution.sql` adds product/shop/ref metadata columns to `clicks` so Shopify webhook fallback attribution can recover stripped checkout attribution.
+- `014_shopify_attribution_events.sql` adds an internal Shopify attribution diagnostics ledger for webhook decisions, duplicate skips, unmatched reasons, fallback usage, click ids, and attribution confidence.
 
-- `/start`
-- `/link`
-- `/stats`
-- `/tracking_stats`
-- `/network_stats`
+## Shopify Attribution And Webhook State
 
-Admin-only:
+Current Shopify app setup:
 
-- `/brand_setup`
-- `/record_conversion`
-- `/sales_dashboard`
-- `/creator_leaderboard`
-- `/creator_dashboard`
+- App name: PartnerLinks.
+- App URL: `https://partnerlinks.app`.
+- Redirect URL: `https://partnerlinks.app/api/shopify/callback`.
+- Scopes: `read_orders`, `read_customers`.
 
-Admin-only means the Discord member must have Administrator or Manage Guild permission.
+Current Shopify OAuth flow:
 
-## How To Run Locally
+1. Brand visits `/register-business`.
+2. Brand enters Shopify store domain.
+3. PartnerLinks redirects to Shopify OAuth.
+4. Shopify redirects to `/api/shopify/callback`.
+5. PartnerLinks validates callback HMAC/state.
+6. PartnerLinks exchanges code for access token.
+7. PartnerLinks stores `shop_domain` and `access_token` in `shopify_stores`.
+8. PartnerLinks creates/reuses a brand and links `shopify_stores.brand_id`.
+9. PartnerLinks redirects to `/brand/setup/:brandId`.
 
-1. Install dependencies:
+Current product attribution flow:
 
-```bash
-npm install
-```
+1. Creator/customer opens `/r/:brandSlug/:creatorCode/:productSlug`.
+2. PartnerLinks normalizes route params.
+3. PartnerLinks resolves brand and creator.
+4. For Aria Wellness, public slug `aria-wellness` maps to `partnerlinks-test.myshopify.com`.
+5. PartnerLinks creates/reuses `partnerlinks_sid`.
+6. PartnerLinks records a `clicks` row with creator, brand, product, shop, destination, and `partnerlinks_ref` metadata.
+7. PartnerLinks upserts `attribution_sessions`.
+8. PartnerLinks redirects to the live Shopify storefront product URL with:
+   - `creator_code`
+   - `partnerlinks_ref`
+   - `brand_slug`
+   - `product_slug`
+9. Shopify checkout completes.
+10. Shopify `orders/paid` webhook posts to `/webhooks/shopify/orders-paid`.
+11. Webhook verifies HMAC using `SHOPIFY_WEBHOOK_SECRET`.
+12. Webhook resolves `shopify_stores.shop_domain -> brand_id`.
+13. Webhook prevents duplicate conversion by `shopify:{shop_domain}:{order_id}`.
+14. Webhook resolves attribution through a deterministic ranked resolver.
+15. Webhook writes an internal attribution diagnostic event when the diagnostics table exists.
+16. Webhook creates conversion and earnings rows when attribution resolves cleanly.
 
-2. Create a local `.env` from `.env.example` and fill in real local values:
+Current webhook attribution resolution order:
 
-```bash
-cp .env.example .env
-```
+1. explicit `partnerlinks_ref` exact click/session recovery
+2. exact `referral_code` / `creator_code`
+3. explicit Shopify `note_attributes`
+4. explicit `landing_site` params
+5. explicit `source_url` params
+6. deterministic `attribution_sessions` lookup by `partnerlinks_ref`
+7. strict recent-click fallback
+8. unmatched attribution
 
-3. Run Supabase migrations manually in the Supabase SQL editor:
+Current webhook attribution diagnostics:
 
-```text
-database/migrations/001_tracking_tables.sql
-database/migrations/002_conversions_table.sql
-database/migrations/003_creator_network.sql
-database/migrations/004_web_auth_creators.sql
-database/migrations/005_shopify_stores.sql
-database/migrations/006_brand_setup_fields.sql
-database/migrations/007_brand_origin_network.sql
-database/migrations/008_normalize_referral_codes.sql
-database/migrations/009_stripe_connect_creators.sql
-database/migrations/010_earnings_lifecycle.sql
-database/migrations/011_claim_earnings_ledger.sql
-database/migrations/012_claim_stripe_transfer_fields.sql
-```
+- Stored in `shopify_attribution_events` after migration `014_shopify_attribution_events.sql` is run.
+- Logged even if the diagnostics table is not available yet.
+- Tracks:
+  - `order_id`
+  - `shopify_order_id`
+  - `shop_domain`
+  - `brand_id`
+  - matched creator id/code
+  - matched product slug
+  - `partnerlinks_ref`
+  - attribution source
+  - attribution confidence
+  - fallback usage
+  - recent click id
+  - click/session id
+  - time delta from click
+  - decision/result
+  - unmatched reason
+  - duplicate order status
 
-4. Start the app:
+Current attribution confidence values:
 
-```bash
-npm start
-```
+- `exact`
+- `high`
+- `medium`
+- `low`
+- `none`
 
-The app defaults to `http://localhost:3000` unless `PORT` or `PUBLIC_BASE_URL` are changed.
+Recent-click fallback is now intentionally low confidence:
 
-## Railway Deployment Notes
+- It is used only after explicit attribution and deterministic session lookup fail.
+- It uses a tighter attribution window.
+- It prefers same `shop_domain`, same `product_slug` when available, same creator when available, and closest reasonable click timing.
+- If the recent-click set is ambiguous, the webhook logs/skips attribution and returns `200` instead of guessing.
 
-Set production environment variables in Railway, not in committed files:
+Current Aria Wellness test flow:
+
+- Brand/store page: `/brands/aria-wellness`
+- First product: `Test Product`
+- Product card uses the universal product card layout.
+- Product referral link format:
+  - `partnerlinks.app/r/aria-wellness/:creatorCode/test-product`
+- Test creator used in production test:
+  - `austin-taylor`
+- Live Shopify product URL:
+  - `https://partnerlinks-test.myshopify.com/products/test-product`
+- Shopify preview URLs are no longer used for checkout testing.
+
+Current confirmed Shopify/Bogus Gateway test result:
+
+- A product referral route was opened for:
+  - `/r/aria-wellness/austin-taylor/test-product`
+- The route recorded click/session attribution.
+- Shopify order webhook received the paid order.
+- Webhook resolved:
+  - `shopDomain = partnerlinks-test.myshopify.com`
+  - connected brand id from `shopify_stores.brand_id`
+- Webhook recovered attribution through recent click fallback.
+- Webhook created a conversion with order id format:
+  - `shopify:partnerlinks-test.myshopify.com:{order_id}`
+- Conversion was attributed to creator:
+  - `austin-taylor`
+- Direct creator commission was created.
+- Creator/network earnings were created from `platform_fee_amount`.
+
+Current webhook behavior:
+
+- Returns `200` for unmatched attribution so Shopify does not retry forever.
+- Returns `200` for invalid creator attribution after logging clearly.
+- Skips duplicate orders.
+- Records duplicate/unmatched/created attribution decisions in `shopify_attribution_events` when migration `014` exists.
+- Leaves manual `/record_conversion` as the operational fallback.
+
+## Stripe Connect And Claim Lifecycle State
+
+Current Stripe scope:
+
+- Stripe Connect Express onboarding is implemented in sandbox/test mode.
+- Test-mode Stripe transfers are implemented through Claim Earnings.
+- Live payouts remain intentionally blocked.
+- PartnerLinks does not custody creator campaign earnings.
+
+Current Stripe routes:
+
+- `/stripe/connect/start`
+- `/stripe/connect/refresh`
+- `/stripe/connect/return`
+- `/stripe/connect/debug`
+- `/earnings/claim`
+
+Current onboarding states:
+
+- not connected
+- finish setup
+- Stripe connected
+- payouts enabled
+
+Current payout lifecycle:
+
+- New direct commissions and creator-network earnings start as `pending`.
+- Pending earnings become `claimable` after the configured claim window.
+- Claimable earnings can be claimed when the signed-in creator has Stripe payouts enabled.
+- Claimed earnings appear in payout history.
+- Lifetime earnings remain unchanged by claiming.
+
+Claim flow:
+
+1. Signed-in creator clicks Claim Earnings.
+2. Server verifies creator ownership.
+3. Server requires `stripe_onboarding_status = payouts_enabled`.
+4. Server requires creator `stripe_account_id`.
+5. Server requires `STRIPE_SECRET_KEY` beginning with `sk_test_`.
+6. Server reserves claimable rows with `claim_batch_id`.
+7. Server creates a claim row in `creator_earning_claims`.
+8. Server creates a Stripe test transfer using claim batch id as idempotency key.
+9. Server stores:
+   - `stripe_transfer_id`
+   - `stripe_transfer_status`
+   - `stripe_transfer_created_at`
+10. Server marks reserved earnings rows as `claimed`.
+11. Dashboard shows payout history.
+
+Claim idempotency/recovery state:
+
+- If Stripe transfer creation fails, reservations are cleared and earnings remain claimable.
+- If Stripe transfer succeeds but DB finalization fails, retries recover the reserved batch/claim row instead of intentionally creating duplicate transfers.
+- Preserve this idempotency and recovery logic during payout changes.
+
+## UI Systems
+
+Current frontend style:
+
+- Server-rendered Express HTML plus `public/styles.css`.
+- Homepage, Creator Dashboard, Brand Dashboard, brand pages, onboarding, and auth pages share the dark PartnerLinks SaaS aesthetic.
+- `/styles.css` is served with no-store headers to reduce Railway/browser stale CSS issues.
+
+Homepage:
+
+- Current hero copy and visual direction are live.
+- Homepage hero includes the 3-tier commission structure visual.
+- Homepage includes mock `Featured Brands`.
+- Featured Brands is UI-only and does not yet query real campaigns/brands.
+
+Creator Dashboard:
+
+- Dark premium dashboard with sidebar, KPI cards, invite link, earnings cards, payout module, claim CTA, and payout history.
+- Mobile overflow issues were addressed with responsive dashboard CSS.
+
+Brand Dashboard:
+
+- Reuses Creator Dashboard visual system.
+- Shows brand-level metrics, tracking preview, recent conversions/top creators-style panels, and program summaries.
+
+Brand/product pages:
+
+- `/brands/:brandSlug` shows brand detail and product grid.
+- Brand-wide explainer:
+  - `Earn from any purchase across the brand's store`
+- Product section explainer:
+  - `Promote a specific featured product`
+- Product grid:
+  - desktop: 4 columns
+  - tablet: 2 columns
+  - mobile: 1 column
+
+Universal product card layout:
+
+1. image/placeholder area
+2. product title
+3. short description
+4. creator commission line
+5. referral URL pill
+6. Copy Link button
+
+Current product card rule:
+
+- All products use the same card layout regardless of source.
+- Shopify-backed products must not show special Shopify/test badges, price rows, or metadata rows unless the same visible row exists for every product.
+- Copy Link CTA is universal and copies the PartnerLinks referral URL.
+
+## Current Service/File Responsibilities
+
+`index.js`
+
+- Express app setup.
+- Public/server-rendered routes.
+- Auth/session route handling.
+- Dashboard rendering.
+- Referral/product forwarding routes.
+- Shopify OAuth entry/callback routes.
+- Webhook route mounting.
+- Earnings claim route wiring.
+
+`services/authService.js`
+
+- Supabase auth session cookies.
+- Current auth user resolution.
+- Login/logout cookie helpers.
+- Persisted creator session restoration.
+
+`services/trackingService.js`
+
+- Click/session tracking.
+- Referral click persistence.
+- `attribution_sessions` creation/upsert.
+- Product referral metadata persistence.
+
+`services/shopifyWebhookService.js`
+
+- Shopify `orders/paid` webhook HMAC verification.
+- Shopify order parsing.
+- Deterministic attribution recovery.
+- Canonical `partnerlinks_ref` recovery.
+- Low-confidence recent click fallback attribution.
+- Attribution diagnostics ledger writing.
+- Duplicate order prevention.
+- Conversion creation handoff.
+
+`services/creatorNetworkService.js`
+
+- Creator referral tree logic.
+- `parent_creator_id` relationships.
+- Creator network earnings calculations.
+- Level 1/2/3 payout logic.
+
+`services/earningsLifecycleService.js`
+
+- Pending/claimable/claimed earnings lifecycle.
+- `claimable_at` handling.
+- Claim reservations.
+- `creator_earning_claims` ledger writing.
+- Stripe transfer finalization handoff.
+- Duplicate claim prevention.
+
+`services/stripeConnectService.js`
+
+- Stripe Connect Express account creation/reuse.
+- Hosted onboarding account links.
+- Stripe account status refresh.
+- Sandbox transfer creation.
+- Transfer idempotency/recovery support.
+
+`services/creatorDashboardService.js`
+
+- Creator Dashboard data aggregation.
+- Referral counts.
+- Conversion totals.
+- Earnings totals.
+- Stripe payout status.
+- Payout history retrieval.
+
+`services/brandDashboardService.js`
+
+- Brand Dashboard data aggregation.
+- Brand-level metrics.
+- Creator/conversion summaries.
+- Dashboard fallback state.
+
+`commands/handlers.js`
+
+- Discord slash command handling.
+- Manual conversion fallback.
+- Admin/operator shortcuts.
+- Creator dashboard link command.
+
+`commands/registerCommands.js`
+
+- Discord slash command definitions/registration.
+
+`public/styles.css`
+
+- Global PartnerLinks visual system.
+- Homepage styling.
+- Dashboard styling.
+- Brand/product page styling.
+- Universal product card layout rules.
+
+`database/migrations/`
+
+- Manual Supabase migration files.
+- SQL must be run manually by the user in Supabase SQL Editor.
+- No automatic migration runner currently exists.
+
+## Environment Variables
+
+Core/Discord:
 
 - `DISCORD_TOKEN`
 - `DISCORD_CLIENT_ID`
@@ -374,80 +633,207 @@ Set production environment variables in Railway, not in committed files:
 - `CREATOR_LOG_CHANNEL_ID`
 - `SUBMISSIONS_LOG_CHANNEL_ID`
 - `BOT_ALERTS_CHANNEL_ID`
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SHOPIFY_API_KEY`
-- `SHOPIFY_API_SECRET`
-- `SHOPIFY_SCOPES`
-- `SHOPIFY_APP_URL`
-- `NODE_ENV=production`
-- `PUBLIC_BASE_URL`
 - `DEFAULT_REF_TEMPLATE`
 - `EXPORTS_DIR`
 - `LOG_LEVEL`
 
-Google OAuth production environment requirements for the current code:
+Supabase:
 
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `PUBLIC_BASE_URL=https://partnerlinks.app`
-- `NODE_ENV=production`
 
-The current app does not read `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, or `GOOGLE_REDIRECT_URI` from Railway. Google OAuth is started through Supabase Auth with `signInWithOAuth({ provider: 'google' })`, and the callback URL is built from `PUBLIC_BASE_URL` as `https://partnerlinks.app/auth/callback`. Google Client ID and Secret belong in the Supabase Auth Google provider configuration.
+Public/runtime:
 
-Railway should run:
+- `NODE_ENV`
+- `PORT`
+- `PUBLIC_BASE_URL`
+
+Shopify:
+
+- `SHOPIFY_API_KEY`
+- `SHOPIFY_API_SECRET`
+- `SHOPIFY_WEBHOOK_SECRET`
+- `SHOPIFY_SCOPES`
+- `SHOPIFY_APP_URL`
+
+Stripe:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_PUBLISHABLE_KEY`
+- `EARNINGS_PENDING_WINDOW_HOURS`
+
+Google OAuth note:
+
+- The current app does not read `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, or `GOOGLE_REDIRECT_URI` from Railway.
+- Google OAuth is started through Supabase Auth using `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `PUBLIC_BASE_URL`.
+- Google Client ID and Secret belong in the Supabase Auth Google provider configuration.
+- Supabase redirect allow list should include:
+  - `http://localhost:3000/auth/callback`
+  - `https://partnerlinks.app/auth/callback`
+  - `https://www.partnerlinks.app/auth/callback` if using `www`
+
+## Runtime And Deployment Workflow
+
+Local:
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Create `.env` from `.env.example` and fill real local values:
+
+```bash
+cp .env.example .env
+```
+
+3. Run migrations manually in Supabase SQL Editor.
+
+4. Start the app only if it is not already running:
 
 ```bash
 npm start
 ```
 
-## Known Warnings / Issues
+Local app URL:
 
-- This folder is not currently initialized as a Git repository.
-- Database migrations are manual SQL files; there is no automated migration runner yet.
-- Supabase service role key is required by the current server-side bot code and must only live in local `.env` or Railway environment variables.
-- Payouts are manual. The app only calculates estimated commission.
-- Current Discord brand setup is manual through `/brand_setup`; web brand onboarding now has a lightweight Shopify OAuth install flow.
-- Shopify-connected stores are linked to brand records automatically. Reinstalling an existing connected store reuses the existing `shopify_stores.brand_id` and does not create a duplicate brand.
-- Brand setup stores `brands.name`, `brands.destination_url`, `brands.creator_commission_rate`, internal `brands.platform_fee_rate`, and `brands.setup_completed_at`.
-- Brand-facing setup only asks for creator commission percentage. `platform_fee_rate` exists internally and defaults to 5% for MVP.
-- Brand setup displays a brand-origin creator onboarding link at `/join/brand/:brand_slug`.
-- Newly generated brand-origin onboarding links use the lowercase brand slug format `/join/brand/:brand_slug`; existing numeric brand-id links remain accepted.
-- Creators who sign up through a brand onboarding link can be permanently marked with `creators.invited_by_brand_id`.
-- There is no embedded Shopify admin UI, billing, live Stripe transfers, public marketplace, or payout automation yet.
-- Current sales recording is manual through `/record_conversion`.
-- Shopify paid-order conversion ingestion is available through `POST /webhooks/shopify/orders-paid`. It uses `SHOPIFY_WEBHOOK_SECRET`, skips duplicate `shopify:{shop_domain}:{order_id}` conversions per brand, recovers attribution from Shopify URL params/landing/referring/note attributes or recent PartnerLinks click metadata, returns 200 for unmatched/invalid attribution so Shopify does not retry forever, and leaves manual `/record_conversion` as the fallback.
-- Direct commissions and network earnings now carry payout lifecycle fields: `payout_status`, `claimable_at`, `claimed_at`, and `claim_batch_id`. The default lifecycle is `pending -> claimable -> claimed`, with new earnings becoming claimable after 24 hours by default. The Creator Dashboard promotes elapsed creator earnings from `pending` to `claimable` on load. The pending window is configurable with `EARNINGS_PENDING_WINDOW_HOURS`.
-- Claim Earnings Stripe Test Transfer MVP is test-mode only. `/earnings/claim` requires the signed-in creator owner, `stripe_onboarding_status = payouts_enabled`, a creator `stripe_account_id`, and `STRIPE_SECRET_KEY` beginning with `sk_test_`. It reserves claimable direct commissions and creator-network earnings with a `claim_batch_id`, creates a processing claim ledger row before transfer, creates a Stripe test transfer with the claim batch id as the Stripe idempotency key, writes `stripe_transfer_id`, `stripe_transfer_status`, and `stripe_transfer_created_at` to `creator_earning_claims`, then marks reserved earnings rows as `claimed`. If Stripe transfer creation fails, the reservation is cleared and earnings remain claimable. If DB finalization fails after Stripe succeeds, retries recover the reserved batch/claim row and do not intentionally create duplicate transfers.
-- Payout History UI is read-only and displays recent `creator_earning_claims` rows on the Creator Dashboard. Current statuses can show `claimed`, `processing`, `paid`, or `failed`; test transfer claims currently store `paid` when Stripe returns a transfer id.
-- `/record_conversion` now accepts optional `platform_fee_amount`. Creator-network override rows are only created when this value is greater than zero.
-- When `platform_fee_amount` is greater than zero, conversion recording can create creator network earnings and, if the chain reaches a brand origin sponsor before Level 3 is exhausted, a `brand_network_earnings` row.
-- `/record_conversion` slash command registration includes optional numeric `platform_fee_amount`; if omitted, command handling treats it as `0`.
-- `/record_conversion` can find creators by `creator_code` or `referral_code`, including web-created creators without a Discord user.
-- `/record_conversion` uses direct exact creator lookups and does not require `discord_user_id`.
-- `/record_conversion` performs its creator lookup inside the command handler without filtering by `brand_id`; temporary debug logs show input, creator-code lookup, referral-code lookup, and lookup errors before Discord replies.
-- Discord command replies are routed through `safeInteractionReply`, which only uses `followUp()` after an interaction is replied/deferred and otherwise uses `reply()`; reply errors are logged without being rethrown.
-- `/record_conversion` now runs both exact `creator_code` and exact `referral_code` lookups before deciding a creator is missing, and `safeInteractionReply` guards against duplicate responses per interaction.
-- `/record_conversion` defers once, then edits that single interaction response so failure and success messages cannot both be sent by the same handler.
-- `/creator_dashboard creator_code` returns the canonical Creator Dashboard URL and quick stats for admin/operator verification.
-- Slash command registration logs the exact command list on startup, including `/network_stats`, and startup registration refreshes guild commands automatically.
-- `/join/:creator_code` captures invite sessions in a browser cookie. Permanent parent binding from invite session to new creator is completed by the web Google signup flow.
-- Web signup/auth binding is now implemented for Google OAuth. Supabase Auth access and refresh tokens are persisted in dedicated server-set httpOnly cookies with secure production settings, SameSite=Lax, path `/`, and a 30-day max age. The app restores/refreshes the Supabase session from those cookies server-side, so returning creators can access `/dashboard`, homepage Creator Dashboard navigation, and invite/referral entry points without signing in again until the session naturally expires. The full Supabase session blob is not exposed to browser JavaScript and is not relied on as a browser cookie. Discord `/start` still cannot reliably read browser invite cookies, so invite parent binding should happen through the web signup flow.
-- Google-created creators can have `brand_id` null if the database allows it. If the existing production schema requires `brand_id`, the auth helper falls back to the latest brand so creator creation can still complete; review this later when multi-brand web onboarding is formalized.
-- Supabase Google provider and redirect allow-list entries must be configured manually before OAuth works. Railway must also include `SUPABASE_ANON_KEY` and `PUBLIC_BASE_URL=https://partnerlinks.app`; missing either one causes `/auth/google/start` to return `Unable to start Google signup`. Auth clear-cookie calls must not include `maxAge`; Shopify and Supabase auth clear paths now use clear-cookie options without expiration metadata.
-- Discord slash command registration happens on bot startup for the configured guild.
+- `http://localhost:3000`
 
-## Next Recommended Steps
+Production:
 
-- Initialize Git and push to a private GitHub repository.
-- Configure Railway environment variables from `.env.example`.
-- Set `PUBLIC_BASE_URL` to the Railway production URL after the first deploy.
-- Run Supabase migrations manually before production testing.
-- Test one full production referral loop: `/start`, `/link`, click tracking link, `/record_conversion`, `/tracking_stats`, `/sales_dashboard`, `/creator_leaderboard`, `/network_stats`.
-- Continue hardening the Google signup flow after production traffic, especially duplicate creator edge cases between Discord-created and web-created creators.
-- Replace the temporary `/creator/welcome` placeholder with a real creator account page after auth and brand onboarding mature.
-- Add a simple production health check route later if Railway monitoring needs it.
-- Next Shopify layer should register the `orders/paid` webhook during install and broaden attribution coverage after live order testing.
-- Payout reporting/instructions should come before deeper Stripe/payment routing.
-- Keep automated custody-style payouts, Stripe Connect, dashboards, AI, and marketplace features out of scope until the sales attribution and Shopify onboarding loops are stable.
+- Production app URL: `https://partnerlinks.app`
+- Railway should run:
+
+```bash
+npm start
+```
+
+Git/Railway:
+
+- Repo is initialized and connected to GitHub.
+- Push to GitHub to trigger Railway redeploy.
+- Do not deploy or push unless explicitly requested.
+
+Bot runtime:
+
+- If Discord bot is offline, run `npm start`.
+- If Discord bot is already online, do not run `npm start` again without stopping the existing process.
+
+## Validation Workflow
+
+Run `node --check` for every changed JS file.
+
+Common validation sets:
+
+General server/route changes:
+
+```bash
+node --check index.js
+```
+
+Discord command changes:
+
+```bash
+node --check commands/handlers.js
+node --check commands/registerCommands.js
+```
+
+Shopify webhook/tracking changes:
+
+```bash
+node --check index.js
+node --check services/shopifyWebhookService.js
+node --check services/trackingService.js
+```
+
+Stripe/payout changes:
+
+```bash
+node --check index.js
+node --check services/earningsLifecycleService.js
+node --check services/stripeConnectService.js
+node --check services/creatorDashboardService.js
+```
+
+Dashboard changes:
+
+```bash
+node --check index.js
+node --check services/creatorDashboardService.js
+node --check services/brandDashboardService.js
+```
+
+Latest Shopify attribution hardening validation:
+
+```bash
+node --check index.js
+node --check services/shopifyWebhookService.js
+node --check services/trackingService.js
+node --check commands/handlers.js
+node --check commands/registerCommands.js
+```
+
+## Current Known Blockers And Risks
+
+Current highest-priority blocker/risk:
+
+- Shopify attribution is now more deterministic and inspectable, but it remains the highest-priority reliability area before adding analytics or marketplace complexity. The next layer should verify the new `partnerlinks_ref`-first resolver in production, confirm diagnostics rows are written after migration `014`, and keep hardening multi-creator/multi-product collision handling without breaking the confirmed Aria Wellness test flow.
+
+Known risks:
+
+- Shopify may strip query params before checkout/webhook, requiring fallback attribution.
+- Recent-click fallback is intentionally low-confidence and should not silently guess when multiple creators/products could match.
+- Product card layouts can regress if Shopify-backed products get special UI.
+- Shopify preview URLs break checkout and must not be used for live conversion testing.
+- Duplicate Stripe transfers are a serious risk; preserve claim idempotency and recovery logic.
+- DB finalization after successful Stripe transfer must remain recoverable.
+- Auth/session cookies can regress if cookie size, `sameSite`, `secure`, or refresh behavior changes.
+- Discord interaction handlers can regress into duplicate reply/acknowledgement errors.
+- `/r/:brandSlug/:creatorCode` must not be broken while modifying product referral route `/r/:brandSlug/:creatorCode/:productSlug`.
+- Homepage/dashboard UI can regress if one-off route changes bypass the shared visual system.
+
+Known non-blocking limitations:
+
+- No embedded Shopify admin UI.
+- No Shopify billing.
+- No automated public marketplace.
+- No AI/content workflow system.
+- No live Stripe payouts.
+- No full brand auth system beyond current lightweight Shopify/local state behavior.
+- No Shopify product auto-pull/approval workflow yet.
+- No automated webhook registration during Shopify install documented as fully complete yet.
+- Manual `/record_conversion` remains the fallback for operational conversion entry.
+
+## Recommended Next Steps
+
+1. Harden Shopify attribution persistence beyond the current recent-click fallback.
+   - Keep the confirmed Aria Wellness flow working.
+   - Prefer deterministic `partnerlinks_ref` recovery wherever possible.
+   - Add diagnostics for webhook attribution source and fallback type.
+
+2. Register/verify Shopify `orders/paid` webhook setup for connected stores.
+   - Confirm whether webhook registration is manual or automated per installed store.
+   - Avoid duplicate webhook registrations.
+
+3. Add a small internal/admin attribution diagnostic surface.
+   - Could be Discord-first.
+   - Useful fields: shop domain, latest clicks, `partnerlinks_ref`, product slug, creator code, latest webhook decision.
+
+4. Move product data toward admin-curated Shopify-backed products.
+   - Keep universal product card layout.
+   - Do not expose Shopify/test metadata publicly.
+   - Auto-pull can come later, but display should remain curated/approved.
+
+5. Continue hardening Stripe claim/payout recovery.
+   - Keep test-mode guard.
+   - Preserve idempotency.
+   - Add more operator diagnostics before live payout plans.
+
+6. Keep dashboards cohesive.
+   - Any new brand/creator feature should land inside the appropriate dashboard/navigation system, not as a disconnected utility page.
+
+7. Keep manual operations available.
+   - `/record_conversion` remains useful as fallback.
+   - Discord diagnostics should support admin/operator testing without becoming the primary creator/brand UX.

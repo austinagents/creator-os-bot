@@ -78,6 +78,13 @@ async function handleInteraction(interaction, client) {
       case 'network_stats':
         await handleNetworkStats(interaction, guild);
         break;
+      case 'shopify_attribution_debug':
+        if (!isAdmin(member)) {
+          await safeInteractionReply(interaction, { content: 'You do not have permission to use this command.', ephemeral: true });
+          return;
+        }
+        await handleShopifyAttributionDebug(interaction);
+        break;
       default:
         await safeInteractionReply(interaction, { content: 'Unknown command.', ephemeral: true });
     }
@@ -430,6 +437,66 @@ async function handleCreatorDashboard(interaction) {
   await safeInteractionReply(interaction, { embeds: [embed], ephemeral: true });
 }
 
+async function handleShopifyAttributionDebug(interaction) {
+  const orderId = interaction.options.getString('order_id');
+  const creatorCode = normalizeCode(interaction.options.getString('creator_code'));
+  const limit = Math.min(interaction.options.getInteger('limit') || 5, 10);
+
+  let query = supabase
+    .from('shopify_attribution_events')
+    .select('created_at, order_id, shopify_order_id, shop_domain, brand_id, matched_creator_code, matched_product_slug, partnerlinks_ref, attribution_source, attribution_confidence, fallback_used, recent_click_id, time_delta_from_click_seconds, decision, unmatched_reason, duplicate_order, conversion_id')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (orderId) {
+    query = query.or(`order_id.eq.${escapeSupabaseFilterValue(orderId)},shopify_order_id.eq.${escapeSupabaseFilterValue(orderId)}`);
+  }
+  if (creatorCode) {
+    query = query.eq('matched_creator_code', creatorCode);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    if (error.code === '42P01' || error.code === 'PGRST205') {
+      await safeInteractionReply(interaction, {
+        content: 'Shopify attribution diagnostics table is not available yet. Run migration 014_shopify_attribution_events.sql in Supabase.',
+        ephemeral: true
+      });
+      return;
+    }
+    throw error;
+  }
+
+  const rows = data || [];
+  if (!rows.length) {
+    await safeInteractionReply(interaction, { content: 'No Shopify attribution decisions found for that filter.', ephemeral: true });
+    return;
+  }
+
+  const description = rows.map((row, index) => {
+    const fields = [
+      `**${index + 1}. ${row.decision || 'unknown'}**`,
+      `Order: ${row.order_id || row.shopify_order_id || 'unknown'}`,
+      `Shop: ${row.shop_domain || 'unknown'}`,
+      `Creator: ${row.matched_creator_code || 'none'}`,
+      `Product: ${row.matched_product_slug || 'none'}`,
+      `Source: ${row.attribution_source || 'unknown'} (${row.attribution_confidence || 'none'})`,
+      `Fallback: ${row.fallback_used ? 'yes' : 'no'}${row.recent_click_id ? `, click ${row.recent_click_id}` : ''}`,
+      row.time_delta_from_click_seconds != null ? `Click delta: ${row.time_delta_from_click_seconds}s` : null,
+      row.unmatched_reason ? `Reason: ${row.unmatched_reason}` : null,
+      row.conversion_id ? `Conversion: ${row.conversion_id}` : null
+    ].filter(Boolean);
+    return fields.join('\n');
+  }).join('\n\n');
+
+  const embed = new EmbedBuilder()
+    .setTitle('Shopify Attribution Debug')
+    .setDescription(description.slice(0, 4096))
+    .setColor(0x7c5cff);
+
+  await safeInteractionReply(interaction, { embeds: [embed], ephemeral: true });
+}
+
 async function handleBrandSetup(interaction, guild, client) {
   const name = interaction.options.getString('name');
   const refLinkTemplate = interaction.options.getString('ref_link_template') || DEFAULT_REF_TEMPLATE;
@@ -471,6 +538,10 @@ function formatPercent(value) {
 function formatEmbedField(value) {
   const text = String(value || 'None');
   return text.length > 1024 ? `${text.slice(0, 1021)}...` : text;
+}
+
+function escapeSupabaseFilterValue(value) {
+  return String(value || '').replace(/,/g, '\\,').replace(/\)/g, '\\)');
 }
 
 async function findCreatorForConversion(creatorCode) {
