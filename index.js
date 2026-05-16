@@ -61,7 +61,6 @@ const MOCK_FEATURED_BRANDS = [
         description: 'Live Shopify storefront test product for conversion attribution.',
         price: '$1.00',
         payout: 'Live Shopify test integration',
-        badge: 'Test Product',
         imageLabel: 'Test Product',
         shopifyProductUrl: 'https://8lae7a17px6eu4be-75054973102.shopifypreview.com/products_preview?preview_key=0055388d3352fb4ac5cc3a8078667adc'
       },
@@ -1232,7 +1231,6 @@ function renderFeaturedProductCard(brandSlug, creatorCode, product) {
   const referralLink = buildDisplayReferralLink(brandSlug, creatorCode, product.slug);
   return `<article class="featured-product-card">
             <div class="product-image-placeholder">${escapeHtml(product.imageLabel || getBrandInitials(product.name))}</div>
-            ${product.badge ? `<span class="product-test-badge">${escapeHtml(product.badge)}</span>` : ''}
             <h3>${escapeHtml(product.name)}</h3>
             <p>${escapeHtml(product.description)}</p>
             ${product.price ? `<strong class="product-price">${escapeHtml(product.price)}</strong>` : ''}

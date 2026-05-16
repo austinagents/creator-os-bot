@@ -734,18 +734,6 @@ a {
   font-size: 0.9rem;
   line-height: 1.45;
 }
-.product-test-badge {
-  width: fit-content;
-  padding: 6px 9px;
-  border: 1px solid rgba(255, 182, 138, 0.22);
-  border-radius: 999px;
-  background: rgba(255, 182, 138, 0.1);
-  color: #ffb68a;
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
 .product-price {
   color: var(--text);
   font-size: 1.12rem;
