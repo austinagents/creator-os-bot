@@ -1371,7 +1371,7 @@ function renderStripePayoutSetup(dashboard) {
 
   if (status === 'payouts_enabled') {
     return `<div class="stripe-payout-module stripe-payout-connected">
-              <span>Payouts enabled</span>
+              <span>Payouts status</span>
               <strong>Enabled</strong>
             </div>`;
   }
