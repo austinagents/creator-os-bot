@@ -1230,19 +1230,15 @@ function renderBrandDiscoveryPage(brand, creatorCode) {
 
 function renderFeaturedProductCard(brandSlug, creatorCode, product) {
   const referralLink = buildDisplayReferralLink(brandSlug, creatorCode, product.slug);
-  const isShopifyProduct = Boolean(product.shopifyProductUrl);
-  const productCtaLabel = isShopifyProduct ? 'View Product' : 'Copy Link';
   return `<article class="featured-product-card">
-            <div class="product-image-placeholder${isShopifyProduct ? ' shopify-product-image' : ''}">${escapeHtml(product.imageLabel || getBrandInitials(product.name))}</div>
+            <div class="product-image-placeholder">${escapeHtml(product.imageLabel || getBrandInitials(product.name))}</div>
             ${product.badge ? `<span class="product-test-badge">${escapeHtml(product.badge)}</span>` : ''}
             <h3>${escapeHtml(product.name)}</h3>
             <p>${escapeHtml(product.description)}</p>
             ${product.price ? `<strong class="product-price">${escapeHtml(product.price)}</strong>` : ''}
             <span class="product-payout-line">${escapeHtml(product.payout)}</span>
             <div class="mock-referral-link">${escapeHtml(referralLink)}</div>
-            ${isShopifyProduct
-              ? `<a class="featured-copy-button product-cta-link" href="https://${escapeHtml(referralLink)}">${escapeHtml(productCtaLabel)}</a>`
-              : `<button class="featured-copy-button" type="button" data-brand-copy="${escapeHtml(referralLink)}">${escapeHtml(productCtaLabel)}</button>`}
+            <button class="featured-copy-button" type="button" data-brand-copy="${escapeHtml(referralLink)}">Copy Link</button>
           </article>`;
 }
 
