@@ -441,6 +441,13 @@ async function handleShopifyAttributionDebug(interaction) {
   const orderId = interaction.options.getString('order_id');
   const creatorCode = normalizeCode(interaction.options.getString('creator_code'));
   const limit = Math.min(interaction.options.getInteger('limit') || 5, 10);
+  const filters = {
+    orderId: orderId || null,
+    creatorCode: creatorCode || null,
+    limit
+  };
+
+  log('Shopify attribution debug query start:', filters);
 
   let query = supabase
     .from('shopify_attribution_events')
@@ -457,6 +464,13 @@ async function handleShopifyAttributionDebug(interaction) {
 
   const { data, error } = await query;
   if (error) {
+    log('Shopify attribution debug query failed:', {
+      ...filters,
+      code: error.code || null,
+      message: error.message,
+      details: error.details || null,
+      hint: error.hint || null
+    });
     if (error.code === '42P01' || error.code === 'PGRST205') {
       await safeInteractionReply(interaction, {
         content: 'Shopify attribution diagnostics table is not available yet. Run migration 014_shopify_attribution_events.sql in Supabase.',
@@ -468,6 +482,20 @@ async function handleShopifyAttributionDebug(interaction) {
   }
 
   const rows = data || [];
+  log('Shopify attribution debug query result:', {
+    ...filters,
+    rowCount: rows.length,
+    firstRows: rows.slice(0, 3).map((row) => ({
+      order_id: row.order_id,
+      shopify_order_id: row.shopify_order_id,
+      shop_domain: row.shop_domain,
+      matched_creator_code: row.matched_creator_code,
+      attribution_source: row.attribution_source,
+      decision: row.decision,
+      created_at: row.created_at
+    }))
+  });
+
   if (!rows.length) {
     await safeInteractionReply(interaction, { content: 'No Shopify attribution decisions found for that filter.', ephemeral: true });
     return;

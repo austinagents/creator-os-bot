@@ -923,47 +923,112 @@ function buildAttributionDecision({
 }
 
 async function recordShopifyAttributionDecision(decision) {
+  const normalizedDecision = normalizeAttributionDecision(decision);
   const payload = {
-    order_id: decision.order_id || null,
-    shopify_order_id: decision.shopifyOrderId || null,
-    shop_domain: decision.shopDomain || null,
-    brand_id: decision.brandId || null,
-    matched_creator_id: decision.matchedCreatorId || null,
-    matched_creator_code: decision.matchedCreatorCode ? normalizeCode(decision.matchedCreatorCode) : null,
-    matched_product_slug: decision.matchedProductSlug ? normalizeCode(decision.matchedProductSlug) : null,
-    partnerlinks_ref: decision.partnerlinksRef || null,
-    attribution_source: decision.attributionSource || 'unmatched',
-    attribution_confidence: decision.attributionConfidence || 'none',
-    fallback_used: Boolean(decision.fallbackUsed),
-    recent_click_id: decision.recentClickId || null,
-    click_id: decision.clickId || null,
-    session_id: decision.sessionId || null,
-    time_delta_from_click_seconds: decision.timeDeltaFromClickSeconds ?? null,
-    decision: decision.decision || 'unknown',
-    unmatched_reason: decision.unmatchedReason || null,
-    duplicate_order: Boolean(decision.duplicateOrder),
-    conversion_id: decision.conversionId || null,
-    checked_sources: decision.checkedSources || []
+    order_id: normalizedDecision.orderId,
+    shopify_order_id: normalizedDecision.shopifyOrderId,
+    shop_domain: normalizedDecision.shopDomain,
+    brand_id: normalizedDecision.brandId,
+    matched_creator_id: normalizedDecision.matchedCreatorId,
+    matched_creator_code: normalizedDecision.matchedCreatorCode ? normalizeCode(normalizedDecision.matchedCreatorCode) : null,
+    matched_product_slug: normalizedDecision.matchedProductSlug ? normalizeCode(normalizedDecision.matchedProductSlug) : null,
+    partnerlinks_ref: normalizedDecision.partnerlinksRef,
+    attribution_source: normalizedDecision.attributionSource,
+    attribution_confidence: normalizedDecision.attributionConfidence,
+    fallback_used: Boolean(normalizedDecision.fallbackUsed),
+    recent_click_id: normalizedDecision.recentClickId,
+    click_id: normalizedDecision.clickId,
+    session_id: normalizedDecision.sessionId,
+    time_delta_from_click_seconds: normalizedDecision.timeDeltaFromClickSeconds,
+    decision: normalizedDecision.decision,
+    unmatched_reason: normalizedDecision.unmatchedReason,
+    duplicate_order: Boolean(normalizedDecision.duplicateOrder),
+    conversion_id: normalizedDecision.conversionId,
+    checked_sources: normalizedDecision.checkedSources
   };
 
-  const { error } = await supabase
+  log('Shopify attribution diagnostics insert attempt:', {
+    orderId: payload.order_id,
+    shopifyOrderId: payload.shopify_order_id,
+    shopDomain: payload.shop_domain,
+    brandId: payload.brand_id,
+    matchedCreatorCode: payload.matched_creator_code,
+    productSlug: payload.matched_product_slug,
+    partnerlinksRefPresent: Boolean(payload.partnerlinks_ref),
+    attributionSource: payload.attribution_source,
+    attributionConfidence: payload.attribution_confidence,
+    fallbackUsed: payload.fallback_used,
+    decision: payload.decision,
+    unmatchedReason: payload.unmatched_reason,
+    conversionId: payload.conversion_id
+  });
+
+  const { data, error } = await supabase
     .from('shopify_attribution_events')
-    .insert(payload);
+    .insert(payload)
+    .select('id, created_at')
+    .single();
+
   if (error) {
     if (error.code === '42P01' || error.code === 'PGRST204') {
       log('Shopify attribution diagnostics table unavailable; run migration 014_shopify_attribution_events.sql.', {
-        orderId: decision.order_id || null,
-        shopDomain: decision.shopDomain || null,
-        decision: decision.decision || null
+        code: error.code,
+        message: error.message,
+        details: error.details || null,
+        hint: error.hint || null,
+        orderId: payload.order_id,
+        shopDomain: payload.shop_domain,
+        decision: payload.decision
       });
       return;
     }
     log('Shopify attribution diagnostics insert failed:', {
-      error: error.message,
-      orderId: decision.order_id || null,
-      shopDomain: decision.shopDomain || null
+      code: error.code || null,
+      message: error.message,
+      details: error.details || null,
+      hint: error.hint || null,
+      orderId: payload.order_id,
+      shopifyOrderId: payload.shopify_order_id,
+      shopDomain: payload.shop_domain,
+      decision: payload.decision
     });
+    return;
   }
+
+  log('Shopify attribution diagnostics insert success:', {
+    id: data ? data.id : null,
+    createdAt: data ? data.created_at : null,
+    orderId: payload.order_id,
+    shopifyOrderId: payload.shopify_order_id,
+    shopDomain: payload.shop_domain,
+    decision: payload.decision,
+    attributionSource: payload.attribution_source
+  });
+}
+
+function normalizeAttributionDecision(decision = {}) {
+  return {
+    orderId: decision.order_id || decision.orderId || null,
+    shopifyOrderId: decision.shopify_order_id || decision.shopifyOrderId || null,
+    shopDomain: decision.shop_domain || decision.shopDomain || null,
+    brandId: decision.brand_id || decision.brandId || null,
+    matchedCreatorId: decision.matched_creator_id || decision.matchedCreatorId || null,
+    matchedCreatorCode: decision.matched_creator_code || decision.matchedCreatorCode || null,
+    matchedProductSlug: decision.matched_product_slug || decision.matchedProductSlug || null,
+    partnerlinksRef: decision.partnerlinks_ref || decision.partnerlinksRef || null,
+    attributionSource: decision.attribution_source || decision.attributionSource || 'unmatched',
+    attributionConfidence: decision.attribution_confidence || decision.attributionConfidence || 'none',
+    fallbackUsed: decision.fallback_used ?? decision.fallbackUsed ?? false,
+    recentClickId: decision.recent_click_id || decision.recentClickId || null,
+    clickId: decision.click_id || decision.clickId || null,
+    sessionId: decision.session_id || decision.sessionId || null,
+    timeDeltaFromClickSeconds: decision.time_delta_from_click_seconds ?? decision.timeDeltaFromClickSeconds ?? null,
+    decision: decision.decision || 'unknown',
+    unmatchedReason: decision.unmatched_reason || decision.unmatchedReason || null,
+    duplicateOrder: decision.duplicate_order ?? decision.duplicateOrder ?? false,
+    conversionId: decision.conversion_id || decision.conversionId || null,
+    checkedSources: decision.checked_sources || decision.checkedSources || []
+  };
 }
 
 function secondsBetween(clickCreatedAt, orderTimestamp) {

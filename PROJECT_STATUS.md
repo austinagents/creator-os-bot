@@ -410,6 +410,8 @@ Current webhook behavior:
 - Returns `200` for invalid creator attribution after logging clearly.
 - Skips duplicate orders.
 - Records duplicate/unmatched/created attribution decisions in `shopify_attribution_events` when migration `014` exists.
+- Diagnostics insert path now logs insert attempts, successes, Supabase error codes/messages/details/hints, and normalized payload identifiers.
+- `/shopify_attribution_debug` now logs query filters, Supabase query errors, row counts, and a compact preview of returned rows to help distinguish insert failures from retrieval filter mismatches.
 - Leaves manual `/record_conversion` as the operational fallback.
 
 ## Stripe Connect And Claim Lifecycle State
