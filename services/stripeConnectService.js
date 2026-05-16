@@ -102,7 +102,8 @@ async function createStripeTestTransfer({
   currency = 'USD',
   destinationAccountId,
   claimBatchId,
-  creatorId
+  creatorId,
+  idempotencyKey
 }) {
   if (!STRIPE_SECRET_KEY) {
     throw new Error('STRIPE_SECRET_KEY is not configured.');
@@ -125,19 +126,52 @@ async function createStripeTestTransfer({
   body.set('destination', destinationAccountId);
   body.set('metadata[claim_batch_id]', claimBatchId);
   body.set('metadata[creator_id]', String(creatorId));
+  const transferPayload = {
+    amount: amountInCents,
+    currency: String(currency || 'USD').toLowerCase(),
+    destination: destinationAccountId,
+    metadata: {
+      claim_batch_id: claimBatchId,
+      creator_id: String(creatorId)
+    }
+  };
 
   log('Stripe test transfer create requested:', {
     creatorId,
     destinationAccountId,
     claimBatchId,
     amountInCents,
-    currency
+    currency,
+    transferPayload,
+    transferGroupUsed: false
   });
 
-  const transfer = await stripeRequest('/transfers', {
-    method: 'POST',
-    body
-  });
+  let transfer;
+  try {
+    transfer = await stripeRequest('/transfers', {
+      method: 'POST',
+      body,
+      idempotencyKey: idempotencyKey || claimBatchId
+    });
+  } catch (error) {
+    error.transferPayloadAttempted = transferPayload;
+    error.creatorStripeAccountId = destinationAccountId;
+    error.claimBatchId = claimBatchId;
+    error.transferAmount = amountInCents;
+    error.transferGroupUsed = false;
+    log('Stripe test transfer create failed:', {
+      stripeErrorMessage: error.message,
+      stripeErrorType: error.stripeErrorType || null,
+      stripeErrorCode: error.stripeErrorCode || null,
+      transferPayloadAttempted: transferPayload,
+      creatorStripeAccountId: destinationAccountId,
+      claimBatchId,
+      transferAmount: amountInCents,
+      transferGroupUsed: false,
+      stack: error.stack || null
+    });
+    throw error;
+  }
 
   log('Stripe test transfer created:', {
     creatorId,
@@ -149,6 +183,38 @@ async function createStripeTestTransfer({
   });
 
   return transfer;
+}
+
+async function findStripeTestTransferForClaim({
+  destinationAccountId,
+  claimBatchId
+}) {
+  if (!STRIPE_SECRET_KEY) {
+    throw new Error('STRIPE_SECRET_KEY is not configured.');
+  }
+  if (!/^sk_test_/.test(STRIPE_SECRET_KEY)) {
+    throw new Error('Stripe transfer lookup is restricted to test mode for this MVP.');
+  }
+  if (!destinationAccountId || !claimBatchId) return null;
+
+  const query = new URLSearchParams();
+  query.set('limit', '100');
+  query.set('destination', destinationAccountId);
+
+  const response = await stripeRequest(`/transfers?${query.toString()}`, { method: 'GET' });
+  const transfer = (response.data || []).find((row) => (
+    row &&
+    row.metadata &&
+    row.metadata.claim_batch_id === claimBatchId
+  ));
+
+  log('Stripe test transfer recovery lookup completed:', {
+    destinationAccountId,
+    claimBatchId,
+    foundTransferId: transfer ? transfer.id : null
+  });
+
+  return transfer || null;
 }
 
 async function createConnectedAccount(creator) {
@@ -279,14 +345,22 @@ async function stripeRequest(path, options) {
     headers: {
       Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      ...(options && options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
       ...(options && options.headers ? options.headers : {})
     }
   });
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = data && data.error && data.error.message ? data.error.message : `Stripe request failed (${response.status})`;
-    throw new Error(message);
+    const stripeError = data && data.error ? data.error : {};
+    const message = stripeError.message || `Stripe request failed (${response.status})`;
+    const error = new Error(message);
+    error.stripeErrorType = stripeError.type || null;
+    error.stripeErrorCode = stripeError.code || null;
+    error.stripeErrorParam = stripeError.param || null;
+    error.stripeStatusCode = response.status;
+    error.stripeRawError = stripeError;
+    throw error;
   }
 
   return data;
@@ -295,6 +369,7 @@ async function stripeRequest(path, options) {
 module.exports = {
   createStripeOnboardingLinkForCreator,
   createStripeTestTransfer,
+  findStripeTestTransferForClaim,
   getCreatorStripeDebugStatus,
   refreshCreatorStripeStatus
 };
