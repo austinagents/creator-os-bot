@@ -1121,6 +1121,7 @@ Rules:
   - `WEBHOOK_REPLAY`
   - `ECONOMICS`
   - `NETWORK_ECONOMICS`
+  - `LINEAGE_INTEGRITY`
   - `SYNTHETIC_COMMERCE`
   - `FAKE_IDENTITY_NETWORKS`
   - `REFUND_REVERSAL`
@@ -1156,6 +1157,7 @@ Permanent regression IDs now tracked in `system-audit/REGRESSION_HISTORY.md` and
 - `REG-ECONOMICS-001`: Level 1 = 30%, Level 2 = 3%, Level 3 = 2%, and no Level 4+ payout.
 - `REG-ECONOMICS-002`: Source entity must not earn network override from its own direct sale activity.
 - `REG-ECONOMICS-003`: Network override rewards must be funded only from eligible downstream `platform_fee_amount`.
+- `REG-LINEAGE-001`: A creator cannot be accidentally dual-bound to both brand-origin and creator-origin lineage.
 - `REG-SETTLEMENT-001`: Live claimability must not be based only on `claimable_at`.
 - `REG-SETTLEMENT-002`: No payout before `settlement_collected`, `manual_approved`, or `reserve_covered`.
 - `REG-SETTLEMENT-003`: Failed settlement cannot create claimable earnings.
@@ -1203,6 +1205,7 @@ Guaranteed behaviors:
 - Direct creator commission, PartnerLinks platform fee, and network override rewards are separate economic systems.
 - Network override rewards never come from creator commissions, Shopify checkout revenue, merchant gross revenue, or self-generated sales.
 - Entities do not earn network override rewards from their own direct sales activity.
+- Creators cannot be accidentally dual-bound to both brand-origin and creator-origin lineage through normal invite/signup flows.
 
 Platform safety risk model:
 

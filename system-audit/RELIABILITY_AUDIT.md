@@ -88,6 +88,7 @@ These are permanent regression guarantees. Future changes must preserve them.
 - Network earnings come only from `platform_fee_amount`, never from creator direct commission principal.
 - No Level 4+ payout may be created.
 - Entities may not earn network overrides from their own direct sales activity.
+- Creators may not be accidentally dual-bound to both creator-origin and brand-origin lineage through normal invite/signup flows.
 - Direct creator commission, PartnerLinks platform fee, and network override rewards must remain separate in ledgers, dashboards, settlement logic, and diagnostics.
 - Live public payout claimability must not be based only on accounted earnings; it must require settlement-collected, explicit manual approval, or sufficient prepaid reserve status.
 - Failed settlement cannot release claimability.
@@ -179,6 +180,28 @@ Additional security regression categories:
 - `DOCS_SOURCE_INTEGRITY`
 
 ## Latest Audit Entries
+
+### 2026-05-17 - Creator/Brand Lineage Dual-Binding Guard
+
+- Severity: `SEV1`
+- Status: `MITIGATED`
+- Impacted systems:
+  - `services/creatorNetworkService.js`
+  - `/join/:creatorCode`
+  - `/join/brand/:brandSlug`
+  - `creators.parent_creator_id`
+  - `creators.invited_by_brand_id`
+- Finding:
+  - `bindCreatorToBrandOrigin()` already refused brand-origin binding when creator-origin lineage existed, but `bindCreatorToInviteSession()` did not explicitly refuse creator-origin binding when brand-origin lineage existed.
+- Mitigation:
+  - creator-origin invite binding now reads `invited_by_brand_id`.
+  - creator-origin invite binding skips safely if `parent_creator_id` or `invited_by_brand_id` is already set.
+  - update guard also requires `invited_by_brand_id IS NULL` so concurrent/stale state fails closed.
+- Regression rule:
+  - `REG-LINEAGE-001`: A creator cannot be accidentally dual-bound to both brand-origin and creator-origin lineage.
+- Validation:
+  - `node --check services/creatorNetworkService.js`
+  - `node --check index.js`
 
 ### 2026-05-16 - Creator-Scoped Stripe Debug Hardening
 

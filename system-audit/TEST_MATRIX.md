@@ -53,6 +53,7 @@ test-creator-01 -> test-creator-02 -> test-creator-03 -> test-creator-04
 - `WEBHOOK_REPLAY`: duplicate webhook/payment event handling.
 - `ECONOMICS`: direct commission, platform fee, Level 1/2/3, no Level 4.
 - `NETWORK_ECONOMICS`: recruitment-only prevention, downstream platform-fee funding, self-override exclusion.
+- `LINEAGE_INTEGRITY`: creator-origin, brand-origin, attribution, and payout lineage isolation.
 - `SYNTHETIC_COMMERCE`: fake/circular/refund-loop order patterns and payout holds.
 - `FAKE_IDENTITY_NETWORKS`: creator/brand/account clusters and synthetic identity patterns.
 - `REFUND_REVERSAL`: refund/chargeback/reversal state and offset behavior.
@@ -88,6 +89,7 @@ test-creator-01 -> test-creator-02 -> test-creator-03 -> test-creator-04
 - `REG-ECONOMICS-001`: Level 1 = 30%, Level 2 = 3%, Level 3 = 2%, and no Level 4+ payout.
 - `REG-ECONOMICS-002`: Source entity must not earn network override from its own direct sale activity.
 - `REG-ECONOMICS-003`: Network override rewards must be funded only from eligible downstream `platform_fee_amount`.
+- `REG-LINEAGE-001`: A creator cannot be accidentally dual-bound to both brand-origin and creator-origin lineage.
 - `REG-SETTLEMENT-001`: Live claimability must not be based only on `claimable_at`.
 - `REG-SETTLEMENT-002`: No payout before `settlement_collected`, `manual_approved`, or `reserve_covered`.
 - `REG-SETTLEMENT-003`: Failed settlement cannot create claimable earnings.
@@ -215,6 +217,26 @@ Expected:
   - direct creator commission is not reduced by network override rewards.
 - Status:
   - `PASS`
+
+### LINEAGE-001 - No Accidental Dual Origin Binding
+
+- Regression ID:
+  - `REG-LINEAGE-001`
+- Mode: `READ_ONLY / FUTURE_TESTS_REQUIRED`
+- Systems:
+  - `/join/:creatorCode`
+  - `/join/brand/:brandSlug`
+  - `bindCreatorToInviteSession()`
+  - `bindCreatorToBrandOrigin()`
+  - `creators.parent_creator_id`
+  - `creators.invited_by_brand_id`
+- Expected:
+  - creator-origin binding only sets `parent_creator_id` when `parent_creator_id` is null and `invited_by_brand_id` is null.
+  - brand-origin binding only sets `invited_by_brand_id` when `parent_creator_id` is null and `invited_by_brand_id` is null.
+  - a creator cannot become both brand-origin and creator-origin through normal signup/invite flows.
+  - any deliberate reassignment must be a separate audited admin workflow.
+- Status:
+  - `CHECK`
 
 ### ECONOMICS-004 - Brand-Origin Network Override
 

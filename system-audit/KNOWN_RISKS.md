@@ -692,6 +692,30 @@ The following examples are source-backed risk patterns or user-provided research
 - Recommended mitigation:
   - Add creator selection/account switcher or deterministic default policy.
 
+### RISK-054 - Accidental Dual Lineage Binding
+
+- Severity: `SEV1`
+- Category: `LINEAGE_INTEGRITY`, `AUTH_SCOPE`, `NETWORK_ECONOMICS`
+- Status: `MITIGATED`
+- Impacted systems:
+  - `/join/:creatorCode`
+  - `/join/brand/:brandSlug`
+  - `bindCreatorToInviteSession()`
+  - `bindCreatorToBrandOrigin()`
+  - `creators.parent_creator_id`
+  - `creators.invited_by_brand_id`
+- Description:
+  - A creator should not accidentally become both creator-origin and brand-origin through normal signup/invite flows.
+- Safe current behavior:
+  - brand-origin binding already refuses when `parent_creator_id` or `invited_by_brand_id` exists.
+  - creator-origin binding now refuses when `parent_creator_id` or `invited_by_brand_id` exists.
+- Unsafe assumption:
+  - Do not assume mixed browser/session/operator testing cannot leave stale invite cookies.
+- Recommended mitigation:
+  - Keep dual-origin reassignment as a deliberate audited admin workflow only.
+- Regression rule:
+  - `REG-LINEAGE-001`: A creator cannot be accidentally dual-bound to both brand-origin and creator-origin lineage.
+
 ### RISK-002 - Duplicate Webhook Replay Not Yet Fully Executed
 
 - Severity: `SEV2`

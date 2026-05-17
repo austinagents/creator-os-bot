@@ -86,11 +86,25 @@ async function recordBrandInviteSession({
 async function bindCreatorToInviteSession(creatorId, sessionId) {
   const { data: creator, error: creatorError } = await supabase
     .from('creators')
-    .select('id, parent_creator_id')
+    .select('id, parent_creator_id, invited_by_brand_id')
     .eq('id', creatorId)
     .single();
   if (creatorError) throw creatorError;
-  if (!creator || creator.parent_creator_id) return null;
+  if (!creator) return null;
+  if (creator.parent_creator_id) {
+    console.log('Creator invite binding skipped: creator already has parent_creator_id', {
+      creatorId: creator.id,
+      parentCreatorId: creator.parent_creator_id
+    });
+    return null;
+  }
+  if (creator.invited_by_brand_id) {
+    console.log('Creator invite binding skipped: creator already has invited_by_brand_id', {
+      creatorId: creator.id,
+      invitedByBrandId: creator.invited_by_brand_id
+    });
+    return null;
+  }
 
   const { data: sessions, error: sessionError } = await supabase
     .from('creator_invite_sessions')
@@ -111,6 +125,7 @@ async function bindCreatorToInviteSession(creatorId, sessionId) {
     })
     .eq('id', creator.id)
     .is('parent_creator_id', null)
+    .is('invited_by_brand_id', null)
     .select()
     .single();
   if (error) throw error;
