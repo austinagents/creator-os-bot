@@ -43,13 +43,21 @@ const {
   DISCORD_TOKEN,
   BOT_ALERTS_CHANNEL_ID,
   PUBLIC_BASE_URL,
-  ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID
+  ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID,
+  STRIPE_SECRET_KEY,
+  PAYOUT_MODE
 } = require("./config/config/env");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DEFAULT_PLATFORM_FEE_RATE = 5;
 const REFERRAL_LINK_HOST = 'partnerlinks.app';
+const PAYOUT_MODES = new Set([
+  'sandbox_time_based',
+  'claims_disabled',
+  'manual_approval',
+  'settlement_gated'
+]);
 const PUBLIC_SHOPIFY_BRAND_MAP = {
   'aria-wellness': 'partnerlinks-test.myshopify.com'
 };
@@ -692,10 +700,11 @@ app.get('/dashboard/:creatorCode', async (req, res) => {
       dashboard.creator.auth_user_id &&
       String(dashboard.creator.auth_user_id) === String(authUser.id)
     );
-    const claimStatus = req.query.claim === 'success' ? 'success' : null;
+    const claimStatus = ['success', 'blocked'].includes(req.query.claim) ? req.query.claim : null;
+    const payoutClaimGate = getPayoutClaimGate();
 
     res.set('Cache-Control', 'no-store, max-age=0');
-    res.send(renderCreatorDashboardPage(dashboard, { ownerCanClaim, claimStatus }));
+    res.send(renderCreatorDashboardPage(dashboard, { ownerCanClaim, claimStatus, payoutClaimGate }));
   } catch (error) {
     log('Creator dashboard error:', error);
     res.status(500).send(renderSimpleMessagePage(
@@ -723,6 +732,18 @@ app.post('/earnings/claim', async (req, res) => {
         stripeStatus: creator.stripe_onboarding_status
       });
       return res.redirect(`/dashboard/${encodeURIComponent(normalizeCode(creator.creator_code))}`);
+    }
+
+    const payoutClaimGate = getPayoutClaimGate();
+    if (!payoutClaimGate.allowed) {
+      log('Claim earnings blocked by payout mode gate', {
+        creatorId: creator.id,
+        creatorCode: creator.creator_code,
+        payoutMode: payoutClaimGate.mode,
+        modeRecognized: payoutClaimGate.recognized,
+        reason: payoutClaimGate.reason
+      });
+      return res.redirect(`/dashboard/${encodeURIComponent(normalizeCode(creator.creator_code))}?claim=blocked`);
     }
 
     const claimResult = await claimCreatorEarnings({
@@ -1790,11 +1811,16 @@ function renderStripeConnectButton(creatorCode) {
 }
 
 function renderCreatorEarningsLifecycle(dashboard, options = {}) {
+  const payoutClaimGate = options.payoutClaimGate || getPayoutClaimGate();
   const canClaim = Boolean(
     options.ownerCanClaim &&
+    payoutClaimGate.allowed &&
     dashboard.stripeOnboardingStatus === 'payouts_enabled' &&
     Number(dashboard.claimableEarnings || 0) > 0
   );
+  const claimBlockedMessage = !payoutClaimGate.allowed && Number(dashboard.claimableEarnings || 0) > 0
+    ? `<p class="claim-earnings-note">${escapeHtml(payoutClaimGate.dashboardMessage || 'Claims are unavailable until settlement or approval is enabled.')}</p>`
+    : '';
 
   return `<div class="earnings-lifecycle-summary">
             <div>
@@ -1816,6 +1842,7 @@ function renderCreatorEarningsLifecycle(dashboard, options = {}) {
             <form class="claim-earnings-form" method="POST" action="/earnings/claim">
               <input type="hidden" name="creator_code" value="${escapeHtml(dashboard.creatorCode)}">
               <button class="claim-earnings-button" type="submit"${canClaim ? '' : ' disabled'}>Claim earnings</button>
+              ${claimBlockedMessage}
             </form>
           </div>`;
 }
@@ -1881,7 +1908,8 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
         </div>
       </header>
 
-      ${options.claimStatus === 'success' ? '<section class="creator-claim-success">Earnings claimed internally. No Stripe transfer was created.</section>' : ''}
+          ${options.claimStatus === 'success' ? '<section class="creator-claim-success">Earnings claimed internally. No Stripe transfer was created.</section>' : ''}
+          ${options.claimStatus === 'blocked' ? '<section class="creator-claim-success">Claims are unavailable until settlement or approval is enabled.</section>' : ''}
 
       <section class="creator-action-panel" id="links">
         <div>
@@ -2633,6 +2661,48 @@ function brandStateCookieOptions() {
     sameSite: 'lax',
     maxAge: 365 * 24 * 60 * 60 * 1000,
     path: '/'
+  };
+}
+
+function getPayoutClaimGate() {
+  const rawMode = String(PAYOUT_MODE || 'claims_disabled').trim().toLowerCase();
+  const recognized = PAYOUT_MODES.has(rawMode);
+  const mode = recognized ? rawMode : 'unknown';
+  const stripeKeyIsTest = /^sk_test_/.test(String(STRIPE_SECRET_KEY || ''));
+
+  if (mode === 'sandbox_time_based') {
+    if (stripeKeyIsTest) {
+      return {
+        allowed: true,
+        mode,
+        recognized,
+        reason: 'Sandbox time-based claims are enabled with a Stripe test key.',
+        dashboardMessage: null
+      };
+    }
+
+    return {
+      allowed: false,
+      mode,
+      recognized,
+      reason: 'sandbox_time_based requires STRIPE_SECRET_KEY to start with sk_test_.',
+      dashboardMessage: 'Claims are unavailable until settlement or approval is enabled.'
+    };
+  }
+
+  const messages = {
+    claims_disabled: 'Claims are unavailable until settlement or approval is enabled.',
+    manual_approval: 'Claims are unavailable until manual approval support is enabled.',
+    settlement_gated: 'Claims are unavailable until settlement-gated claims are enabled.',
+    unknown: 'Claims are unavailable because payout mode is not recognized.'
+  };
+
+  return {
+    allowed: false,
+    mode,
+    recognized,
+    reason: messages[mode] || messages.unknown,
+    dashboardMessage: messages[mode] || messages.unknown
   };
 }
 

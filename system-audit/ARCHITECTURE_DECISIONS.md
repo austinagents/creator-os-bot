@@ -74,6 +74,49 @@ Purpose:
 - Consequences:
   - Reliability work remains auditable before automation is introduced.
 
+### ADR-005 - Platform Fee Funded Entity Network Overrides
+
+- Status: `ACCEPTED`
+- Date: 2026-05-16
+- Context:
+  - PartnerLinks has base earning systems and network override systems. The network override layer sits above the underlying earning systems and is entity-based, not creator-only.
+- Decision:
+  - Network override rewards may only be calculated from eligible downstream PartnerLinks `platform_fee_amount`.
+  - Network override rewards must never be calculated from creator commissions, Shopify checkout revenue, merchant gross revenue, or self-generated sales activity.
+  - Entities do not earn network override rewards from their own direct sales activity.
+  - The canonical economic model lives in `system-audit/ECONOMIC_ARCHITECTURE.md`.
+- Rationale:
+  - Prevents self-referral farming.
+  - Preserves accounting clarity.
+  - Keeps direct brand affiliate commissions separate from PartnerLinks platform-fee-funded network rewards.
+  - Makes future creator, brand, agency, community, and manager entities fit the same propagation model.
+- Consequences:
+  - Dashboards and ledgers must keep direct creator commission, platform fee, and network override rewards visually and operationally separate.
+  - Future settlement automation must collect/verify platform fee eligibility before paying platform-fee-funded network overrides when settlement risk matters.
+  - Public/product language must not imply network rewards come from creator commission principal.
+
+### ADR-006 - Settlement Status Gates Live Claimability
+
+- Status: `ACCEPTED`
+- Date: 2026-05-16
+- Context:
+  - PartnerLinks can account for direct commission, platform fees, and network overrides before automated brand settlement is built. Accounting alone does not prove funds are safely available.
+- Decision:
+  - Live public payout claimability must require safe settlement state.
+  - Recommended invariant:
+    - `claimable requires settlement_collected OR explicit_manual_approval OR sufficient_prepaid_reserve`
+  - Public beta should start with a conservative settlement model:
+    - manual approval gate plus reserve/prepaid or per-order settlement.
+  - The canonical settlement state model lives in `system-audit/ECONOMIC_ARCHITECTURE.md`.
+- Rationale:
+  - Prevents accidental unfunded payouts.
+  - Separates recorded economic obligations from collected funds.
+  - Keeps PartnerLinks from silently accepting credit risk without an explicit decision.
+- Consequences:
+  - Future live payout automation needs settlement tables/statuses before automatic claimability.
+  - Creator-facing claimable balances must eventually reflect funding safety, not only elapsed pending windows.
+  - Refund/reversal and negative-balance behavior must be ledgered before broader live payouts.
+
 ## ADR Template
 
 ```markdown
@@ -93,4 +136,3 @@ Purpose:
 - Consequences:
   - What changes or tradeoffs follow.
 ```
-

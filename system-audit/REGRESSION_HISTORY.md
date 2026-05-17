@@ -165,6 +165,41 @@ Purpose:
   - Sale by `test-creator-04` in the chain `01 -> 02 -> 03 -> 04`.
   - Expected: L1 to `03`, L2 to `02`, L3 to `01`, no L4.
 
+### REG-ECONOMICS-002 - Source Entity Must Not Earn Own Network Override
+
+- Category: `ECONOMICS`, `SECURITY_ISOLATION`
+- Severity: `SEV1`
+- Status: `MITIGATED`
+- First observed: 2026-05-16
+- Regression symptom:
+  - A source creator/entity could earn a network override from their own direct sale, creating self-referral farming risk.
+- Root cause:
+  - Network override logic must remain downstream-only.
+- Guardrail now expected:
+  - Source creator can earn direct commission from direct attributed sale.
+  - Source creator cannot earn network override from that same direct sale.
+  - Network overrides only propagate upstream/downstream according to entity relationships.
+- Regression test:
+  - Sale by `test-creator-04`.
+  - Expected: no creator-network earning row where `earning_creator_id = source_creator_id = test-creator-04.id`.
+
+### REG-ECONOMICS-003 - Network Overrides Must Use Platform Fee Only
+
+- Category: `ECONOMICS`, `PAYOUT_LIFECYCLE`
+- Severity: `SEV1`
+- Status: `MITIGATED`
+- First observed: 2026-05-16
+- Regression symptom:
+  - Network override rewards could be accidentally calculated from order gross or direct creator commission.
+- Root cause:
+  - Base earning systems and network override systems must remain economically separate.
+- Guardrail now expected:
+  - Creator and brand network override rows use `platform_fee_amount` as principal.
+  - Network overrides never use direct creator commission principal.
+  - Network overrides never reduce creator direct commission.
+- Regression test:
+  - For conversion `19`, platform fee is `0.90`; Level 1/2/3 rows are `0.27`, `0.03`, and `0.02`.
+
 ### REG-UI-001 - Product Cards Must Use Universal Layout
 
 - Category: `UI_GUARDRAIL`

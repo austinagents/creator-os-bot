@@ -1063,6 +1063,7 @@ PartnerLinks now has a markdown-first internal reliability audit system at:
 - `system-audit/KNOWN_RISKS.md`
 - `system-audit/INCIDENT_LOG.md`
 - `system-audit/ARCHITECTURE_DECISIONS.md`
+- `system-audit/ECONOMIC_ARCHITECTURE.md`
 - `system-audit/REGRESSION_HISTORY.md`
 - `system-audit/OPERATIONAL_RUNBOOKS.md`
 
@@ -1070,6 +1071,7 @@ Purpose:
 
 - Act as an internal reliability analyst/runbook layer.
 - Track tested guarantees, known risks, incidents, regressions, and architecture decisions.
+- Define canonical economic architecture before settlement automation or public launch.
 - Keep PartnerLinks moving toward Shopify/Stripe/SRE-grade reliability standards.
 - Stay markdown-first, Git-friendly, reviewable, and non-autonomous.
 
@@ -1105,6 +1107,9 @@ Permanent regression IDs now tracked in `system-audit/REGRESSION_HISTORY.md` and
 - `REG-PAYOUT-001`: Claim flow creates one `creator_earning_claims` ledger row and one Stripe transfer per claim batch.
 - `REG-PAYOUT-002`: Claim retry-after-success does not create a second transfer or duplicate ledger.
 - `REG-ECONOMICS-001`: Level 1 = 30%, Level 2 = 3%, Level 3 = 2%, and no Level 4+ payout.
+- `REG-ECONOMICS-002`: Source entity must not earn network override from its own direct sale activity.
+- `REG-ECONOMICS-003`: Network override rewards must be funded only from eligible downstream `platform_fee_amount`.
+- `REG-SETTLEMENT-001`: Live claimability must not be based only on `claimable_at`.
 
 Guaranteed behaviors:
 
@@ -1117,6 +1122,191 @@ Guaranteed behaviors:
 - Claim actions are creator-scoped and ownership-verified.
 - Payout claims are idempotent by claim batch and Stripe transfer behavior.
 - Network earnings stop after Level 3 and come only from `platform_fee_amount`.
+- Direct creator commission, PartnerLinks platform fee, and network override rewards are separate economic systems.
+- Network override rewards never come from creator commissions, Shopify checkout revenue, merchant gross revenue, or self-generated sales.
+- Entities do not earn network override rewards from their own direct sales activity.
+
+Canonical economic architecture:
+
+- New source of truth:
+  - `system-audit/ECONOMIC_ARCHITECTURE.md`
+- Base earning systems:
+  - Direct Brand Creator Commission:
+    - brand-funded affiliate commission.
+    - triggered by direct attributed sale activity.
+    - not PartnerLinks network earnings.
+    - not funded from platform fee.
+  - PartnerLinks Platform Fee:
+    - platform fee on attributed conversions.
+    - creates the only eligible pool for network override rewards.
+- Network override system:
+  - entity-based propagation layer above base earning systems.
+  - current entities are creators and brands, but architecture must support future agencies, communities, managers, and other participants.
+  - Level 1 = 30%, Level 2 = 3%, Level 3 = 2%.
+  - percentages apply to eligible downstream `platform_fee_amount`, not gross revenue, company revenue, or creator commissions.
+- Settlement architecture still needs implementation design before public launch:
+  - platform fee collection from brands.
+  - direct creator commission funding.
+  - network override funding from collected/eligible platform fee.
+  - reserve/pending windows.
+  - refund/reversal handling.
+  - failed settlement behavior.
+  - negative balance behavior.
+  - failed payout recovery.
+  - settlement retry rules.
+
+Canonical settlement status model:
+
+- Source of truth:
+  - `system-audit/ECONOMIC_ARCHITECTURE.md`
+- Main rule:
+  - accounted earnings are not necessarily funded earnings.
+- Recommended live claimability invariant:
+  - `claimable requires settlement_collected OR explicit_manual_approval OR sufficient_prepaid_reserve`
+- Canonical states:
+  - `attributed`
+  - `settlement_pending`
+  - `settlement_authorized`
+  - `settlement_collected`
+  - `settlement_failed`
+  - `settlement_retrying`
+  - `settlement_disputed`
+  - `refund_pending`
+  - `reversed`
+  - `claimable`
+  - `claimed`
+- Recommended public beta settlement model:
+  - manual approval gate plus reserve/prepaid or per-order settlement.
+  - do not allow automatic live creator/network payouts from merely recorded conversions.
+- Recommended Stripe model:
+  - SetupIntent for saved brand payment method.
+  - Stripe Customer for brand billing identity.
+  - PaymentIntent for per-order or batch collection where direct control is needed.
+  - Stripe Billing/invoices as a strong option for daily/weekly settlement statements, retries, and accounting clarity.
+- Future schema/service requirements:
+  - `brand_payment_methods`
+  - `settlement_batches`
+  - `settlement_items`
+  - `refund_reversal_events`
+  - `brand_reserve_balances`
+  - `settlement_audit_events`
+  - settlement-aware claimability promotion job.
+  - brand billing/settlement/refund services.
+- Current gap:
+  - current test-mode lifecycle can promote earnings based on `claimable_at`.
+  - live payout automation must not use pending-window claimability alone.
+  - settlement status gates are not implemented yet.
+
+Settlement-aware claimability audit:
+
+- Date:
+  - 2026-05-16
+- Result:
+  - current claimability is still time-window based.
+  - safe for sandbox/test-mode payout validation.
+  - unsafe for live payout automation without settlement gates.
+- Exact implementation paths found:
+  - `services/trackingService.js`
+    - `recordConversion()` inserts direct commission rows with `payout_status = pending` and `claimable_at = getClaimableAt()`.
+  - `services/creatorNetworkService.js`
+    - `buildCreatorEarningRow()` inserts creator-network earnings with `payout_status = pending` and `claimable_at = getClaimableAt()`.
+    - `buildBrandEarningRow()` inserts brand-network earnings with `payout_status = pending` and `claimable_at = getClaimableAt()`.
+  - `services/earningsLifecycleService.js`
+    - `resolveLifecycleStatus()` treats `payout_status = claimable` or elapsed `claimable_at` as claimable.
+    - `sumLifecycleAmounts()` calculates dashboard pending/claimable/claimed totals from that lifecycle status.
+    - `promoteClaimableEarningsForCreator()` updates `conversions` and `creator_network_earnings` from pending to claimable when `claimable_at <= now`.
+    - `claimCreatorEarnings()` promotes, reserves, creates `creator_earning_claims`, creates a Stripe test transfer, and finalizes rows as claimed without settlement collection checks.
+  - `services/creatorDashboardService.js`
+    - `getCreatorDashboardByCode()` calls `promoteClaimableEarningsForCreator()` when the dashboard loads.
+    - dashboard balances are therefore based on lifecycle status, not settlement status.
+  - `index.js`
+    - `renderCreatorEarningsLifecycle()` enables Claim earnings when owner, Stripe payouts, and `claimableEarnings > 0` are true.
+    - `POST /earnings/claim` is explicitly creator-scoped and ownership-verified, but not settlement-scoped.
+- Dashboard wording risk:
+  - `Claimable Earnings` and `Claim earnings` can make accounted/time-window earnings look funded.
+  - `Pending Earnings` currently means the 24-hour pending window, not necessarily settlement pending.
+- Recommended beta-safe behavior:
+  - keep current behavior for test/sandbox only.
+  - add a payout mode or feature flag before live claims.
+  - public beta should require manual approval, collected per-order/batch settlement, or sufficient prepaid reserve before earnings become live-claimable.
+  - block live claims until the settlement layer exists.
+- Minimal future architecture change:
+  - add settlement status/manual approval/reserve fields.
+  - add a central settlement eligibility service.
+  - modify promotion and claim reservation to require settlement eligibility.
+  - keep `claimable_at` as a review-window timestamp, not proof of funding.
+- Protective implementation now added:
+  - `PAYOUT_MODE` environment variable.
+  - allowed values:
+    - `sandbox_time_based`
+    - `claims_disabled`
+    - `manual_approval`
+    - `settlement_gated`
+  - default:
+    - `claims_disabled`
+  - unknown or missing mode blocks claims.
+  - `/earnings/claim` checks payout mode before `claimCreatorEarnings()`.
+  - current time-based claim flow is preserved only when:
+    - `PAYOUT_MODE=sandbox_time_based`
+    - `STRIPE_SECRET_KEY` starts with `sk_test_`
+  - `manual_approval` and `settlement_gated` are recognized but blocked until their schemas/services exist.
+  - Creator Dashboard disables Claim earnings and shows an unavailable-until-settlement/approval message when payout mode blocks claims.
+- New regression rule:
+  - `REG-SETTLEMENT-001`: live claimability must not be based only on `claimable_at`.
+- Docs updated:
+  - `system-audit/ECONOMIC_ARCHITECTURE.md`
+  - `system-audit/RELIABILITY_AUDIT.md`
+  - `system-audit/KNOWN_RISKS.md`
+  - `system-audit/TEST_MATRIX.md`
+
+Latest economic flow audit:
+
+- Command:
+  - `node scripts/productionSafetyTest.js --report --matrix-report --creator-code test-creator-04`
+- Result:
+  - dry-run/read-only report completed successfully.
+- Direct Brand Creator Commission:
+  - `PASS`
+  - conversion `19` has `order_value = 18`, `commission_rate = 15`, `commission_amount = 2.70`.
+  - direct commission is stored on `conversions`.
+  - direct commission is separate from creator-network override rows.
+  - direct commission was claimed through the test Stripe claim flow and was not reduced by network override payouts.
+- PartnerLinks Platform Fee:
+  - `PASS` for accounting.
+  - `GAP` for actual settlement collection.
+  - conversion `19` has `platform_fee_amount = 0.90`.
+  - all Level 1/2/3 network rows for conversion `19` use `platform_fee_amount = 0.90`.
+- Creator -> Creator Network Overrides:
+  - `PASS`
+  - `test-creator-03` Level 1 = 30% = `0.27`.
+  - `test-creator-02` Level 2 = 3% = `0.03`.
+  - `test-creator-01` Level 3 = 2% = `0.02`.
+  - no Level 4+ row exists.
+  - source creator `test-creator-04` did not receive a network override from their own direct sale.
+  - upstream creators did not receive direct creator commission.
+- Brand -> Creator Network Overrides:
+  - `PARTIALLY BUILT / NOT FULLY PROVEN`
+  - schema and service paths exist:
+    - `creators.invited_by_brand_id`
+    - `creators.brand_referred_at`
+    - `brand_network_earnings`
+    - `bindCreatorToBrandOrigin`
+    - brand-origin row creation inside `createNetworkEarningsForConversion`
+  - current `test-creator-04` report shows `Brand Network Earnings (0)`.
+  - no end-to-end brand-origin economic test has proven this path yet.
+- Settlement:
+  - `NOT BUILT / ARCHITECTURE GAP`
+  - Shopify checkout pays merchant directly.
+  - PartnerLinks records conversion/economic ledgers.
+  - Stripe test transfer proves payout mechanics only.
+  - automated brand platform-fee collection is not built.
+  - automated direct creator commission funding from brands is not built.
+  - settlement status gating before claimability is not built.
+  - refunds/reversals/negative balances are not built.
+- Current economic/UI tension:
+  - dashboard data separates direct commission and network earnings, but pending/claimable/claimed totals combine them.
+  - `creator_earning_claims` stores `direct_commission_amount` and `network_earning_amount` separately, but current creator claim can claim both in one batch.
+  - before public launch, creator-facing money states should make direct earnings vs network override earnings unmistakably distinct.
 
 Last read-only audit run:
 
@@ -1249,6 +1439,13 @@ Recommended additions to `scripts/productionSafetyTest.js`:
   - any duplicate claim batch or duplicate transfer indicators.
 - Add a `--collision-window-report` mode that can inspect recent clicks by product/shop across all `test-creator-*` codes, not only the scoped creator.
 - Add a `--route-risk-report` static/read-only summary if useful, but keep actual route authorization enforced in app code.
+- Add an `--economic-report --creator-code <code>` mode that explicitly reports:
+  - direct commission rows.
+  - platform fee amounts.
+  - network override rows by level.
+  - source creator own-override exclusion.
+  - brand-origin rows if present.
+  - settlement status fields once implemented.
 
 Recommended fixes before broader real brand onboarding:
 
@@ -1268,6 +1465,8 @@ Recommended fixes before broader real brand onboarding:
    - Failure recovery: test only with a safe, explicit sandbox diagnostic plan.
    - Delayed checkout/stale session: verify attribution remains deterministic or skips safely.
    - Multi-product: repeat tests once more than one Shopify-backed product exists.
+   - Brand-origin economics: prove `brand_network_earnings` end to end before claiming brand-as-network-entity support.
+   - Economic report: add a read-only report that distinguishes direct commission, platform fee, and network override rows.
 
 3. Register/verify Shopify `orders/paid` webhook setup for connected stores.
    - Confirm whether webhook registration is manual or automated per installed store.

@@ -113,6 +113,107 @@ Purpose:
   - Preserve `REG-PAYOUT-001` and `REG-PAYOUT-002`.
   - Keep live payout plans blocked until sandbox failure recovery is drilled.
 
+### RISK-008 - Settlement Is Accounted But Not Collected
+
+- Severity: `SEV1`
+- Category: `ECONOMICS`, `PAYOUT_LIFECYCLE`
+- Status: `OPEN`
+- Description:
+  - PartnerLinks currently records direct commission, platform fee, and network override amounts, but automated brand platform-fee collection and direct creator commission funding are not fully built.
+- Safe current behavior:
+  - Stripe transfer flow is test-mode only.
+  - Economic architecture now documents that platform-fee-funded network rewards should not be paid from uncollected or unsafe funds unless explicitly accepted as credit risk.
+- Unsafe assumption:
+  - Do not assume recorded `platform_fee_amount` means collected/settled platform fee cash exists.
+  - Do not assume direct creator commission has been funded by the brand.
+- Recommended mitigation:
+  - Define settlement collection mechanism, settlement status, refund/reversal behavior, and claimability gates before live public payout automation.
+  - Canonical claimability invariant:
+    - `claimable requires settlement_collected OR explicit_manual_approval OR sufficient_prepaid_reserve`.
+
+### RISK-009 - Brand-Origin Network Economics Are Scaffolded But Not Proven
+
+- Severity: `SEV2`
+- Category: `ECONOMICS`
+- Status: `OPEN`
+- Description:
+  - Brand-origin fields and service paths exist, but no end-to-end test has proven brand-origin network rewards from a brand-onboarded creator conversion.
+- Safe current behavior:
+  - Current `test-creator-04` report shows no brand-network earnings.
+  - Creator-chain economics are proven separately.
+- Unsafe assumption:
+  - Do not claim brand-as-network-entity support is production-proven yet.
+- Recommended mitigation:
+  - Create a controlled brand-origin test actor and validate `brand_network_earnings` before using this in public claims or dashboards.
+
+### RISK-010 - Money-State UI Can Conflate Direct And Network Earnings
+
+- Severity: `SEV2`
+- Category: `UI_GUARDRAIL`, `ECONOMICS`
+- Status: `OPEN`
+- Description:
+  - Dashboard data exposes direct commission and network earnings separately, but pending/claimable/claimed totals combine both.
+- Safe current behavior:
+  - `creator_earning_claims` stores `direct_commission_amount` and `network_earning_amount` separately.
+- Unsafe assumption:
+  - Do not assume creators will understand which earnings are brand-funded direct commission vs platform-fee-funded network overrides without clearer UI.
+- Recommended mitigation:
+  - Before public launch, make direct earnings and network override earnings visually distinct across pending, claimable, claimed, and lifetime states.
+
+### RISK-011 - Refunds And Reversals Are Not Ledgered
+
+- Severity: `SEV1`
+- Category: `ECONOMICS`, `PAYOUT_LIFECYCLE`
+- Status: `OPEN`
+- Description:
+  - Shopify refunds, chargebacks, and reversals do not yet have a complete immutable ledger/offset model.
+- Safe current behavior:
+  - Public live payout automation is not enabled.
+  - Settlement architecture now requires refund/reversal handling before broader live settlement.
+- Unsafe assumption:
+  - Do not assume a paid/claimed earning can be silently edited after a refund.
+- Recommended mitigation:
+  - Add refund/reversal ledger events and negative balance behavior before public live payout automation.
+
+### RISK-012 - Claimability Currently Does Not Require Settlement Status
+
+- Severity: `SEV1`
+- Category: `PAYOUT_LIFECYCLE`, `ECONOMICS`
+- Status: `OPEN`
+- Impacted systems:
+  - `services/trackingService.js`
+  - `services/creatorNetworkService.js`
+  - `services/earningsLifecycleService.js`
+  - `services/creatorDashboardService.js`
+  - `index.js`
+  - `conversions`
+  - `creator_network_earnings`
+  - `brand_network_earnings`
+  - `creator_earning_claims`
+- Description:
+  - Current test-mode lifecycle can promote earnings from pending to claimable based on `claimable_at`, but settlement status tables/gates are not implemented yet.
+  - `recordConversion()` and network earning row builders assign a future `claimable_at`.
+  - `resolveLifecycleStatus()` treats elapsed `claimable_at` as claimable.
+  - `promoteClaimableEarningsForCreator()` updates direct conversion and creator-network rows to `claimable` based on time.
+  - `getCreatorDashboardByCode()` invokes promotion when a dashboard loads.
+  - `/earnings/claim` claims creator-scoped rows but does not verify settlement collection, explicit manual approval, or prepaid reserve.
+- Safe current behavior:
+  - Current Stripe transfers are test-mode only.
+  - Stripe/claim routes are creator-scoped and ownership-verified.
+  - Claim idempotency and transfer recovery behavior are preserved for sandbox testing.
+- Unsafe assumption:
+  - Do not enable live payout automation assuming pending-window claimability proves brand funding.
+  - Do not treat `claimable_at` as proof that creator commission or platform-fee-funded network overrides have been collected.
+- Recommended mitigation:
+  - Add settlement status fields and settlement-aware claimability promotion before live payouts.
+  - Add a central settlement eligibility service.
+  - Keep current behavior only behind `PAYOUT_MODE=sandbox_time_based` with a Stripe test key or an explicit manual beta approval gate.
+  - Block live claims unless `settlement_collected`, `explicit_manual_approval`, or `sufficient_prepaid_reserve` is true.
+- Current mitigation:
+  - `PAYOUT_MODE` now defaults to `claims_disabled`.
+  - `/earnings/claim` blocks unless `PAYOUT_MODE=sandbox_time_based` and `STRIPE_SECRET_KEY` starts with `sk_test_`.
+  - `manual_approval` and `settlement_gated` are recognized but blocked until their schemas/services exist.
+
 ## Risk Entry Template
 
 ```markdown
