@@ -1069,6 +1069,15 @@ async function printSettlementReport() {
   const payoutGate = getLocalPayoutGateSummary();
   const settlementBatchStatus = await tableStatus('settlement_batches');
   const settlementItemStatus = await tableStatus('settlement_items');
+  const settlementBatches = await getRecentTableRows('settlement_batches', 500);
+  const settlementItems = await getRecentTableRows('settlement_items', 500);
+  const settlementAuditEvents = await getRecentTableRows('settlement_audit_events', 100);
+  const settlementAuditStatus = {
+    table: 'settlement_audit_events',
+    ok: settlementAuditEvents.exists,
+    count: settlementAuditEvents.exists ? settlementAuditEvents.rows.length : null,
+    error: settlementAuditEvents.error
+  };
   const columnChecks = [];
   for (const table of ['conversions', 'creator_network_earnings', 'brand_network_earnings']) {
     columnChecks.push(await checkColumnReadable(table, 'settlement_status'));
@@ -1083,18 +1092,70 @@ async function printSettlementReport() {
     live_claimability_status: 'blocked until settlement_collected, manual_approved, or reserve_covered exists',
     settlement_automation_built: false,
     brand_funding_proven: false,
+    runtime_enforcement: 'PAYOUT_MODE gate only; no automatic brand collection or settlement release is enabled.',
     settlement_batches: settlementBatchStatus,
     settlement_items: settlementItemStatus,
+    settlement_audit_events: settlementAuditStatus,
+    state_machine: getSettlementStateMachineSummary(),
+    batch_status_summary: summarizeByField(settlementBatches.rows, 'settlement_status'),
+    item_status_summary: summarizeByField(settlementItems.rows, 'settlement_status'),
+    audit_event_type_summary: summarizeByField(settlementAuditEvents.rows, 'event_type'),
     required_future_infrastructure: [
       'Stripe Customer per brand',
       'SetupIntent saved payment method',
       'settlement_batches',
       'settlement_items',
+      'settlement_audit_events',
       'PaymentIntent or Billing invoice',
       'settlement_collected gate'
     ],
     column_checks: columnChecks
   }, null, 2));
+
+  printRows('Recent Settlement Batches', settlementBatches.rows.slice(0, 10), (row) => ({
+    id: row.id,
+    idempotency_key: row.idempotency_key,
+    brand_id: row.brand_id,
+    shop_domain: row.shop_domain,
+    settlement_status: row.settlement_status,
+    settlement_method: row.settlement_method,
+    gross_amount: row.gross_amount,
+    collected_amount: row.collected_amount,
+    settlement_collected_at: row.settlement_collected_at,
+    settlement_failed_at: row.settlement_failed_at,
+    created_at: row.created_at
+  }));
+
+  printRows('Recent Settlement Items', settlementItems.rows.slice(0, 10), (row) => ({
+    id: row.id,
+    idempotency_key: row.idempotency_key,
+    settlement_batch_id: row.settlement_batch_id,
+    brand_id: row.brand_id,
+    item_type: row.item_type,
+    settlement_status: row.settlement_status,
+    amount: row.amount,
+    collected_amount: row.collected_amount,
+    conversion_id: row.conversion_id,
+    creator_network_earning_id: row.creator_network_earning_id,
+    brand_network_earning_id: row.brand_network_earning_id,
+    risk_status: row.risk_status,
+    created_at: row.created_at
+  }));
+
+  printRows('Recent Settlement Audit Events', settlementAuditEvents.rows.slice(0, 10), (row) => ({
+    id: row.id,
+    idempotency_key: row.idempotency_key,
+    event_type: row.event_type,
+    event_status: row.event_status,
+    source_system: row.source_system,
+    settlement_batch_id: row.settlement_batch_id,
+    settlement_item_id: row.settlement_item_id,
+    brand_id: row.brand_id,
+    from_status: row.from_status,
+    to_status: row.to_status,
+    transition_allowed: row.transition_allowed,
+    created_at: row.created_at
+  }));
 }
 
 async function printRiskReport(args) {
@@ -1171,6 +1232,7 @@ async function printIdempotencyReport() {
   const attributionEvents = await getRecentTableRows('shopify_attribution_events', 500);
   const reversalEvents = await getRecentTableRows('financial_reversal_events', 500);
   const settlementItems = await getRecentTableRows('settlement_items', 500);
+  const settlementAuditEvents = await getRecentTableRows('settlement_audit_events', 500);
   const claims = await getRecentTableRows('creator_earning_claims', 500);
 
   const duplicateConversions = duplicateGroups(conversions.rows, (row) => row.order_id).filter((group) => group.key && group.key !== 'null');
@@ -1178,6 +1240,7 @@ async function printIdempotencyReport() {
   const duplicateBrandNetwork = findDuplicateEarningRows(brandNetwork.rows, ['earning_brand_id', 'source_creator_id', 'conversion_id', 'level']);
   const duplicateReversals = duplicateGroups(reversalEvents.rows, (row) => row.idempotency_key).filter((group) => group.key && group.key !== 'null');
   const duplicateSettlementItems = duplicateGroups(settlementItems.rows, (row) => row.idempotency_key).filter((group) => group.key && group.key !== 'null');
+  const duplicateSettlementAuditEvents = duplicateGroups(settlementAuditEvents.rows, (row) => row.idempotency_key).filter((group) => group.key && group.key !== 'null');
   const duplicateClaimTransfers = duplicateGroups(
     claims.rows.filter((row) => row.stripe_transfer_id),
     (row) => row.stripe_transfer_id
@@ -1236,6 +1299,12 @@ async function printIdempotencyReport() {
       table_available: settlementItems.exists
     },
     {
+      check: 'no duplicate settlement audit event idempotency keys',
+      status: settlementAuditEvents.exists ? (duplicateSettlementAuditEvents.length ? 'FAIL' : 'PASS') : 'CHECK',
+      count: duplicateSettlementAuditEvents.length,
+      table_available: settlementAuditEvents.exists
+    },
+    {
       check: 'no duplicate Stripe transfer ids in claim ledger',
       status: duplicateClaimTransfers.length ? 'FAIL' : 'PASS',
       count: duplicateClaimTransfers.length
@@ -1257,6 +1326,7 @@ async function printIdempotencyReport() {
   printRows('Duplicate Brand Network Groups', duplicateBrandNetwork, (row) => row);
   printRows('Duplicate Reversal Event Groups', duplicateReversals, (row) => row);
   printRows('Duplicate Settlement Item Groups', duplicateSettlementItems, (row) => row);
+  printRows('Duplicate Settlement Audit Event Groups', duplicateSettlementAuditEvents, (row) => row);
   printRows('Duplicate Claim Transfer Groups', duplicateClaimTransfers, (row) => row);
   printRows('Duplicate Webhook Diagnostics', duplicateWebhookDiagnostics, (row) => ({
     id: row.id,
@@ -1791,6 +1861,50 @@ function printReversalRows(reversals) {
       created_at: row.created_at
     }))
   }, null, 2));
+}
+
+function summarizeByField(rows, field) {
+  return rows.reduce((summary, row) => {
+    const key = row[field] || 'null';
+    summary[key] = (summary[key] || 0) + 1;
+    return summary;
+  }, {});
+}
+
+function getSettlementStateMachineSummary() {
+  return {
+    runtime_behavior: 'READ-ONLY DIAGNOSTIC; settlement state transitions are not automatically enforced by this script.',
+    claimability_gate: 'Live claimability remains blocked unless payout mode and row-level settlement/manual/reserve eligibility both allow it.',
+    legal_states: [
+      'settlement_pending',
+      'settlement_authorized',
+      'settlement_collected',
+      'settlement_failed',
+      'settlement_retrying',
+      'settlement_disputed',
+      'manual_approved',
+      'reserve_covered',
+      'refund_pending',
+      'reversed',
+      'ignored'
+    ],
+    safe_claimability_states: [
+      'settlement_collected',
+      'manual_approved',
+      'reserve_covered'
+    ],
+    blocked_states: [
+      'settlement_pending',
+      'settlement_authorized',
+      'settlement_failed',
+      'settlement_retrying',
+      'settlement_disputed',
+      'refund_pending',
+      'reversed',
+      'ignored'
+    ],
+    next_required_runtime_step: 'Create explicit operator-controlled settlement batch/item mutation service with audit-event writes before any collection or approval enforcement.'
+  };
 }
 
 function getLocalPayoutGateSummary() {

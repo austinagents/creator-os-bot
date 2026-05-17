@@ -715,3 +715,17 @@ When in doubt, verify current enforcement in `PROJECT_STATUS.md` and the relevan
 - Regression test:
   - How to catch this next time.
 ```
+## REG-SETTLEMENT-008 - Settlement Audit Events Are Diagnostic Only
+
+Status: PLANNED / READ-ONLY DIAGNOSTIC
+
+- Settlement audit events must be idempotent.
+- Duplicate `settlement_audit_events.idempotency_key` values are a failure.
+- Settlement audit events must not collect money, release payouts, mark earnings claimable, or mutate conversion/earning/claim rows by themselves.
+
+## REG-SETTLEMENT-009 - Settlement Diagnostics Must Not Be Confused With Funding
+
+Status: RUNTIME GUARDRAIL / DOCUMENTATION GUARDRAIL
+
+- Read-only settlement reports must clearly label settlement collection as NOT BUILT unless funding collection exists and is explicitly enabled.
+- Live payout release remains NO-GO until `settlement_collected`, `manual_approved`, or `reserve_covered` is runtime-verified.

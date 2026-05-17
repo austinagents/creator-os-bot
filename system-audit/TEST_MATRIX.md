@@ -1324,3 +1324,26 @@ command here
 - Notes:
   - Findings or follow-up.
 ~~~
+## Settlement Lifecycle Phase 1 Tests
+
+Status: READ-ONLY DIAGNOSTIC
+
+Required commands:
+
+- `node scripts/productionSafetyTest.js --dry-run --settlement-report --idempotency-report`
+- `node scripts/productionSafetyTest.js --dry-run --report --matrix-report`
+
+Expected results:
+
+- `settlement_batches` is visible.
+- `settlement_items` is visible.
+- `settlement_audit_events` is visible after migration `018` is manually applied.
+- duplicate `settlement_items.idempotency_key` count is zero.
+- duplicate `settlement_audit_events.idempotency_key` count is zero after migration `018` is manually applied.
+- live creator payouts remain NO-GO.
+- no report mutates conversion, earning, claim, settlement, reversal, or payout rows.
+
+Regression IDs:
+
+- REG-SETTLEMENT-008: Settlement lifecycle audit events must be idempotent and must not release payouts by themselves.
+- REG-SETTLEMENT-009: Settlement diagnostics must distinguish read-only visibility from runtime-enforced funding collection.

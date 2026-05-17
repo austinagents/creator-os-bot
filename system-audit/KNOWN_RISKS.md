@@ -1227,3 +1227,11 @@ The following examples are source-backed risk patterns or user-provided research
 - Owner:
   - TBD
 ```
+## Settlement Lifecycle Phase 1 Risk Boundary
+
+Status: READ-ONLY DIAGNOSTIC / PLANNED RUNTIME INFRASTRUCTURE
+
+- `settlement_audit_events` improves future auditability, but it is not funding proof.
+- A settlement audit event must never be interpreted as `settlement_collected`, `manual_approved`, `reserve_covered`, or safe-to-pay unless an explicit future settlement eligibility service validates the state.
+- Brand charging, live settlement collection, reserve coverage, manual approval mutation, refund offsets, and live payout release remain blocked.
+- The main remaining risk is operator confusion: documented settlement architecture and diagnostic audit rows must not be mistaken for runtime funding enforcement.

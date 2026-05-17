@@ -241,3 +241,11 @@ Architecture decisions are binding design direction, not automatic runtime enfor
 - Consequences:
   - What changes or tradeoffs follow.
 ```
+## ADR: Settlement Lifecycle Audit Events Before Enforcement
+
+Status: ACCEPTED / PLANNED RUNTIME INFRASTRUCTURE
+
+- PartnerLinks will add settlement lifecycle audit events before enabling any automated settlement mutation or payout release.
+- Settlement audit events are evidence and reconciliation infrastructure, not funding proof by themselves.
+- This follows the platform rule that accounting visibility must precede irreversible financial automation.
+- Brand charging, manual approval mutation, reserve coverage enforcement, refund offsets, and controlled live payout beta remain separate future phases.

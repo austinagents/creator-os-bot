@@ -2454,3 +2454,43 @@ Recommended fixes before broader real brand onboarding:
 8. Keep manual operations available.
    - `/record_conversion` remains useful as fallback.
    - Discord diagnostics should support admin/operator testing without becoming the primary creator/brand UX.
+# Settlement Batch Lifecycle - Phase 1
+
+Status: READ-ONLY DIAGNOSTIC / PLANNED RUNTIME INFRASTRUCTURE
+
+- Added migration proposal `database/migrations/018_settlement_lifecycle_audit_events.sql`.
+- Adds `settlement_audit_events` as an additive audit trail for future settlement batch/item lifecycle transitions.
+- The migration is idempotent and manual-only; it has NOT been run automatically.
+- `scripts/productionSafetyTest.js --settlement-report` now reports:
+  - `settlement_batches`
+  - `settlement_items`
+  - `settlement_audit_events`
+  - batch status summary
+  - item status summary
+  - audit event type summary
+  - documented safe-claimability states vs blocked states
+- `scripts/productionSafetyTest.js --idempotency-report` now checks duplicate `settlement_audit_events.idempotency_key` values when the table exists.
+
+Runtime behavior added:
+
+- READ-ONLY DIAGNOSTIC reporting only.
+- No automatic settlement collection.
+- No brand charging.
+- No manual approval mutation.
+- No reserve coverage mutation.
+- No payout release.
+- No claimability change.
+- No existing financial rows are mutated.
+
+Blocked / NO-GO:
+
+- Live creator payouts remain NO-GO.
+- Live settlement automation remains NO-GO.
+- Brand funding collection remains PLANNED / NOT IMPLEMENTED.
+- Manual operator approval runtime mutation remains PLANNED / NOT IMPLEMENTED.
+- Reserve coverage enforcement remains PLANNED / NOT IMPLEMENTED.
+- Refund offset enforcement remains PLANNED / NOT IMPLEMENTED.
+
+Next safest implementation step:
+
+- After Austin manually runs migration `018`, verify `settlement_audit_events` exists and then build an operator-only, explicit, idempotent settlement batch/item creation service that writes audit events but still does not charge brands or release payouts.

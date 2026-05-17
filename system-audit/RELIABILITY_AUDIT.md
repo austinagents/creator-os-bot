@@ -1036,3 +1036,18 @@ node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify
 - Follow-up:
   - Remaining work.
 ```
+## Settlement Lifecycle Phase 1 Audit
+
+Status: READ-ONLY DIAGNOSTIC / PLANNED RUNTIME INFRASTRUCTURE
+
+- Added proposed migration `018_settlement_lifecycle_audit_events.sql` for `settlement_audit_events`.
+- The table is intended to preserve idempotent settlement lifecycle audit observations and future transition records.
+- Runtime enforcement remains limited to the existing payout-mode gate and row-level settlement/manual/reserve eligibility checks.
+- No settlement collection, brand charging, payout release, manual approval mutation, reserve coverage mutation, or refund offset enforcement is enabled by this phase.
+- `productionSafetyTest.js --settlement-report` now reports settlement batch/item/audit table status and lifecycle summaries.
+- `productionSafetyTest.js --idempotency-report` now checks duplicate settlement audit event idempotency keys when the table exists.
+
+Regression coverage:
+
+- REG-SETTLEMENT-008: Settlement lifecycle audit events must be idempotent and must not release payouts by themselves.
+- REG-SETTLEMENT-009: Settlement diagnostics must distinguish read-only visibility from runtime-enforced funding collection.

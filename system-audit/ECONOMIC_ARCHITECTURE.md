@@ -3232,3 +3232,13 @@ Important:
 - It does not collect brand funds.
 - It does not enforce refunds.
 - It does not enable live Stripe transfers.
+## Settlement Batch Lifecycle Phase 1 Classification
+
+Status: READ-ONLY DIAGNOSTIC / PLANNED RUNTIME INFRASTRUCTURE
+
+- `settlement_batches` and `settlement_items` provide additive settlement state infrastructure.
+- `settlement_audit_events` is proposed in migration `018_settlement_lifecycle_audit_events.sql` as the audit trail for settlement lifecycle observations and future transitions.
+- This phase does not create brand charges, Stripe PaymentIntents, Stripe invoices, settlement collection, manual approval mutations, reserve deductions, payout release, or refund enforcement.
+- Safe claimability states remain `settlement_collected`, `manual_approved`, or `reserve_covered`.
+- Blocked states remain non-claimable for live payouts, including `settlement_pending`, `settlement_authorized`, `settlement_failed`, `settlement_retrying`, `settlement_disputed`, `refund_pending`, `reversed`, and `ignored`.
+- `PAYOUT_MODE=claims_disabled` remains the production recommendation until funding/approval/reserve coverage is implemented and verified.

@@ -854,3 +854,23 @@ Record results in:
 
 - File(s).
 ```
+## Settlement Lifecycle Audit Event Runbook
+
+Status: MANUAL OPERATOR TASK / READ-ONLY DIAGNOSTIC
+
+Use this after migration `018_settlement_lifecycle_audit_events.sql` is manually applied.
+
+1. Run `node scripts/productionSafetyTest.js --dry-run --settlement-report --idempotency-report`.
+2. Confirm `settlement_audit_events` is visible.
+3. Confirm duplicate settlement audit event idempotency keys are zero.
+4. Treat all audit events as evidence for operator review only.
+5. Do not release payouts from audit events alone.
+6. Do not treat `settlement_authorized`, `settlement_pending`, or `settlement_retrying` as funding proof.
+7. Live claimability still requires `settlement_collected`, `manual_approved`, or `reserve_covered`, plus an explicitly allowed payout mode.
+
+Manual-only actions:
+
+- Running migration `018`.
+- Reviewing settlement audit event evidence.
+- Approving any future settlement lifecycle mutation flow.
+- Confirming production `PAYOUT_MODE=claims_disabled` before deployment.
