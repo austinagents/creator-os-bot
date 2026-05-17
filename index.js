@@ -11,7 +11,9 @@ const { getBrandBySlug, getCreatorByCodeAndBrand, recordClick, upsertAttribution
 const {
   getCreatorByInviteCode,
   recordCreatorInviteSession,
+  recordBrandInviteSession,
   bindCreatorToInviteSession,
+  bindCreatorToBrandInviteSession,
   bindCreatorToBrandOrigin
 } = require("./services/creatorNetworkService");
 const { findOrCreateWebCreator, getCreatorById, getCreatorByAuthUserId, getCreatorByCodeOrReferralCode } = require("./services/creatorService");
@@ -37,7 +39,7 @@ const {
   verifyShopifyWebhookHmac,
   ingestShopifyOrdersPaidWebhook
 } = require("./services/shopifyWebhookService");
-const { generateSlug, normalizeCode } = require("./utils/slug");
+const { generateCanonicalSlug, generateSlug, normalizeCode } = require("./utils/slug");
 
 const {
   DISCORD_TOKEN,
@@ -351,9 +353,9 @@ app.get('/styles.css', (req, res) => {
 });
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
-app.get('/join/brand/:brandId', async (req, res) => {
+app.get('/join/brand/:brandSlug', async (req, res) => {
   try {
-    const brandCode = normalizeCode(req.params.brandId);
+    const brandCode = normalizeCode(req.params.brandSlug);
     const brand = await getBrandByIdentifier(brandCode);
     if (!brand) {
       return res.status(404).json({ error: 'Brand invite not found' });
@@ -364,6 +366,44 @@ app.get('/join/brand/:brandId', async (req, res) => {
       return res.redirect(signedInDashboardPath);
     }
 
+    let brandInviteSessionId = req.cookies.partnerlinks_brand_invite_sid;
+    if (!brandInviteSessionId) {
+      brandInviteSessionId = generateSessionId();
+    }
+
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || '';
+    const ipHash = hashIp(clientIp);
+    const userAgent = req.headers['user-agent'] || '';
+    const referrer = req.headers['referer'] || '';
+
+    try {
+      await recordBrandInviteSession({
+        invitingBrandId: brand.id,
+        sessionId: brandInviteSessionId,
+        ipHash,
+        userAgent,
+        referrer,
+        inviteCode: brandCode
+      });
+      log('Brand invite session recorded', {
+        brandId: brand.id,
+        inviteCode: brandCode,
+        hasSessionId: Boolean(brandInviteSessionId)
+      });
+    } catch (sessionError) {
+      log('Brand invite session record failed; continuing with invite cookie fallback', {
+        brandId: brand.id,
+        inviteCode: brandCode,
+        message: sessionError.message
+      });
+    }
+
+    res.cookie('partnerlinks_brand_invite_sid', brandInviteSessionId, {
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax'
+    });
     res.cookie('partnerlinks_brand_invite_id', String(brand.id), {
       maxAge: 30 * 24 * 60 * 60 * 1000,
       httpOnly: true,
@@ -372,7 +412,7 @@ app.get('/join/brand/:brandId', async (req, res) => {
     });
     res.clearCookie('partnerlinks_invite_sid');
 
-    res.redirect(`/signup?brand=${encodeURIComponent(generateSlug(brand.name))}`);
+    res.redirect(`/signup?brand=${encodeURIComponent(generateCanonicalSlug(brand.name))}`);
   } catch (error) {
     log('Brand invite redirect error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -418,6 +458,7 @@ app.get('/join/:creatorCode', async (req, res) => {
       sameSite: 'lax'
     });
     res.clearCookie('partnerlinks_brand_invite_id');
+    res.clearCookie('partnerlinks_brand_invite_sid');
 
     res.redirect(`/signup?invite=${encodeURIComponent(creatorCode)}`);
   } catch (error) {
@@ -630,15 +671,31 @@ app.get('/auth/callback', async (req, res) => {
     const authUser = await exchangeAuthCodeForUser(req, res, code);
     const creator = await findOrCreateWebCreator(authUser);
     const inviteSessionId = req.cookies.partnerlinks_invite_sid;
+    const brandInviteSessionId = req.cookies.partnerlinks_brand_invite_sid;
     const brandInviteId = req.cookies.partnerlinks_brand_invite_id;
 
     if (inviteSessionId) {
       await bindCreatorToInviteSession(creator.id, inviteSessionId);
+    } else if (brandInviteSessionId) {
+      let brandSessionBound = null;
+      try {
+        brandSessionBound = await bindCreatorToBrandInviteSession(creator.id, brandInviteSessionId);
+      } catch (brandSessionError) {
+        log('Brand invite session bind failed; using brand id fallback if available', {
+          creatorId: creator.id,
+          hasBrandInviteId: Boolean(brandInviteId),
+          message: brandSessionError.message
+        });
+      }
+      if (!brandSessionBound && brandInviteId) {
+        await bindCreatorToBrandOrigin(creator.id, brandInviteId);
+      }
     } else if (brandInviteId) {
       await bindCreatorToBrandOrigin(creator.id, brandInviteId);
     }
 
     res.clearCookie('partnerlinks_invite_sid');
+    res.clearCookie('partnerlinks_brand_invite_sid');
     res.clearCookie('partnerlinks_brand_invite_id');
     res.redirect(`/creator/welcome?creator_id=${encodeURIComponent(creator.id)}`);
   } catch (error) {
@@ -1659,11 +1716,11 @@ function renderBrandDashboardPage(dashboard) {
 
       <section class="creator-action-panel" id="links">
         <div>
-          <span>Tracking link preview</span>
-          <strong id="tracking-link-preview">${escapeHtml(dashboard.trackingLinkPreview)}</strong>
-          <p>Use this format when creators receive brand-specific referral links.</p>
+          <span>Creator onboarding link</span>
+          <strong id="brand-creator-onboarding-link">${escapeHtml(dashboard.creatorOnboardingLink)}</strong>
+          <p>Share this link to invite creators into your PartnerLinks program. It records brand-origin onboarding lineage after Google signup.</p>
         </div>
-        <button class="copy-button" type="button" data-copy-target="tracking-link-preview">Copy Link</button>
+        <button class="copy-button" type="button" data-copy-target="brand-creator-onboarding-link">Copy Link</button>
       </section>
 
       <section class="creator-stat-grid" aria-label="Brand performance summary">
@@ -2555,7 +2612,10 @@ async function getBrandByIdentifier(brandIdentifier) {
     .select('*')
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return (brands || []).find((brand) => generateSlug(brand.name) === normalizedBrandIdentifier) || null;
+  return (brands || []).find((brand) => (
+    generateSlug(brand.name) === normalizedBrandIdentifier ||
+    generateCanonicalSlug(brand.name) === normalizedBrandIdentifier
+  )) || null;
 }
 
 async function getBrandById(brandId) {
@@ -2642,8 +2702,9 @@ function renderBrandSetupSuccessPage(brand, store) {
 
 function buildBrandLinkExamples(brand) {
   const brandSlug = generateSlug(brand.name);
+  const brandInviteSlug = generateCanonicalSlug(brand.name);
   return {
-    creatorSignupLink: `${PUBLIC_BASE_URL}/join/brand/${brandSlug}`,
+    creatorSignupLink: `${PUBLIC_BASE_URL}/join/brand/${brandInviteSlug}`,
     trackingLinkFormat: `${PUBLIC_BASE_URL}/r/${brandSlug}/:creator_code`
   };
 }

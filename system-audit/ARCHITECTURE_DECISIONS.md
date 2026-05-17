@@ -117,6 +117,79 @@ Purpose:
   - Creator-facing claimable balances must eventually reflect funding safety, not only elapsed pending windows.
   - Refund/reversal and negative-balance behavior must be ledgered before broader live payouts.
 
+### ADR-007 - Brand Settlement Automation Uses Stripe Customer And Settlement Ledger
+
+- Status: `ACCEPTED`
+- Date: 2026-05-16
+- Context:
+  - PartnerLinks now reliably accounts for attributed conversions, direct creator commission, platform fees, and network overrides, but automated brand funding is not built.
+  - Live claimability must not rely on accounted earnings alone.
+- Decision:
+  - Each brand should have a Stripe Customer and saved payment method collected through SetupIntent.
+  - Brand settlement should be represented through `settlement_batches` and `settlement_items`.
+  - Settlement items should separately fund:
+    - direct creator commission.
+    - PartnerLinks platform fee.
+    - creator-network override.
+    - brand-network override.
+  - Controlled beta should start with manual approval plus reserve/prepaid or per-order PaymentIntent settlement.
+  - Daily batch settlement should be the likely default once volume grows.
+  - Stripe Billing/invoices should remain the preferred path for clean daily/weekly brand statements and retry workflows when batch settlement becomes operationally important.
+- Rationale:
+  - Stripe Customer + SetupIntent is a standard, battle-tested pattern for off-session brand settlement.
+  - Settlement batches/items create a clear audit bridge between Shopify conversion, brand funding, claimability, and Stripe payout.
+  - Per-item settlement status prevents a broad brand-level flag from accidentally releasing unfunded earnings.
+- Consequences:
+  - Future schema must include brand billing/payment method records and settlement ledgers.
+  - Claimability promotion must be rewritten to consult settlement item safety.
+  - Refunds/reversals need explicit ledger events and offset/negative-balance behavior.
+  - Operator/admin diagnostics must show failed settlements, blocking items, retries, and reserve coverage.
+
+### ADR-008 - Settlement Lifecycle Must Be State-Machine Driven
+
+- Status: `ACCEPTED`
+- Date: 2026-05-16
+- Context:
+  - Settlement code has not been built yet, but payout safety depends on deterministic, auditable state transitions.
+  - Ambiguous money states would create unacceptable financial and trust risk.
+- Decision:
+  - Settlement must follow the canonical state machine in `system-audit/ECONOMIC_ARCHITECTURE.md`.
+  - Legal states include:
+    - `attributed`
+    - `settlement_pending`
+    - `settlement_authorized`
+    - `settlement_collected`
+    - `settlement_failed`
+    - `settlement_retrying`
+    - `settlement_disputed`
+    - `refund_pending`
+    - `reversed`
+    - `manual_approved`
+    - `reserve_covered`
+    - `claimable`
+    - `claim_reserved`
+    - `claimed`
+    - `claim_failed`
+    - `offset_required`
+  - Every transition must define:
+    - trigger.
+    - owning service/system.
+    - required evidence.
+    - ledger rows.
+    - diagnostics/audit events.
+    - creator/brand/operator visibility.
+    - claimability status.
+    - operator action, if any.
+- Rationale:
+  - Mirrors proven payments/referral infrastructure patterns.
+  - Prevents hidden funding assumptions.
+  - Makes payout safety regression-testable before code exists.
+- Consequences:
+  - Future settlement implementation must reject illegal transitions.
+  - Manual approval and reserve coverage must be first-class audited states.
+  - Refunds after payout must create offset/negative-balance records, not deletion.
+  - Duplicate webhooks must not create duplicate settlement items.
+
 ## ADR Template
 
 ```markdown

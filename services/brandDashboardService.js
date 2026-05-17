@@ -4,7 +4,7 @@ const {
   getCreatorLeaderboardStats
 } = require('./trackingService');
 const { PUBLIC_BASE_URL } = require('../config/config/env');
-const { generateSlug, normalizeCode } = require('../utils/slug');
+const { generateCanonicalSlug, generateSlug, normalizeCode } = require('../utils/slug');
 
 async function getBrandDashboardBySlug(brandSlug) {
   const normalizedBrandSlug = normalizeCode(brandSlug);
@@ -26,6 +26,7 @@ async function getBrandDashboardBySlug(brandSlug) {
   ]);
 
   const brandSlugCanonical = generateSlug(brand.name);
+  const brandInviteSlug = generateCanonicalSlug(brand.name);
   const conversionRate = stats.totalClicks > 0
     ? (stats.totalConversions / stats.totalClicks) * 100
     : 0;
@@ -43,7 +44,7 @@ async function getBrandDashboardBySlug(brandSlug) {
     recentConversions,
     topCreators,
     trackingLinkPreview: `${PUBLIC_BASE_URL}/r/${brandSlugCanonical}/:creator_code`,
-    creatorOnboardingLink: `${PUBLIC_BASE_URL}/join/brand/${brandSlugCanonical}`
+    creatorOnboardingLink: `${PUBLIC_BASE_URL}/join/brand/${brandInviteSlug}`
   };
 }
 
@@ -54,7 +55,10 @@ async function findBrandBySlug(brandSlug) {
     .order('created_at', { ascending: false });
   if (error) throw error;
 
-  return (data || []).find((brand) => generateSlug(brand.name) === brandSlug) || null;
+  return (data || []).find((brand) => (
+    generateSlug(brand.name) === brandSlug ||
+    generateCanonicalSlug(brand.name) === brandSlug
+  )) || null;
 }
 
 async function countActiveCreators(brandId) {

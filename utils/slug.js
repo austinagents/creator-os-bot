@@ -14,6 +14,17 @@ function generateSlug(input) {
   return slug;
 }
 
+function generateCanonicalSlug(input, maxLength = 80) {
+  const slug = String(input || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, maxLength)
+    .replace(/-+$/g, '');
+
+  return slug || 'brand';
+}
+
 function normalizeCode(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -33,6 +44,7 @@ function generateUniqueSlug(username, existingSlugs) {
 
 module.exports = {
   generateSlug,
+  generateCanonicalSlug,
   normalizeCode,
   generateUniqueSlug
 };

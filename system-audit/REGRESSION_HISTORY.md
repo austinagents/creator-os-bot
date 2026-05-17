@@ -10,12 +10,44 @@ Purpose:
 - `AUTH_SCOPE`
 - `REFERRAL_ROUTE`
 - `ATTRIBUTION`
+- `ATTRIBUTION_HIJACKING`
+- `COOKIE_STUFFING`
+- `PARAM_INJECTION`
+- `SQL_INJECTION`
+- `PLUGIN_SQL_INJECTION`
+- `SMALL_PLATFORM_FRAGILITY`
+- `FAKE_ACCOUNT_REWARDS`
+- `SYNTHETIC_NETWORK_METRICS`
+- `INCENTIVE_GAMING`
+- `COMMS_COST_ABUSE`
+- `THIRD_PARTY_APP_RISK`
+- `DOCS_SOURCE_INTEGRITY`
 - `WEBHOOK_IDEMPOTENCY`
+- `WEBHOOK_REPLAY`
 - `ECONOMICS`
+- `NETWORK_ECONOMICS`
+- `SYNTHETIC_COMMERCE`
+- `FAKE_IDENTITY_NETWORKS`
+- `REFUND_REVERSAL`
+- `REFUND_FRAUD`
+- `SETTLEMENT_FAILURE`
 - `PAYOUT_LIFECYCLE`
+- `PAYOUT_IDEMPOTENCY`
 - `SECURITY_ISOLATION`
+- `PRODUCT_VERIFICATION`
+- `SHOPIFY_APP_DATA_RISK`
+- `AUTHORIZATION_SCOPE_BUGS`
+- `STRIPE_CONNECT_FRAUD`
+- `AFFILIATE_NETWORK_LIABILITY`
+- `REFERRAL_MESSAGING_COMPLIANCE`
+- `AFFILIATE_LINK_HIJACKING`
+- `DATA_BREACH_RESPONSE`
+- `ADMIN_TOOLING_SAFETY`
 - `DIAGNOSTICS`
 - `UI_GUARDRAIL`
+- `CREATOR_DISCLOSURE`
+- `REFERRAL_ABUSE`
+- `DASHBOARD_MONEY_CLARITY`
 
 ## Regression Entries
 
@@ -221,6 +253,326 @@ Purpose:
 - Regression test:
   - Add/modify Shopify-backed product.
   - Expected: no special public metadata or alternate card layout.
+
+### REG-SAFETY-006 - Referral Tracking Params Must Not Become Injection Surfaces
+
+- Category: `PARAM_INJECTION`, `SQL_INJECTION`, `SECURITY_ISOLATION`
+- Severity: `SEV1`
+- Status: `OPEN`
+- Real-world pattern:
+  - Affiliate/referral systems and plugin ecosystems have suffered injection issues through public referral/tracking params.
+- Guardrail now expected:
+  - `creator_code`, `brand_slug`, `product_slug`, `partnerlinks_ref`, `sub_id`, and UTM params are validated, length-limited, normalized, and escaped before query or render use.
+  - raw tracking params never become trusted attribution, raw SQL, or unescaped output.
+- Regression test:
+  - Send malformed and oversized params through `/r`, `/join`, product referral routes, debug filters, and attribution parsers.
+  - Expected: safe rejection/logging, no SQL/string injection, no trusted attribution.
+
+### REG-SAFETY-007 - Unnecessary Customer Or Payment-Sensitive Data Must Not Be Stored Or Logged
+
+- Category: `SHOPIFY_APP_DATA_RISK`, `DATA_BREACH_RESPONSE`, `SECURITY_ISOLATION`
+- Severity: `SEV1`
+- Status: `OPEN`
+- Real-world pattern:
+  - Shopify third-party apps/providers can become the weak point for customer/order data exposure.
+- Guardrail now expected:
+  - PartnerLinks stores only required Shopify order/attribution/payment metadata.
+  - webhook diagnostics avoid full customer/payment-sensitive payload logging.
+  - Shopify/Stripe/Supabase/Discord secrets remain out of client code, public logs, and debug output.
+- Regression test:
+  - Review webhook logging, diagnostic rows, debug routes, and env exposure.
+  - Expected: no unnecessary customer/payment-sensitive data or secrets are persisted or displayed.
+
+### REG-SAFETY-008 - Sensitive Creator/Brand Actions Must Use Explicit Scoped Ownership Checks
+
+- Category: `AUTHORIZATION_SCOPE_BUGS`, `AUTH_SCOPE`, `SECURITY_ISOLATION`
+- Severity: `SEV1`
+- Status: `MITIGATED_FOR_STRIPE_ROUTES`
+- Real-world pattern:
+  - Authorization bugs often come from implicit default resources, missing ownership checks, or cross-account resource mutation.
+- Guardrail now expected:
+  - sensitive routes require explicit resource context such as `creator_code` or `brand_id`.
+  - route handlers verify ownership before sensitive visibility or mutation.
+  - no money, Stripe, settlement, payout, or admin path relies on newest/default creator fallback.
+- Regression test:
+  - one auth user owns multiple creators; sensitive action targets a non-default creator.
+  - Expected: action only affects the explicitly requested owned creator, or fails closed.
+
+### REG-SAFETY-009 - New Or High-Risk Actors Must Not Instantly Extract Payouts
+
+- Category: `STRIPE_CONNECT_FRAUD`, `FAKE_IDENTITY_NETWORKS`, `SYNTHETIC_COMMERCE`, `PAYOUT_LIFECYCLE`
+- Severity: `SEV1`
+- Status: `OPEN`
+- Real-world pattern:
+  - Marketplace/gig payout systems are attacked with stolen cards, fake transactions, controlled accounts, and fast payout extraction.
+- Guardrail now expected:
+  - new creators, new brands, large first payouts, abnormal velocity, duplicate payout identities, and high-risk clusters can be held for review.
+  - Stripe Connect onboarding is not treated as fraud approval.
+  - live claimability still requires settlement, approval, or reserve coverage.
+- Regression test:
+  - create a new/high-risk creator pattern.
+  - Expected: no instant live payout without review/funding gate.
+
+### REG-SAFETY-010 - Refunds And Chargebacks Must Create Reversal Or Offset Records
+
+- Category: `REFUND_FRAUD`, `REFUND_REVERSAL`, `SETTLEMENT_FAILURE`
+- Severity: `SEV1`
+- Status: `OPEN`
+- Real-world pattern:
+  - refund loops, chargeback farming, false claims, and post-payout reversals can leak money from marketplaces and reward systems.
+- Guardrail now expected:
+  - refund before payout reverses or blocks claimability.
+  - refund after payout creates `offset_required`, negative balance, or equivalent reversal records.
+  - historical paid earnings and transfer records are not silently deleted.
+- Regression test:
+  - simulate refund before and after claim.
+  - Expected: auditable reversal/offset state, no silent deletion.
+
+### REG-SAFETY-011 - Third-Party Onboarding Alone Is Not Fraud Approval
+
+- Category: `STRIPE_CONNECT_FRAUD`, `PRODUCT_VERIFICATION`, `SHOPIFY_APP_DATA_RISK`
+- Severity: `SEV1`
+- Status: `OPEN`
+- Real-world pattern:
+  - Stripe Connect onboarding and Shopify OAuth confirm rail/access setup, but not creator quality, product legitimacy, or commerce safety.
+- Guardrail now expected:
+  - Stripe onboarding means payout rail readiness only.
+  - Shopify OAuth means store access only.
+  - payout eligibility and public promotion still require settlement/risk/review rules.
+- Regression test:
+  - connect Stripe/Shopify for a new actor.
+  - Expected: no live payout or public trust upgrade purely from third-party onboarding completion.
+
+### REG-SAFETY-012 - Promotional Abuse Requires Takedown And Audit Workflow
+
+- Category: `AFFILIATE_NETWORK_LIABILITY`, `CREATOR_DISCLOSURE`, `PRODUCT_VERIFICATION`, `REFERRAL_ABUSE`
+- Severity: `SEV1`
+- Status: `OPEN`
+- Real-world pattern:
+  - affiliate networks can face liability for deceptive affiliate claims, unsafe product promotion, and undisclosed compensation relationships.
+- Guardrail now expected:
+  - unsafe creator/brand promotion can be reported, reviewed, suspended, removed, and audited.
+  - creator disclosure reminders and terms are visible before public scale.
+  - moderation actions are not silent or untracked.
+- Regression test:
+  - report unsafe promotion or misleading brand/product.
+  - Expected: operator-visible review/takedown/audit path exists.
+
+### REG-SAFETY-013 - Incentive Systems Must Not Reward Synthetic Accounts Or Non-Commerce Actions
+
+- Category: `INCENTIVE_GAMING`, `SYNTHETIC_COMMERCE`, `FAKE_ACCOUNT_REWARDS`
+- Severity: `SEV1`
+- Status: `OPEN`
+- Note:
+  - `REG-SAFETY-010` is already reserved for refund/chargeback reversal integrity, so incentive gaming is tracked as `REG-SAFETY-013`.
+- Real-world pattern:
+  - incentive plans can drive fake accounts, unsafe growth, or internal/operator gaming when rewards are tied to account creation instead of real value.
+- Guardrail now expected:
+  - incentives are tied to attributed, settled commerce.
+  - manual overrides require audit trails.
+  - abnormal onboarding spikes are reviewable.
+  - self-generated loops do not create creator/network rewards.
+- Regression test:
+  - create signup/invite/onboarding activity without downstream commerce.
+  - Expected: no payable earnings and no platform value metric based only on signups.
+
+### REG-METRICS-001 - Network Value Metrics Must Be Commerce-Based
+
+- Category: `SYNTHETIC_NETWORK_METRICS`, `SMALL_PLATFORM_FRAGILITY`, `DIAGNOSTICS`
+- Severity: `SEV1`
+- Status: `OPEN`
+- Real-world pattern:
+  - fake user/network metrics can destroy trust, fundraising, and strategic value.
+- Guardrail now expected:
+  - creator count and invite count are not treated as economic value.
+  - dashboards distinguish raw network size from productive network.
+  - operator/investor metrics are tied to attributed, settled commerce.
+- Regression test:
+  - inspect dashboard/operator reporting.
+  - Expected: raw signup counts are not labeled as revenue, value, or productive network without commerce qualification.
+
+### REG-COMMS-001 - Referral Messaging Cannot Create Unbounded Cost Or Legal Exposure
+
+- Category: `COMMS_COST_ABUSE`, `REFERRAL_MESSAGING_COMPLIANCE`, `REFERRAL_ABUSE`
+- Severity: `SEV1`
+- Status: `OPEN`
+- Real-world pattern:
+  - SMS toll fraud, fake account loops, and unsolicited referral messaging can create direct cost and legal exposure.
+- Guardrail now expected:
+  - no automated SMS/email referral tooling during beta.
+  - future messaging is consent-aware, rate-limited, and monitored for velocity.
+  - public signup and invite flows include bot/cost protections before paid messaging rails are attached.
+- Regression test:
+  - attempt bulk invite/send behavior.
+  - Expected: no unbounded send/cost path and no platform-sent third-party messages without safeguards.
+
+### REG-DATA-001 - Customer And Payment-Sensitive Data Must Be Minimized
+
+- Category: `THIRD_PARTY_APP_RISK`, `SHOPIFY_APP_DATA_RISK`, `DATA_BREACH_RESPONSE`
+- Severity: `SEV1`
+- Status: `OPEN`
+- Real-world pattern:
+  - small Shopify/affiliate apps can become the weakest link because they hold tokens, customer/order data, and payout logic.
+- Guardrail now expected:
+  - least-privilege Shopify scopes.
+  - no unnecessary customer/payment-sensitive data storage.
+  - server-only Shopify tokens and Supabase service role.
+  - debug routes are scoped/read-only and do not expose sensitive payloads.
+- Regression test:
+  - review webhook logs, diagnostics, debug routes, and persisted order/customer fields.
+  - Expected: compact necessary data only; no secrets or unnecessary customer/payment details.
+
+### REG-DOCS-001 - Risk Docs Must Separate Verified Facts, Assumptions, And Internal Opinions
+
+- Category: `DOCS_SOURCE_INTEGRITY`, `DIAGNOSTICS`
+- Severity: `SEV2`
+- Status: `OPEN`
+- Real-world pattern:
+  - AI-assisted research can introduce hallucinated facts or fabricated citations into risk/compliance documentation.
+- Guardrail now expected:
+  - docs identify source-backed examples, user-provided research, internal assumptions, and implementation decisions separately.
+  - public/legal/compliance claims are verified before publication.
+  - AI-generated policy text is not treated as legal advice.
+- Regression test:
+  - review risk/compliance docs before external use.
+  - Expected: claims have sources or are marked as assumptions/internal guidance.
+
+### REG-SECURITY-001 - Malformed Tracking Params Must Not Become Trusted
+
+- Category: `PARAM_INJECTION`, `SECURITY_ISOLATION`
+- Severity: `SEV1`
+- Status: `OPEN`
+- First observed: documentation-first risk model, 2026-05-16
+- Regression symptom:
+  - malformed `creator_code`, `partnerlinks_ref`, `sub_id`, UTM, `product_slug`, or `brand_slug` value becomes trusted attribution, unsafe rendered output, or backend abuse vector.
+- Root cause:
+  - referral systems often treat tracking params as harmless strings.
+- Guardrail now expected:
+  - sanitize, validate, length-limit, escape, and log suspicious malformed params.
+  - never trust raw tracking params.
+- Regression test:
+  - malicious-input tests for referral/product routes and tracking params.
+  - Expected: rejected/sanitized/logged, no unsafe attribution or rendering.
+
+### REG-SECURITY-002 - Referral Params Must Not Reach Raw SQL
+
+- Category: `SQL_INJECTION`, `SECURITY_ISOLATION`
+- Severity: `SEV1`
+- Status: `OPEN`
+- First observed: documentation-first risk model, 2026-05-16
+- Regression symptom:
+  - user-controlled referral param affects raw SQL or service-role access.
+- Root cause:
+  - affiliate systems historically expose SQL injection through reporting/filter/referral params.
+- Guardrail now expected:
+  - structured Supabase queries only.
+  - no raw user-controlled SQL.
+  - service role server-side only.
+- Regression test:
+  - static review and malicious-input tests for creator/referral/product params.
+
+### REG-SECURITY-003 - Synthetic Identity Clusters Must Not Bypass Review
+
+- Category: `FAKE_IDENTITY_NETWORKS`, `SYNTHETIC_COMMERCE`, `REFERRAL_ABUSE`
+- Severity: `SEV1`
+- Status: `OPEN`
+- First observed: documentation-first risk model, 2026-05-16
+- Regression symptom:
+  - creator/brand/account clusters can extract payouts through synthetic commerce or payout loops.
+- Root cause:
+  - network rewards can incentivize identity farms if payout eligibility is too trusting.
+- Guardrail now expected:
+  - monitor duplicate payout methods, Stripe accounts, tax ids, IP/device clusters, abnormal creator spawn/network growth.
+  - use payout holds for high-risk first payouts.
+- Regression test:
+  - synthetic identity network report flags suspicious clusters before large payout.
+
+### REG-SECURITY-004 - Public Products And Brands Require Verification
+
+- Category: `PRODUCT_VERIFICATION`, `REFERRAL_ABUSE`
+- Severity: `SEV1`
+- Status: `OPEN`
+- First observed: documentation-first risk model, 2026-05-16
+- Regression symptom:
+  - unverified scam/misleading brand or product is broadly promoted through PartnerLinks.
+- Root cause:
+  - product discovery without verification can amplify unsafe commerce.
+- Guardrail now expected:
+  - verified Shopify ownership, product identity, admin approval, suspension path, moderation audit trail.
+- Regression test:
+  - featured/public brand/product cannot appear without approval state.
+
+### REG-SECURITY-005 - Low-Confidence Attribution Cannot Replace Exact Ref
+
+- Category: `AFFILIATE_LINK_HIJACKING`, `ATTRIBUTION_HIJACKING`
+- Severity: `SEV1`
+- Status: `MITIGATED`
+- First observed: documentation-first risk model, 2026-05-16
+- Regression symptom:
+  - extension/coupon/late redirect replaces exact creator attribution.
+- Root cause:
+  - last-click systems can overweight late-stage or injected attribution.
+- Guardrail now expected:
+  - exact `partnerlinks_ref` wins before fallback.
+  - low-confidence fallback cannot override deterministic attribution.
+  - attribution source/confidence is logged.
+- Regression test:
+  - exact cart/order `partnerlinks_ref` and conflicting low-confidence source.
+  - Expected: exact `partnerlinks_ref` wins.
+
+### REG-SECURITY-006 - Secrets Must Not Leak Through Client/Logs/Debug
+
+- Category: `DATA_BREACH_RESPONSE`, `SECURITY_ISOLATION`
+- Severity: `SEV1`
+- Status: `OPEN`
+- First observed: documentation-first risk model, 2026-05-16
+- Regression symptom:
+  - Stripe/Supabase/webhook/service-role secret appears in client code, public logs, or unprotected debug route.
+- Root cause:
+  - infrastructure diagnostics can accidentally over-log sensitive payloads.
+- Guardrail now expected:
+  - no secrets in client-side code or public logs.
+  - minimal webhook payload logging.
+  - protected/scoped debug routes.
+  - secret rotation runbook.
+- Regression test:
+  - static secret exposure scan and debug route review.
+
+### REG-SECURITY-007 - Refund Fraud Must Stay Reviewable
+
+- Category: `REFUND_FRAUD`, `REFUND_REVERSAL`, `SYNTHETIC_COMMERCE`
+- Severity: `SEV1`
+- Status: `OPEN`
+- First observed: documentation-first risk model, 2026-05-16
+- Regression symptom:
+  - refund-heavy or chargeback-linked commerce creates unrecoverable payout leakage.
+- Root cause:
+  - payouts before refund/reversal safety create credit and fraud exposure.
+- Guardrail now expected:
+  - refund reversal ledger.
+  - negative balance/offset model.
+  - manual review queue.
+  - payout holds for suspicious refund behavior.
+- Regression test:
+  - refund after payout creates offset/reversal records and does not silently delete history.
+
+### REG-SECURITY-008 - Admin Tooling Must Be Read-Only By Default
+
+- Category: `ADMIN_TOOLING_SAFETY`, `SECURITY_ISOLATION`, `PAYOUT_IDEMPOTENCY`
+- Severity: `SEV1`
+- Status: `OPEN`
+- First observed: documentation-first risk model, 2026-05-16
+- Regression symptom:
+  - debug/admin tool mutates payouts, attribution, settlement, or creator ownership accidentally.
+- Root cause:
+  - operator shortcuts can become unsafe without explicit approval and audit logs.
+- Guardrail now expected:
+  - debug routes read-only by default.
+  - mutating scripts require explicit flags/approval.
+  - admin actions are audited.
+  - test/sandbox separation is maintained.
+- Regression test:
+  - audit scripts default dry-run/read-only; mutation requires explicit flag and test scope.
 
 ## Regression Entry Template
 

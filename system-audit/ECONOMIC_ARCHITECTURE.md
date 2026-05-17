@@ -355,6 +355,448 @@ Reason:
 - PartnerLinks is still validating refund, settlement, and payout recovery behavior.
 - A conservative beta model prevents hidden credit exposure and accidental unfunded payout obligations.
 
+### Brand Settlement Automation Architecture
+
+Goal:
+
+- Automatically fund:
+  1. direct creator commissions.
+  2. PartnerLinks platform fees.
+  3. network override rewards funded from eligible platform fees.
+- Preserve the invariant:
+
+```text
+No creator or network payout becomes live-claimable until settlement is collected, manually approved, or covered by prepaid reserve.
+```
+
+#### Brand Stripe Customer
+
+Each brand should have a Stripe Customer controlled by PartnerLinks.
+
+Purpose:
+
+- represent the brand billing identity.
+- attach saved payment methods.
+- support invoices, PaymentIntents, receipts, retries, and settlement auditability.
+
+Recommended fields:
+
+- `brands.stripe_customer_id`
+- `brands.billing_email`
+- `brands.billing_status`
+- `brands.default_payment_method_id`
+
+Security and operations:
+
+- never expose brand payment method ids in public UI.
+- use Stripe-hosted or Stripe.js SetupIntent flows for payment method collection.
+- keep service-role and Stripe secret usage server-side only.
+
+#### Brand Payment Method Setup
+
+Use Stripe SetupIntent for saved off-session payment methods.
+
+Flow:
+
+1. Brand connects Shopify.
+2. Brand completes initial setup.
+3. Brand adds payment method through SetupIntent.
+4. PartnerLinks stores:
+   - Stripe customer id.
+   - default payment method id.
+   - setup status.
+5. Future settlement can charge off-session according to the selected settlement cadence.
+
+Why SetupIntent:
+
+- standard Stripe pattern for saving payment methods.
+- avoids collecting card/bank details directly.
+- supports future off-session PaymentIntent or invoice payments.
+
+#### PaymentIntent vs Stripe Billing / Invoice
+
+PaymentIntent is better when:
+
+- settlement is per order.
+- exact control over idempotency and conversion/order identity is most important.
+- operator wants one payment attempt per conversion or per compact batch.
+- beta volume is low.
+
+Stripe Billing / invoice is better when:
+
+- settlement is daily or weekly.
+- brands need clear statements.
+- retries, payment status, and receipt/accounting workflows should be delegated to Stripe.
+- many orders should roll into one charge.
+
+Recommended path:
+
+- Controlled beta:
+  - start with manual approval plus either prepaid reserve or per-order PaymentIntent.
+- Early production:
+  - move to daily settlement batches.
+  - use Stripe invoices or batch PaymentIntents depending on operational preference.
+- Higher-volume brands:
+  - use reserve/prepaid balance plus daily/weekly reconciliation.
+
+#### Per-Order vs Daily/Weekly Batch Settlement
+
+Per-order settlement:
+
+- Pros:
+  - strongest conversion-to-charge traceability.
+  - easiest to reason about claimability for each conversion.
+  - lowest credit exposure when charge succeeds before claimability.
+- Cons:
+  - many payment attempts.
+  - more noisy for brands.
+  - more payment failure events.
+- Best use:
+  - controlled beta or low-volume brands.
+
+Daily batch settlement:
+
+- Pros:
+  - practical default for real commerce volume.
+  - creates one daily brand statement.
+  - reduces payment attempt noise.
+- Cons:
+  - requires `settlement_batches` and `settlement_items` allocation logic.
+  - claimability waits until batch collection succeeds or reserve covers obligations.
+- Best use:
+  - recommended default after beta.
+
+Weekly batch settlement:
+
+- Pros:
+  - lowest brand payment noise.
+  - easier accounting summary.
+- Cons:
+  - longer credit exposure.
+  - slower creator claimability unless reserve exists.
+- Best use:
+  - trusted brands with reserve balance or explicit terms.
+
+Prepaid/reserve balance:
+
+- Pros:
+  - safest for creators and PartnerLinks.
+  - earnings can become claimable when reserve coverage is sufficient.
+  - reduces failed settlement risk.
+- Cons:
+  - requires reserve ledger, top-up rules, and operator visibility.
+  - can add onboarding friction.
+- Best use:
+  - controlled beta brands with meaningful payout volume.
+
+#### Settlement Batch Model
+
+`settlement_batches` should represent a funding attempt or funding period for a brand.
+
+Recommended fields:
+
+- `id`
+- `created_at`
+- `updated_at`
+- `brand_id`
+- `shop_domain`
+- `cadence`
+  - `per_order`
+  - `daily`
+  - `weekly`
+  - `manual`
+  - `reserve_top_up`
+- `period_start`
+- `period_end`
+- `status`
+  - `draft`
+  - `pending`
+  - `authorized`
+  - `collected`
+  - `failed`
+  - `retrying`
+  - `disputed`
+  - `partially_reversed`
+  - `reversed`
+  - `manually_approved`
+- `currency`
+- `direct_commission_total`
+- `platform_fee_total`
+- `network_override_total`
+- `gross_settlement_total`
+- `reserve_applied_amount`
+- `manual_approved_at`
+- `manual_approved_by`
+- `stripe_customer_id`
+- `stripe_payment_intent_id`
+- `stripe_invoice_id`
+- `stripe_charge_id`
+- `idempotency_key`
+- `attempt_count`
+- `next_retry_at`
+- `last_error`
+- `notes`
+
+Batch status meaning:
+
+- `draft`: calculated but not attempted.
+- `pending`: ready to charge or waiting for payment method.
+- `authorized`: payment intent/invoice created or payment method confirmed, but not collected.
+- `collected`: funds collected or sufficient reserve applied.
+- `failed`: latest collection attempt failed.
+- `retrying`: retry schedule active.
+- `disputed`: payment/order/refund dispute blocks claimability.
+- `manually_approved`: human operator accepts settlement risk for beta/manual operations.
+
+#### Settlement Item Model
+
+`settlement_items` should represent the exact economic obligation being funded.
+
+Recommended fields:
+
+- `id`
+- `created_at`
+- `updated_at`
+- `settlement_batch_id`
+- `brand_id`
+- `conversion_id`
+- `order_id`
+- `earning_table`
+  - `conversions`
+  - `creator_network_earnings`
+  - `brand_network_earnings`
+- `earning_id`
+- `item_type`
+  - `direct_creator_commission`
+  - `platform_fee`
+  - `creator_network_override`
+  - `brand_network_override`
+  - `refund_reversal`
+  - `reserve_application`
+- `amount`
+- `currency`
+- `status`
+  - `settlement_pending`
+  - `settlement_authorized`
+  - `settlement_collected`
+  - `settlement_failed`
+  - `settlement_retrying`
+  - `settlement_disputed`
+  - `refund_pending`
+  - `reversed`
+  - `manually_approved`
+- `funding_source`
+  - `payment_intent`
+  - `invoice`
+  - `reserve`
+  - `manual_approval`
+- `funding_reference_id`
+- `claimability_released_at`
+- `refund_reversal_event_id`
+- `notes`
+
+Important:
+
+- One conversion may create multiple settlement items.
+- Direct commission and platform fee must be separate items.
+- Network override items must be tied to the platform fee settlement source.
+- Claimability should be released at item level, not by a broad brand-level flag.
+
+#### Claimability Release Rules
+
+Direct creator commission can become live-claimable only when:
+
+- the matching direct commission settlement item is `settlement_collected`, or
+- the item is `manually_approved`, or
+- sufficient reserve has been applied to that item.
+
+Creator-network override can become live-claimable only when:
+
+- the platform fee funding item for the source conversion is collected/approved/reserve-covered, and
+- the creator-network override settlement item is collected/approved/reserve-covered, and
+- no refund/dispute block exists.
+
+Brand-network override can become live-claimable only when:
+
+- the same platform-fee funding rule is satisfied, and
+- brand-origin earning payout/settlement behavior is explicitly implemented.
+
+Global claim release rule:
+
+```text
+claimable_row = accounted_row
+  AND pending_window_elapsed
+  AND deterministic_or_accepted_attribution
+  AND duplicate_guard_satisfied
+  AND settlement_item_safe
+  AND no_refund_or_dispute_block
+```
+
+#### Refund And Reversal Handling
+
+Shopify refund and chargeback handling must create explicit reversal records.
+
+Before payout:
+
+- mark affected settlement items as `refund_pending` or `reversed`.
+- reduce or block claimability.
+- do not delete original conversion/economic rows.
+
+After payout:
+
+- create negative balance or offset ledger rows.
+- preserve original claim batch and Stripe transfer records.
+- do not silently mutate claimed rows.
+- apply future earnings offsets or manual recovery workflow.
+
+Recommended tables:
+
+- `refund_reversal_events`
+- `refund_reversal_items`
+- `entity_negative_balances`
+
+Refund event fields:
+
+- Shopify order id.
+- Shopify refund id.
+- conversion id.
+- affected earning ids.
+- original amount.
+- reversed amount.
+- status.
+- reason.
+- operator notes.
+
+#### Failed Brand Payment Retries
+
+When brand settlement payment fails:
+
+- settlement batch becomes `settlement_failed`.
+- items remain `settlement_pending` or `settlement_failed`.
+- affected earnings must not become claimable.
+- operator/admin alert is created.
+- retry state is scheduled.
+
+Retry policy:
+
+- attempt 1 immediately or at batch close.
+- retry after a short interval.
+- retry again after 24 hours.
+- after final retry, mark brand `settlement_blocked` or `billing_attention_required`.
+
+Brand account consequences:
+
+- pause new claimability for that brand.
+- optionally keep tracking conversions but mark economics as settlement blocked.
+- alert operators before disabling referral links.
+
+Never:
+
+- create creator payouts from failed brand settlement unless explicit manual approval accepts the credit risk.
+
+#### Reserve / Prepaid Balance Option
+
+Reserve balance model:
+
+- brand prepays or maintains a reserve.
+- settlement items draw down reserve when eligible.
+- claimability can be released when reserve coverage is sufficient.
+- reserve top-ups can be automatic through PaymentIntent or invoice.
+
+Reserve fields:
+
+- `brand_reserve_balances.brand_id`
+- `available_balance`
+- `reserved_balance`
+- `minimum_required_balance`
+- `currency`
+- `top_up_status`
+- `last_top_up_at`
+
+Reserve ledger:
+
+- `brand_reserve_ledger`
+  - deposits.
+  - applications to settlement items.
+  - refunds/reversals.
+  - adjustments.
+  - top-up failures.
+
+Recommended beta usage:
+
+- use reserve/prepaid for brands where creator payouts need to be faster than daily settlement collection.
+- otherwise use manual approval or per-order settlement.
+
+#### Operator/Admin Visibility
+
+Operators need settlement diagnostics before public launch.
+
+Minimum admin views/commands:
+
+- latest settlement batches.
+- settlement batch detail by id.
+- settlement status by Shopify order id.
+- settlement status by conversion id.
+- failed settlement queue.
+- brand billing status.
+- reserve balance by brand.
+- items blocking claimability.
+- refund/reversal queue.
+
+Required diagnostic fields:
+
+- brand id/name.
+- shop domain.
+- conversion id/order id.
+- direct commission amount.
+- platform fee amount.
+- network override amount.
+- batch id.
+- item statuses.
+- Stripe customer/payment intent/invoice ids.
+- failure reason.
+- retry count/next retry.
+- manual approval status.
+
+Discord/operator usage:
+
+- Discord should remain an operator shortcut layer.
+- Add slash commands only for diagnostics/manual review, not public brand UX.
+
+#### Safest Controlled-Beta Model
+
+Recommended first live-ish beta:
+
+1. Brand connects Shopify.
+2. Brand adds payment method through Stripe SetupIntent.
+3. PartnerLinks records conversions and economic obligations.
+4. Earnings remain settlement pending.
+5. Operator reviews first conversions.
+6. Either:
+   - collect per-order PaymentIntent, or
+   - apply prepaid reserve, or
+   - manually approve a small test payout.
+7. Claimability releases only for approved/collected/reserve-covered items.
+8. Creator can claim through existing Stripe Connect flow.
+
+Why this is safest:
+
+- avoids unfunded live claims.
+- keeps idempotent payout system intact.
+- lets first brands be monitored closely.
+- avoids building complex invoice automation before economics are proven at small scale.
+- creates audit trails for every funded/approved earning.
+
+Recommended next implementation order:
+
+1. brand Stripe Customer + SetupIntent onboarding.
+2. settlement tables and item ledger.
+3. manual approval release path.
+4. per-order PaymentIntent collection path.
+5. claimability promotion from settlement-safe items only.
+6. refund/reversal ledger.
+7. daily batch/invoice automation.
+
 ### Creator Commission Funding
 
 Target:
@@ -1038,3 +1480,1212 @@ Dashboard wording risk:
   - settlement pending earnings.
   - approved/funded claimable earnings.
   - claimed/paid history.
+
+## Canonical Settlement Lifecycle State Machine
+
+Date: 2026-05-16
+
+Purpose:
+
+- Make every settlement, funding, claim, refund, and recovery path explicit before settlement code is built.
+- Preserve financial-infrastructure standards:
+  - deterministic transitions.
+  - explicit fund ownership.
+  - idempotent operations.
+  - trusted event sources.
+  - auditable ledgers.
+  - safe failure modes.
+  - no ambiguous payout states.
+
+Core invariant:
+
+```text
+No creator or network payout becomes live-claimable until settlement is collected, manually approved, or reserve-covered.
+```
+
+### State Definitions
+
+Each state below must be represented by ledger rows and audit events before live settlement automation.
+
+#### `attributed`
+
+- Meaning:
+  - Shopify order paid event was received and attribution was resolved.
+- Trigger:
+  - signed Shopify `orders/paid` webhook.
+- Transition owner:
+  - Shopify webhook ingestion service.
+- Required evidence:
+  - valid Shopify HMAC.
+  - Shopify order id.
+  - shop domain.
+  - deterministic attribution source or accepted fallback decision.
+  - duplicate order guard result.
+- Required ledger rows:
+  - `shopify_attribution_events`
+  - `conversions`
+- Required diagnostics:
+  - attribution source.
+  - attribution confidence.
+  - fallback usage.
+  - duplicate status.
+- Creator visible:
+  - yes, as accounted conversion/earnings.
+- Claimable:
+  - no.
+- Operator action:
+  - none unless attribution confidence is not exact/high.
+
+#### `settlement_pending`
+
+- Meaning:
+  - economic obligation is accounted but not funded.
+- Trigger:
+  - conversion/economic row creation.
+  - settlement batch/item creation.
+- Transition owner:
+  - settlement service.
+- Required evidence:
+  - conversion id.
+  - item type.
+  - amount.
+  - brand id.
+- Required ledger rows:
+  - `settlement_items`
+  - optional `settlement_batches`
+- Required diagnostics:
+  - item status.
+  - reason pending.
+- Creator visible:
+  - yes, as pending settlement/accounted earnings.
+- Claimable:
+  - no.
+- Operator action:
+  - review if item remains pending beyond expected window.
+
+#### `settlement_authorized`
+
+- Meaning:
+  - payment method/invoice/payment intent/reserve check suggests funding is likely, but funds are not fully collected.
+- Trigger:
+  - PaymentIntent created/authorized.
+  - invoice finalized.
+  - reserve earmarked but not applied.
+- Transition owner:
+  - brand billing service or settlement service.
+- Required evidence:
+  - Stripe PaymentIntent or invoice id.
+  - authorization/reserve reference.
+- Required ledger rows:
+  - `settlement_batches`
+  - `settlement_items`
+  - `settlement_audit_events`
+- Required diagnostics:
+  - Stripe object id.
+  - authorization status.
+- Creator visible:
+  - optionally, as pending settlement.
+- Claimable:
+  - no, unless explicitly combined with reserve coverage/manual approval.
+- Operator action:
+  - monitor stale authorizations.
+
+#### `settlement_collected`
+
+- Meaning:
+  - brand-funded obligation has been collected or sufficiently funded.
+- Trigger:
+  - Stripe `payment_intent.succeeded`.
+  - Stripe `invoice.paid`.
+  - confirmed internal collection event.
+- Transition owner:
+  - Stripe webhook handler and settlement service.
+- Required evidence:
+  - Stripe event id.
+  - PaymentIntent/invoice/charge id.
+  - amount collected.
+  - idempotency key.
+- Required ledger rows:
+  - settled `settlement_batch`
+  - settled `settlement_items`
+  - `settlement_audit_events`
+- Required diagnostics:
+  - collected amount.
+  - matched items.
+  - any over/under collection.
+- Creator visible:
+  - yes, as funded/approved claimable soon or claimable.
+- Claimable:
+  - yes after pending/review window and no refund/dispute block.
+- Operator action:
+  - review only if partial or mismatched collection.
+
+#### `settlement_failed`
+
+- Meaning:
+  - brand payment attempt failed.
+- Trigger:
+  - Stripe `payment_intent.payment_failed`.
+  - Stripe `invoice.payment_failed`.
+  - payment method missing/invalid.
+- Transition owner:
+  - Stripe webhook handler and settlement service.
+- Required evidence:
+  - Stripe failure event.
+  - error code/message.
+  - affected batch/items.
+- Required ledger rows:
+  - failed `settlement_batch`
+  - failed/pending `settlement_items`
+  - `settlement_audit_events`
+- Required diagnostics:
+  - failure reason.
+  - retry eligibility.
+- Creator visible:
+  - yes, as pending settlement or on hold.
+- Claimable:
+  - no.
+- Operator action:
+  - alert brand/operator.
+  - inspect retry plan.
+  - possibly pause claimability for brand.
+
+#### `settlement_retrying`
+
+- Meaning:
+  - failed settlement is on an active retry schedule.
+- Trigger:
+  - retry job scheduled or operator retry initiated.
+- Transition owner:
+  - settlement retry worker or operator.
+- Required evidence:
+  - previous failed attempt.
+  - retry count.
+  - next retry timestamp.
+- Required ledger rows:
+  - `settlement_batches`
+  - `settlement_items`
+  - `settlement_audit_events`
+- Required diagnostics:
+  - retry count.
+  - next retry.
+- Creator visible:
+  - yes, as pending settlement/on hold.
+- Claimable:
+  - no.
+- Operator action:
+  - monitor retry exhaustion.
+
+#### `settlement_disputed`
+
+- Meaning:
+  - settlement or underlying order/payment is disputed/review-blocked.
+- Trigger:
+  - Stripe dispute event.
+  - Shopify chargeback/refund review.
+  - operator dispute flag.
+- Transition owner:
+  - Stripe/Shopify webhook handler or operator.
+- Required evidence:
+  - dispute/refund/review event id.
+  - affected order/conversion/items.
+- Required ledger rows:
+  - `settlement_audit_events`
+  - optional `refund_reversal_events`
+- Required diagnostics:
+  - dispute reason.
+  - affected amounts.
+- Creator visible:
+  - yes, as on hold/needs review.
+- Claimable:
+  - no.
+- Operator action:
+  - required.
+
+#### `refund_pending`
+
+- Meaning:
+  - Shopify refund/partial refund/chargeback may affect accounted or paid earnings.
+- Trigger:
+  - Shopify refund webhook.
+  - Stripe refund/dispute event.
+- Transition owner:
+  - refund reversal service.
+- Required evidence:
+  - Shopify refund id or Stripe event id.
+  - affected order/conversion.
+  - refund amount.
+- Required ledger rows:
+  - `refund_reversal_events`
+  - `refund_reversal_items`
+  - `settlement_audit_events`
+- Required diagnostics:
+  - before/after amounts.
+- Creator visible:
+  - yes, as on hold or reversal pending.
+- Claimable:
+  - no for affected unclaimed rows.
+- Operator action:
+  - review if after payout or partial allocation is complex.
+
+#### `reversed`
+
+- Meaning:
+  - earning/settlement item has been reversed or offset before claim.
+- Trigger:
+  - refund/reversal service finalizes adjustment before payout.
+- Transition owner:
+  - refund reversal service.
+- Required evidence:
+  - refund/reversal event.
+  - affected earning ids.
+- Required ledger rows:
+  - original rows preserved.
+  - reversal rows or status update.
+  - audit event.
+- Required diagnostics:
+  - reversal amount.
+  - reason.
+- Creator visible:
+  - yes, as reversed/adjusted earnings.
+- Claimable:
+  - no.
+- Operator action:
+  - none unless disputed.
+
+#### `manual_approved`
+
+- Meaning:
+  - operator explicitly approves claimability despite incomplete automated settlement.
+- Trigger:
+  - authorized operator action.
+- Transition owner:
+  - operator/admin tool.
+- Required evidence:
+  - operator id.
+  - timestamp.
+  - reason.
+  - approved amount.
+  - accepted risk note.
+- Required ledger rows:
+  - `settlement_items`
+  - `settlement_audit_events`
+- Required diagnostics:
+  - who/when/why.
+- Creator visible:
+  - yes, as approved/claimable.
+- Claimable:
+  - yes after any pending/review window and no refund/dispute block.
+- Operator action:
+  - required to enter state.
+
+#### `reserve_covered`
+
+- Meaning:
+  - prepaid reserve balance covers the settlement item.
+- Trigger:
+  - reserve application to item.
+- Transition owner:
+  - settlement service or reserve ledger service.
+- Required evidence:
+  - reserve balance before/after.
+  - reserve ledger id.
+  - applied amount.
+- Required ledger rows:
+  - `brand_reserve_ledger`
+  - `settlement_items`
+  - `settlement_audit_events`
+- Required diagnostics:
+  - reserve coverage amount.
+  - remaining reserve.
+- Creator visible:
+  - yes, as funded/claimable once review window clears.
+- Claimable:
+  - yes after pending/review window and no refund/dispute block.
+- Operator action:
+  - monitor low reserve alerts.
+
+#### `claimable`
+
+- Meaning:
+  - earning is eligible to enter claim flow.
+- Trigger:
+  - settlement item reaches `settlement_collected`, `manual_approved`, or `reserve_covered`.
+  - pending/review window has elapsed.
+  - no refund/dispute block exists.
+- Transition owner:
+  - settlement-aware claimability promotion job.
+- Required evidence:
+  - eligible settlement item.
+  - risk window check.
+  - duplicate guard check.
+- Required ledger rows:
+  - earning row.
+  - settlement item.
+  - audit event.
+- Required diagnostics:
+  - why claimability was released.
+- Creator visible:
+  - yes.
+- Claimable:
+  - yes.
+- Operator action:
+  - none unless manual approval path.
+
+#### `claim_reserved`
+
+- Meaning:
+  - claimable rows are reserved into one idempotent claim batch.
+- Trigger:
+  - creator submits claim.
+- Transition owner:
+  - earnings lifecycle service.
+- Required evidence:
+  - signed-in creator ownership.
+  - Stripe payouts enabled.
+  - payout mode allows claim.
+  - settlement gate passed.
+- Required ledger rows:
+  - `creator_earning_claims`
+  - earning rows with `claim_batch_id`
+- Required diagnostics:
+  - claim batch id.
+  - reserved rows.
+- Creator visible:
+  - yes, as processing.
+- Claimable:
+  - already reserved; not available for another claim.
+- Operator action:
+  - monitor stuck reservations.
+
+#### `claimed`
+
+- Meaning:
+  - claim completed and payout transfer/ledger finalized.
+- Trigger:
+  - Stripe transfer succeeds or approved payout ledger finalizes.
+- Transition owner:
+  - earnings lifecycle service and Stripe transfer service.
+- Required evidence:
+  - Stripe transfer id.
+  - claim batch id.
+  - claimed_at timestamps.
+- Required ledger rows:
+  - `creator_earning_claims`
+  - claimed earning rows.
+- Required diagnostics:
+  - transfer status.
+  - claimed amount.
+- Creator visible:
+  - yes, as claimed/paid or processing depending transfer status.
+- Claimable:
+  - no; already claimed.
+- Operator action:
+  - none unless transfer status later fails/disputes.
+
+#### `claim_failed`
+
+- Meaning:
+  - claim attempt failed before completion.
+- Trigger:
+  - Stripe transfer error.
+  - DB finalization error.
+  - validation failure.
+- Transition owner:
+  - earnings lifecycle service.
+- Required evidence:
+  - error message/code.
+  - claim batch id if created.
+  - transfer id if one exists.
+- Required ledger rows:
+  - claim row if created.
+  - audit event.
+  - reserved rows either recoverable or safely released.
+- Required diagnostics:
+  - failure point.
+  - retry safety status.
+- Creator visible:
+  - yes, as failed/try later if safe.
+- Claimable:
+  - depends on recovery status.
+- Operator action:
+  - required if Stripe transfer succeeded but DB finalization failed.
+
+#### `offset_required`
+
+- Meaning:
+  - refund/reversal occurred after payout, requiring future offset or negative balance.
+- Trigger:
+  - refund after `claimed`.
+- Transition owner:
+  - refund reversal service.
+- Required evidence:
+  - original claim batch.
+  - transfer id.
+  - refund/reversal event.
+- Required ledger rows:
+  - `entity_negative_balances`
+  - `refund_reversal_events`
+  - `settlement_audit_events`
+- Required diagnostics:
+  - offset amount.
+  - affected future earnings.
+- Creator visible:
+  - yes, as adjustment/offset with careful language.
+- Claimable:
+  - no for reversed amount; future claimability may net against offset.
+- Operator action:
+  - review significant negative balances.
+
+### Legal State Transitions
+
+Normal path:
+
+```text
+attributed
+-> settlement_pending
+-> settlement_authorized
+-> settlement_collected
+-> claimable
+-> claim_reserved
+-> claimed
+```
+
+Manual approval path:
+
+```text
+attributed
+-> settlement_pending
+-> manual_approved
+-> claimable
+-> claim_reserved
+-> claimed
+```
+
+Reserve path:
+
+```text
+attributed
+-> settlement_pending
+-> reserve_covered
+-> claimable
+-> claim_reserved
+-> claimed
+```
+
+Failed settlement path:
+
+```text
+settlement_pending
+-> settlement_failed
+-> settlement_retrying
+-> settlement_collected
+-> claimable
+```
+
+Dispute/refund before payout:
+
+```text
+settlement_pending|settlement_authorized|settlement_collected|claimable
+-> refund_pending
+-> reversed
+```
+
+Refund after payout:
+
+```text
+claimed
+-> refund_pending
+-> offset_required
+```
+
+Claim failure:
+
+```text
+claimable
+-> claim_reserved
+-> claim_failed
+-> claimable
+```
+
+Only if safe to release reservation.
+
+Stripe transfer succeeded but DB finalization failed:
+
+```text
+claim_reserved
+-> claim_failed
+-> operator_recovery
+-> claimed
+```
+
+The original transfer id and claim batch id must be reused. No duplicate transfer.
+
+### Happy Path
+
+```text
+Shopify order paid
+-> signed webhook verified
+-> attribution resolved
+-> duplicate guard passes
+-> conversion created
+-> direct commission accounted
+-> platform_fee_amount accounted
+-> Level 1/2/3 network overrides calculated
+-> settlement items created
+-> brand payment collected
+-> settlement_collected
+-> earnings become claimable
+-> creator claims
+-> claim_reserved
+-> Stripe transfer succeeds
+-> claimed
+```
+
+Required diagnostics:
+
+- webhook attribution event.
+- conversion/economic rows.
+- settlement batch/item rows.
+- Stripe collection event.
+- claim batch.
+- Stripe transfer id.
+
+### Duplicate / Replay Path
+
+```text
+Shopify retries webhook
+-> duplicate order detected
+-> duplicate_skipped diagnostic
+-> no second conversion
+-> no second earnings
+-> no settlement duplicate
+-> no payout duplicate
+```
+
+Required behavior:
+
+- return 200 safely.
+- create diagnostic row.
+- preserve original conversion and settlement rows.
+- do not create duplicate settlement items.
+
+### Ambiguous Attribution Path
+
+```text
+Shopify order has no deterministic attribution
+-> multiple recent clicks exist
+-> recent-click fallback is ambiguous
+-> skipped diagnostic
+-> no conversion
+-> no earnings
+-> no settlement
+-> no payout
+```
+
+Required behavior:
+
+- safe failure over guessing.
+- return 200 to Shopify.
+- diagnostic includes `unmatched_reason = ambiguous_recent_click_fallback`.
+
+### Failed Brand Settlement Path
+
+```text
+conversion created/accounted
+-> settlement_pending
+-> brand payment fails
+-> settlement_failed
+-> retry scheduled
+-> settlement_retrying
+-> settlement_collected OR operator intervention
+```
+
+Rules:
+
+- no claimable earnings until funded, manually approved, or reserve-covered.
+- retries must be idempotent.
+- operator alert required after failure and retry exhaustion.
+
+### Refund / Reversal Paths
+
+Before payout:
+
+```text
+conversion/accounted earnings exist
+-> refund detected
+-> refund_pending
+-> reversed
+-> no payout
+```
+
+After payout:
+
+```text
+claimed payout exists
+-> refund detected
+-> refund_pending
+-> offset_required
+-> future earnings offset OR manual recovery
+```
+
+Rules:
+
+- never silently delete conversion/earning/claim rows.
+- preserve original claim and transfer history.
+- create explicit reversal/offset ledgers.
+
+### Manual Approval Path
+
+```text
+operator reviews item
+-> manual_approved
+-> claimable
+```
+
+Required audit:
+
+- operator id.
+- timestamp.
+- reason.
+- amount.
+- accepted risk note.
+- affected conversion/earning ids.
+
+Manual approval must be exceptional, visible, and reviewable.
+
+### Prepaid Reserve Path
+
+```text
+brand funds reserve
+-> reserve ledger increases
+-> attributed conversion creates settlement item
+-> reserve applied
+-> reserve_covered
+-> claimable
+```
+
+Rules:
+
+- reserve ledger decreases when applied.
+- low reserve alerts are required.
+- reserve must be item-applied, not vague brand-level confidence.
+
+### Claim Lifecycle
+
+```text
+claimable
+-> claim_reserved
+-> Stripe transfer attempt
+-> claimed OR claim_failed
+```
+
+Rules:
+
+- one claim batch id per claim attempt.
+- one Stripe transfer per claim batch.
+- retry after success must recover existing transfer.
+- failed transfer should safely release or preserve reservations depending failure point.
+- DB finalization failure after transfer success requires operator recovery, not a new transfer.
+
+### Brand-Origin Network Override Path
+
+```text
+brand invites creator
+-> creator generates attributed sales
+-> brand-origin network override calculated from downstream platform_fee_amount
+-> settlement/funding gate applies
+-> claimable only when collected/approved/reserve-covered
+```
+
+Rules:
+
+- brand-origin reward is not affiliate commission.
+- brand-origin reward is from downstream `platform_fee_amount`.
+- no self-generated override.
+- Level 1/2/3 cap still applies.
+- brand-origin payout/credit path must be explicitly implemented before public use.
+
+### Creator-Origin Network Override Path
+
+```text
+creator invites creator
+-> downstream creator generates attributed sales
+-> Level 1/2/3 calculated from platform_fee_amount
+-> settlement/funding gate applies
+-> claimable only when collected/approved/reserve-covered
+```
+
+Rules:
+
+- Level 1 = 30%.
+- Level 2 = 3%.
+- Level 3 = 2%.
+- no Level 4+.
+- source creator does not earn network override from their own direct sale.
+- direct creator commission is not reduced by network overrides.
+
+### UX State Mapping
+
+Creator-facing terms:
+
+- `Accounted earnings`
+  - conversion/economic rows exist.
+  - not guaranteed payable yet.
+- `Pending settlement`
+  - awaiting brand funding, reserve coverage, or manual approval.
+- `Claimable earnings`
+  - funded/approved/reserve-covered and eligible to claim.
+- `Claimed earnings`
+  - internally claimed and linked to payout/claim history.
+- `On hold`
+  - settlement failed, disputed, or under review.
+- `Reversed earnings`
+  - adjusted due to refund/reversal.
+- `Offset required`
+  - prior payout needs future offset.
+
+Brand-facing terms:
+
+- `Attributed sales`
+- `Creator commission owed`
+- `PartnerLinks platform fee`
+- `Settlement pending`
+- `Settlement collected`
+- `Payment failed`
+- `Reserve balance`
+- `Refund/reversal adjustment`
+
+Operator/admin terms:
+
+- `Needs review`
+- `Settlement failed`
+- `Retrying`
+- `Manual approval requested`
+- `Reserve low`
+- `Claim blocked`
+- `Offset required`
+- `Duplicate skipped`
+- `Ambiguous attribution skipped`
+
+Avoid:
+
+- saying unfunded/accounted earnings are guaranteed.
+- saying pending earnings are available to withdraw.
+- blending direct commission and network override source of funds without labels.
+
+### Settlement Regression Rules
+
+- `REG-SETTLEMENT-001`: live claimability cannot be based only on `claimable_at`.
+- `REG-SETTLEMENT-002`: no payout before `settlement_collected`, `manual_approved`, or `reserve_covered`.
+- `REG-SETTLEMENT-003`: failed settlement cannot create claimable earnings.
+- `REG-SETTLEMENT-004`: refunds after payout create offset/reversal records, not silent deletion.
+- `REG-SETTLEMENT-005`: claim retries cannot create duplicate Stripe transfers.
+- `REG-SETTLEMENT-006`: duplicate webhooks cannot create duplicate settlement items.
+- `REG-SETTLEMENT-007`: manual approval must be auditable.
+
+### Required Future Implementation Plan
+
+Tables:
+
+- `brand_payment_methods`
+- `settlement_batches`
+- `settlement_items`
+- `settlement_audit_events`
+- `refund_reversal_events`
+- `refund_reversal_items`
+- `brand_reserve_balances`
+- `brand_reserve_ledger`
+- `entity_negative_balances`
+
+Columns:
+
+- `conversions.direct_commission_settlement_status`
+- `conversions.platform_fee_settlement_status`
+- `conversions.refund_status`
+- `conversions.settlement_batch_id`
+- `creator_network_earnings.settlement_status`
+- `creator_network_earnings.settlement_item_id`
+- `brand_network_earnings.settlement_status`
+- `brand_network_earnings.settlement_item_id`
+- `creator_earning_claims.settlement_check_status`
+
+Services:
+
+- `brandBillingService`
+- `settlementService`
+- `settlementEligibilityService`
+- `refundReversalService`
+- `reserveLedgerService`
+- `settlementDiagnosticsService`
+
+Jobs:
+
+- settlement batch builder.
+- settlement collection worker.
+- settlement retry worker.
+- settlement-aware claimability promoter.
+- refund/reversal processor.
+- reserve top-up checker.
+- stale settlement alert job.
+
+Stripe events:
+
+- `setup_intent.succeeded`
+- `payment_intent.succeeded`
+- `payment_intent.payment_failed`
+- `invoice.finalized`
+- `invoice.paid`
+- `invoice.payment_failed`
+- `charge.refunded`
+- `charge.dispute.created`
+
+Shopify events:
+
+- `orders/paid`
+- refunds webhook.
+- order cancelled webhook if relevant.
+
+Admin/operator surfaces:
+
+- settlement batch list/detail.
+- settlement item lookup by order/conversion.
+- failed settlement queue.
+- manual approval screen.
+- reserve balance screen.
+- refund/reversal queue.
+- claim recovery screen.
+
+Discord diagnostics:
+
+- settlement status by order id.
+- failed settlement list.
+- claimability blocker lookup.
+- reserve balance lookup.
+- manual approval audit lookup.
+
+`productionSafetyTest.js` additions:
+
+- `--settlement-state-report --order-id <order_id>`
+- `--settlement-item-report --conversion-id <id>`
+- `--refund-reversal-report --order-id <order_id>`
+- `--manual-approval-report`
+- `--reserve-report --brand-id <brand_id>`
+- `--claimability-gate-report --creator-code <creator_code>`
+
+## Platform Safety And Abuse Model
+
+Date: 2026-05-16
+
+PartnerLinks must be built around known affiliate/referral/creator reward failure modes. The platform is not just a referral URL generator; it is economic infrastructure.
+
+Core rule:
+
+```text
+conversion_created does not mean safe_to_pay
+```
+
+Live payout eligibility requires:
+
+- deterministic attribution is proven.
+- commerce quality is acceptable.
+- brand settlement/funding is safe.
+- refund/reversal risk is handled.
+- payout eligibility is explicitly allowed.
+
+### Attribution Hijacking / Cookie Stuffing
+
+Risk:
+
+- a bad actor attempts to steal attribution without creating real referral value.
+
+Defenses:
+
+- deterministic `partnerlinks_ref`.
+- Shopify cart/order attributes.
+- exact attribution before fallback.
+- no payout from raw click/cookie alone.
+- ambiguous attribution skips.
+- diagnostics for skipped/unmatched attribution.
+- no broad recent-click guessing.
+
+Regression:
+
+- Ambiguous attribution cannot create conversion, earnings, settlement, or payout.
+
+### Last-Click / Extension / Coupon Attribution Theft
+
+Risk:
+
+- extension/coupon/late-stage redirect overwrites the real creator.
+
+Defenses:
+
+- preserve first-party `partnerlinks_ref` through cart/order attributes.
+- log attribution source/confidence.
+- low-confidence fallback cannot override exact attribution.
+
+Regression:
+
+- exact `partnerlinks_ref` always wins before fallback.
+
+### Synthetic Commerce Activity
+
+Risk:
+
+- fake orders, circular purchases, refund loops, stolen cards, low-quality incentive orders, or creator/buyer collusion generate artificial commissions.
+
+Defenses:
+
+- settlement-aware claimability.
+- no payout before `settlement_collected`, `manual_approved`, or `reserve_covered`.
+- pending/review windows.
+- future Shopify fraud/risk signal ingestion.
+- suspicious velocity detection.
+- manual review queue.
+- payout holds for new/high-risk patterns.
+- negative balance / `offset_required` after refunds.
+
+Regression:
+
+- no live payout is released just because a conversion exists.
+
+### Referral / Fake Account Abuse
+
+Risk:
+
+- duplicate creator accounts, fake invited creators, or identity clusters farm network rewards.
+
+Nuance:
+
+- self-owned accounts are not automatically bad if real commerce is generated.
+- synthetic commerce and payout loops are the real risk.
+
+Defenses:
+
+- no network overrides from self-generated direct sales.
+- no signup/recruitment-only rewards.
+- network rewards only from downstream attributed `platform_fee_amount`.
+- no Level 4+.
+- future monitoring of duplicate payout methods, Stripe accounts, tax ids, devices, IPs, and abnormal graph patterns.
+
+Regression:
+
+- recruitment alone cannot generate PartnerLinks revenue or network payouts.
+
+### MLM / Recruitment-Only Legal Risk
+
+Risk:
+
+- multi-level rewards become dangerous when rewards are based on recruitment rather than real retail commerce.
+
+Defenses:
+
+- no payout for signups alone.
+- no payout from recruitment alone.
+- network overrides only from eligible downstream `platform_fee_amount` generated by real attributed sales.
+- hard Level 3 stop.
+- no self-generated network override.
+- clear distinction between direct creator commission and network override rewards.
+
+Regression:
+
+- network overrides are funded only by eligible downstream `platform_fee_amount`.
+
+### Duplicate Webhook / Payment Replay
+
+Risk:
+
+- duplicate Shopify/Stripe events create duplicate financial mutations.
+
+Defenses:
+
+- signed webhook verification.
+- duplicate order guard.
+- duplicate/skipped diagnostics.
+- no duplicate conversions/earnings.
+- idempotent claim batches.
+- Stripe transfer idempotency.
+
+Future defenses:
+
+- settlement item idempotency.
+- brand charge idempotency.
+- refund/reversal idempotency.
+
+Regression:
+
+- duplicate webhooks cannot create duplicate financial mutations.
+
+### Payout Leakage / Unfunded Earnings
+
+Risk:
+
+- creators are paid before brand funds commission/platform fee settlement.
+
+Defenses:
+
+- `PAYOUT_MODE` fail-closed.
+- production default `claims_disabled`.
+- `sandbox_time_based` only with `sk_test_`.
+- accounted earnings separated from funded earnings.
+- future `settlement_batches` and `settlement_items`.
+
+Regression:
+
+- live claimability cannot be based only on `claimable_at`.
+
+### Refunds / Chargebacks / Reversals
+
+Risk:
+
+- orders refund after commissions are recorded or paid.
+
+Defenses to build:
+
+- `refund_reversal_events`.
+- `refund_pending`, `reversed`, `offset_required`.
+- no payout if refund occurs before claim.
+- negative balance or future earnings offset after payout.
+- creator-facing reversal language.
+
+Regression:
+
+- refunds after payout create offset/reversal records, not silent deletion.
+
+### Creator Disclosure / Compliance Risk
+
+Risk:
+
+- creators promote products without disclosing compensation or affiliate relationship.
+
+Defenses to build:
+
+- creator onboarding disclosure reminder.
+- affiliate disclosure best-practice copy.
+- brand/creator terms.
+- product link/share UI disclosure reminder where appropriate.
+- avoid misleading organic-only language.
+
+Regression:
+
+- creator-facing UX must not obscure that links may create compensation.
+
+### Unsolicited Referral Messaging Risk
+
+Risk:
+
+- referral systems send unsolicited SMS/email or encourage spam.
+
+Defenses:
+
+- no unsolicited platform-sent SMS/email without proper consent.
+- consent-aware invite tools.
+- avoid automated spammy invite messaging.
+- document referral messaging rules before outreach automation.
+
+Regression:
+
+- PartnerLinks should not send referral messages to third parties without proper consent and safeguards.
+
+### UI/UX Money Confusion
+
+Risk:
+
+- creators/brands misunderstand pending, accounted, funded, claimable, claimed, reversed, direct earnings, and network override earnings.
+
+Defenses:
+
+- separate Direct Creator Earnings vs Network Override Earnings.
+- separate Accounted vs Funded vs Claimable.
+- clear disabled claim reasons.
+- no UI suggesting unfunded/accounted earnings are guaranteed payable.
+- operator diagnostics for every money state.
+
+Regression:
+
+- dashboard money states must clearly distinguish accounted earnings from funded/claimable earnings.
+
+### Deep Platform Safety Expansion
+
+PartnerLinks must model the catastrophic-risk cases that have hurt mature affiliate, marketplace, Shopify app, and payout platforms. These risks are economic architecture concerns, not only compliance tasks.
+
+#### Cookie Stuffing / Improper Affiliate Attribution
+
+- Real-world pattern:
+  - public reporting around eBay affiliate fraud described cookie stuffing that allegedly generated tens of millions in improper affiliate commissions.
+- Economic rule:
+  - raw clicks/cookies are not economic evidence.
+  - `partnerlinks_ref` plus Shopify-supported cart/order attributes are the durable attribution evidence.
+  - ambiguous fallback creates no conversion, settlement, or payout.
+
+#### Affiliate Network Liability / Promotional Abuse
+
+- Real-world pattern:
+  - FTC v. LeadClick showed that affiliate networks can be liable for deceptive affiliate claims.
+- Economic rule:
+  - unsafe creator/brand promotion must be reportable, reviewable, suspendable, and auditable.
+  - public creator/brand/product surfaces require moderation ability before scale.
+  - creator disclosure requirements are part of the economic system because undisclosed compensation can create regulatory risk.
+
+#### Shopify App Data Risk
+
+- Real-world pattern:
+  - Shopify apps/providers can become data exposure weak points.
+- Economic rule:
+  - PartnerLinks should store the minimum order/customer data required for attribution, settlement, diagnostics, and support.
+  - full customer/order payload logging is not a default diagnostic strategy.
+  - Shopify tokens, webhook secrets, and app credentials require least-privilege handling and rotation procedures.
+
+#### Authorization Scope Bugs
+
+- Real-world pattern:
+  - resource-scoping flaws can grant access to the wrong store/account/creator/brand.
+- Economic rule:
+  - every sensitive creator/brand route requires explicit resource context and ownership verification.
+  - no payout, settlement, Stripe, or admin path may depend on newest/default creator assumptions.
+
+#### Stripe Connect / Platform Payout Fraud
+
+- Real-world pattern:
+  - connected accounts can still be fraudulent and may attempt payout extraction before chargebacks arrive.
+- Economic rule:
+  - Stripe onboarding means payout rail readiness, not fraud approval.
+  - new creators, new brands, large first payouts, refund-heavy behavior, and suspicious identity clusters need hold/review paths.
+  - live claimability still requires settlement collected, manual approval, or reserve coverage.
+
+#### Referral Messaging And Disclosure Risk
+
+- Real-world pattern:
+  - referral messaging and endorsement systems can create legal exposure when consent or compensation disclosure is missing.
+- Economic rule:
+  - PartnerLinks should not send referral SMS/email without consent safeguards.
+  - creator-facing UX should make compensation relationships clear.
+  - invite automation and share tooling require disclosure/messaging review before public scale.
+
+#### SQL / Parameter Injection
+
+- Real-world pattern:
+  - affiliate systems and plugins have historically had SQL injection vulnerabilities, often through public referral params.
+- Economic rule:
+  - `creator_code`, `brand_slug`, `product_slug`, `partnerlinks_ref`, `sub_id`, and UTM values are user-controlled.
+  - these params must be validated, length-limited, escaped when rendered, and kept out of raw SQL.
+
+#### Refund / Chargeback Farming
+
+- Real-world pattern:
+  - marketplaces and reward systems face refund loops, false claims, stolen-card orders, and post-payout losses.
+- Economic rule:
+  - refunded/charged-back orders create reversal or offset records.
+  - paid earnings are never silently deleted.
+  - refund-heavy activity can hold future claimability.
+
+Additional regression rules:
+
+- `REG-SAFETY-006`: Referral/tracking params must not become injection surfaces.
+- `REG-SAFETY-007`: PartnerLinks must not store/log unnecessary customer or payment-sensitive data.
+- `REG-SAFETY-008`: Every sensitive creator/brand action must use explicit scoped ownership checks.
+- `REG-SAFETY-009`: New creators/brands/high-risk activity should not be able to instantly extract payouts.
+- `REG-SAFETY-010`: Refunded or charged-back orders must create reversal/offset records, not silent deletion.
+- `REG-SAFETY-011`: PartnerLinks must not rely on third-party onboarding alone as fraud approval.
+- `REG-SAFETY-012`: Creator/brand promotional abuse must have takedown and audit workflow.

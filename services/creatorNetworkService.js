@@ -59,6 +59,30 @@ async function recordCreatorInviteSession({
   return data;
 }
 
+async function recordBrandInviteSession({
+  invitingBrandId,
+  sessionId,
+  ipHash,
+  userAgent,
+  referrer,
+  inviteCode
+}) {
+  const { data, error } = await supabase
+    .from('brand_invite_sessions')
+    .insert({
+      inviting_brand_id: invitingBrandId,
+      session_id: sessionId,
+      ip_hash: ipHash || null,
+      user_agent: userAgent || null,
+      referrer: referrer || null,
+      invite_code: normalizeCode(inviteCode)
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 async function bindCreatorToInviteSession(creatorId, sessionId) {
   const { data: creator, error: creatorError } = await supabase
     .from('creators')
@@ -91,6 +115,35 @@ async function bindCreatorToInviteSession(creatorId, sessionId) {
     .single();
   if (error) throw error;
   return data;
+}
+
+async function bindCreatorToBrandInviteSession(creatorId, sessionId) {
+  if (!creatorId || !sessionId) return null;
+
+  const { data: sessions, error: sessionError } = await supabase
+    .from('brand_invite_sessions')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (sessionError) throw sessionError;
+
+  const inviteSession = sessions ? sessions[0] : null;
+  if (!inviteSession || !inviteSession.inviting_brand_id) return null;
+
+  const boundCreator = await bindCreatorToBrandOrigin(creatorId, inviteSession.inviting_brand_id);
+  if (!boundCreator) return null;
+
+  const { error: updateError } = await supabase
+    .from('brand_invite_sessions')
+    .update({
+      resulting_creator_id: creatorId,
+      bound_at: new Date().toISOString()
+    })
+    .eq('id', inviteSession.id);
+  if (updateError) throw updateError;
+
+  return boundCreator;
 }
 
 async function bindCreatorToBrandOrigin(creatorId, brandId) {
@@ -310,7 +363,9 @@ module.exports = {
   LEVEL_THREE_RATE,
   getCreatorByInviteCode,
   recordCreatorInviteSession,
+  recordBrandInviteSession,
   bindCreatorToInviteSession,
+  bindCreatorToBrandInviteSession,
   bindCreatorToBrandOrigin,
   createNetworkEarningsForConversion,
   getCreatorNetworkStats

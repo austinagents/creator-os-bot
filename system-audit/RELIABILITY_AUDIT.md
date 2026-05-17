@@ -21,6 +21,9 @@ This file is implementation and reliability focused. Product philosophy belongs 
 - Preserve safe failure over ambiguous execution.
 - Never tie payout creation directly to raw click events.
 - Never let audit tooling mutate production data unless explicitly approved and clearly test-scoped.
+- Treat affiliate/referral abuse, synthetic commerce, disclosure risk, and settlement failure as product safety risks, not later compliance cleanup.
+- Preserve the distinction:
+  - `conversion_created` does not mean `safe_to_pay`.
 
 ## Severity Classifications
 
@@ -87,6 +90,93 @@ These are permanent regression guarantees. Future changes must preserve them.
 - Entities may not earn network overrides from their own direct sales activity.
 - Direct creator commission, PartnerLinks platform fee, and network override rewards must remain separate in ledgers, dashboards, settlement logic, and diagnostics.
 - Live public payout claimability must not be based only on accounted earnings; it must require settlement-collected, explicit manual approval, or sufficient prepaid reserve status.
+- Failed settlement cannot release claimability.
+- Refunds after payout must create offset/reversal records, not silent deletion.
+- Duplicate webhooks cannot create duplicate settlement items.
+- Manual approval must be auditable.
+- No payout may be released just because a conversion exists.
+- Recruitment alone cannot generate PartnerLinks revenue or network payouts.
+- Creator-facing UX must not obscure that links may create compensation.
+- PartnerLinks must not send referral messages to third parties without proper consent and safeguards.
+
+## Platform Safety Risk Model
+
+PartnerLinks must defend against real affiliate/referral/creator reward failure modes:
+
+- attribution hijacking / cookie stuffing.
+- cookie stuffing / affiliate attribution fraud.
+- affiliate network liability for deceptive affiliates.
+- last-click, extension, and coupon attribution theft.
+- synthetic commerce.
+- fake account/referral abuse.
+- Shopify app data exposure risk.
+- authorization / resource-scoping bugs.
+- Stripe Connect / platform payout fraud.
+- recruitment-only economics risk.
+- duplicate webhook/payment replay.
+- payout leakage and unfunded earnings.
+- refunds, chargebacks, and reversals.
+- failed brand settlement.
+- creator disclosure/compliance risk.
+- unsolicited referral messaging.
+- referral messaging legal risk.
+- FTC endorsement/disclosure risk.
+- UI/UX money-state confusion.
+- referral param injection / malicious tracking params.
+- SQL injection / backend query safety.
+- synthetic identity networks / fake creator farms.
+- product and brand verification risk.
+- affiliate link hijacking / attribution replacement.
+- data breach / secret exposure.
+- refund fraud / chargeback farming.
+- internal tooling / admin abuse.
+- small/mid-size platform fragility.
+- affiliate/plugin SQL injection.
+- fake account/reward exploitation.
+- synthetic network/user metrics.
+- incentive-plan gaming.
+- SMS/communication cost abuse.
+- third-party app/plugin fragility.
+- AI/research/documentation hallucination.
+
+Platform safety rule:
+
+```text
+conversion_created != safe_to_pay
+```
+
+Payout requires:
+
+- deterministic attribution.
+- acceptable commerce quality.
+- settlement/funding safety.
+- refund/reversal handling.
+- explicit payout eligibility.
+
+Additional security regression categories:
+
+- `PARAM_INJECTION`
+- `SQL_INJECTION`
+- `COOKIE_STUFFING`
+- `AFFILIATE_NETWORK_LIABILITY`
+- `FAKE_IDENTITY_NETWORKS`
+- `PRODUCT_VERIFICATION`
+- `SHOPIFY_APP_DATA_RISK`
+- `AUTHORIZATION_SCOPE_BUGS`
+- `STRIPE_CONNECT_FRAUD`
+- `REFERRAL_MESSAGING_COMPLIANCE`
+- `AFFILIATE_LINK_HIJACKING`
+- `DATA_BREACH_RESPONSE`
+- `REFUND_FRAUD`
+- `ADMIN_TOOLING_SAFETY`
+- `SMALL_PLATFORM_FRAGILITY`
+- `PLUGIN_SQL_INJECTION`
+- `FAKE_ACCOUNT_REWARDS`
+- `SYNTHETIC_NETWORK_METRICS`
+- `INCENTIVE_GAMING`
+- `COMMS_COST_ABUSE`
+- `THIRD_PARTY_APP_RISK`
+- `DOCS_SOURCE_INTEGRITY`
 
 ## Latest Audit Entries
 
@@ -277,6 +367,296 @@ node scripts/productionSafetyTest.js --report --matrix-report --creator-code tes
   - `node --check services/creatorDashboardService.js`
 - Follow-up:
   - Implement manual approval or settlement-gated claimability before live claims.
+
+### 2026-05-16 - Post-Payout-Mode Attribution And Conversion Read-Only Validation
+
+- Severity: `SEV1`
+- Status: `PASS`
+- Primary test identity:
+  - `test-creator-04`
+- Trigger:
+  - Verify attribution/conversion behavior still works after adding the `PAYOUT_MODE` fail-closed claim guard.
+- Commands:
+
+```bash
+node scripts/productionSafetyTest.js --report --matrix-report --creator-code test-creator-04
+node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify:partnerlinks-test.myshopify.com:6548682670254 --creator-code test-creator-04
+node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify:partnerlinks-test.myshopify.com:6548718420142
+node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify:partnerlinks-test.myshopify.com:7659900000001
+```
+
+- Confirmed deterministic conversion:
+  - `order_id = shopify:partnerlinks-test.myshopify.com:6548682670254`
+  - `conversion_id = 19`
+  - `matched_creator_code = test-creator-04`
+  - `matched_product_slug = test-product`
+  - `attribution_source = partnerlinks_ref`
+  - `attribution_confidence = exact`
+  - `fallback_used = false`
+  - `click_id = 24`
+  - `session_id = bd837fcf-3a53-4372-811e-e9a082b137f5`
+- Confirmed economics:
+  - direct commission = `2.70`
+  - `platform_fee_amount = 0.90`
+  - Level 1 `test-creator-03` = `0.27`
+  - Level 2 `test-creator-02` = `0.03`
+  - Level 3 `test-creator-01` = `0.02`
+  - no Level 4+ rows.
+- Confirmed duplicate replay safety:
+  - `order_id = shopify:partnerlinks-test.myshopify.com:6548718420142`
+  - original diagnostic `decision = conversion_created`
+  - duplicate diagnostics `id = 10` and `id = 11`
+  - duplicate diagnostics `decision = duplicate_skipped`
+  - `duplicate_order = true`
+  - no duplicate conversion groups found.
+  - no duplicate creator-network or brand-network earning keys found.
+- Confirmed ambiguous fallback safety:
+  - `order_id = shopify:partnerlinks-test.myshopify.com:7659900000001`
+  - diagnostic `id = 12`
+  - `decision = skipped`
+  - `unmatched_reason = ambiguous_recent_click_fallback`
+  - `attribution_source = unmatched`
+  - `attribution_confidence = none`
+  - no conversion found for the ambiguous order.
+  - no creator-network or brand-network earnings found for the ambiguous order.
+- Result:
+  - `PAYOUT_MODE` claim guard did not break referral click persistence, attribution sessions, exact partnerlinks_ref attribution, conversion creation, direct commission creation, platform fee accounting, Level 1/2/3 network earnings, duplicate webhook idempotency, or ambiguous fallback skip behavior.
+- No controlled writes executed:
+  - no new clicks.
+  - no webhook replays.
+  - no conversions.
+  - no payouts.
+
+### 2026-05-16 - Brand Settlement Automation Architecture Defined
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- Source of truth:
+  - `system-audit/ECONOMIC_ARCHITECTURE.md`
+- Trigger:
+  - Automated brand funding is the next unresolved system after attribution, conversion creation, network earnings, payout safety, duplicate replay, ambiguous fallback, and payout mode fail-closed behavior were validated.
+- Architecture decision:
+  - each brand gets a Stripe Customer.
+  - saved brand payment method is collected through SetupIntent.
+  - settlement is tracked through `settlement_batches` and `settlement_items`.
+  - direct commission, platform fee, and network override obligations are separate settlement items.
+  - claimability releases only when the relevant item is collected, manually approved, or reserve-covered.
+- Settlement options:
+  - per-order PaymentIntent for maximum traceability in controlled beta.
+  - daily batch settlement as the likely early-production default.
+  - weekly batch only for trusted brands or reserve-backed terms.
+  - Stripe Billing/invoices for daily/weekly brand statements, retries, and accounting clarity.
+  - prepaid/reserve balance for fastest safe creator claimability.
+- Safest controlled-beta model:
+  - Stripe Customer + SetupIntent.
+  - earnings remain settlement pending.
+  - operator reviews first conversions.
+  - release claimability only through per-order collection, reserve coverage, or explicit manual approval.
+- Required before live automation:
+  - settlement tables.
+  - brand billing service.
+  - settlement service.
+  - refund/reversal ledger.
+  - failed payment retry/alert flow.
+  - operator diagnostics for blocking settlement items.
+- Validation:
+  - documentation-only architecture pass.
+  - no runtime behavior changed.
+
+### 2026-05-16 - Canonical Settlement State Machine Defined
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- Source of truth:
+  - `system-audit/ECONOMIC_ARCHITECTURE.md`
+- Trigger:
+  - Settlement must be explicit and regression-testable before any settlement code exists.
+- Defined states:
+  - `attributed`
+  - `settlement_pending`
+  - `settlement_authorized`
+  - `settlement_collected`
+  - `settlement_failed`
+  - `settlement_retrying`
+  - `settlement_disputed`
+  - `refund_pending`
+  - `reversed`
+  - `manual_approved`
+  - `reserve_covered`
+  - `claimable`
+  - `claim_reserved`
+  - `claimed`
+  - `claim_failed`
+  - `offset_required`
+- Required path coverage:
+  - happy path.
+  - duplicate/replay.
+  - ambiguous attribution.
+  - failed brand settlement.
+  - refund before payout.
+  - refund after payout.
+  - manual approval.
+  - prepaid reserve.
+  - claim lifecycle.
+  - brand-origin network override.
+  - creator-origin network override.
+- New regression guarantees:
+  - `REG-SETTLEMENT-002`: no payout before `settlement_collected`, `manual_approved`, or `reserve_covered`.
+  - `REG-SETTLEMENT-003`: failed settlement cannot create claimable earnings.
+  - `REG-SETTLEMENT-004`: refunds after payout create offset/reversal records, not silent deletion.
+  - `REG-SETTLEMENT-005`: claim retries cannot create duplicate Stripe transfers.
+  - `REG-SETTLEMENT-006`: duplicate webhooks cannot create duplicate settlement items.
+  - `REG-SETTLEMENT-007`: manual approval must be auditable.
+- Validation:
+  - documentation-only state-machine pass.
+  - no runtime behavior changed.
+- Follow-up:
+  - future settlement implementation must enforce legal transitions and emit audit events for every transition.
+
+### 2026-05-16 - Affiliate/Referral Platform Safety Risk Model Added
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- Trigger:
+  - PartnerLinks must explicitly defend against known affiliate/referral failure modes before public launch.
+- Added risk categories:
+  - `ATTRIBUTION_HIJACKING`
+  - `SYNTHETIC_COMMERCE`
+  - `REFUND_REVERSAL`
+  - `SETTLEMENT_FAILURE`
+  - `PAYOUT_IDEMPOTENCY`
+  - `CREATOR_DISCLOSURE`
+  - `REFERRAL_ABUSE`
+  - `DASHBOARD_MONEY_CLARITY`
+  - `WEBHOOK_REPLAY`
+  - `NETWORK_ECONOMICS`
+- Core operating model:
+  - Shopify is the checkout/order source.
+  - PartnerLinks is attribution/accounting/network-economics infrastructure.
+  - Stripe is the payout and settlement rail.
+  - direct creator commission is brand-funded.
+  - network overrides are funded only from eligible downstream PartnerLinks `platform_fee_amount`.
+- Added/expanded risks:
+  - attribution hijacking/cookie stuffing.
+  - extension/coupon attribution theft.
+  - synthetic commerce.
+  - referral/fake account abuse.
+  - MLM/recruitment-only legal risk.
+  - duplicate webhook/payment replay.
+  - payout leakage/unfunded earnings.
+  - refund/chargeback/reversal leakage.
+  - creator disclosure risk.
+  - unsolicited referral messaging risk.
+  - dashboard money-state confusion.
+- Validation:
+  - documentation/risk-modeling pass only.
+  - no runtime behavior changed.
+
+### 2026-05-16 - Security Exploit And Platform Abuse Risk Model Added
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- Trigger:
+  - PartnerLinks must explicitly model exploit, hacking, and platform abuse patterns seen in affiliate systems, creator reward systems, marketplaces, gig platforms, and payout infrastructure.
+- Added risk categories:
+  - `PARAM_INJECTION`
+  - `SQL_INJECTION`
+  - `FAKE_IDENTITY_NETWORKS`
+  - `PRODUCT_VERIFICATION`
+  - `AFFILIATE_LINK_HIJACKING`
+  - `DATA_BREACH_RESPONSE`
+  - `REFUND_FRAUD`
+  - `ADMIN_TOOLING_SAFETY`
+- Required defenses documented:
+  - sanitize, validate, length-limit, escape, and log suspicious tracking params.
+  - no raw user-controlled SQL.
+  - service-role keys remain server-side only.
+  - monitor identity clusters and abnormal network growth.
+  - verify public brands/products before broad promotion.
+  - exact deterministic attribution cannot be replaced by late/low-confidence sources.
+  - secrets must not leak through logs/debug/client code.
+  - refund-heavy behavior must remain reviewable.
+  - admin/debug tools are read-only by default and audited when mutating.
+- Validation:
+  - documentation/risk-modeling pass only.
+  - no runtime behavior changed.
+
+### 2026-05-16 - Deep Fraud, Abuse, And Catastrophic-Risk Model Added
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- Trigger:
+  - PartnerLinks must explicitly model the real-world failures that have damaged affiliate networks, marketplaces, Shopify apps, referral systems, and payout platforms.
+- Real-world patterns incorporated:
+  - cookie stuffing / improper affiliate attribution.
+  - affiliate network liability for deceptive affiliates.
+  - coupon/browser extension attribution hijacking.
+  - synthetic commerce and marketplace payout fraud.
+  - fake account and reward farming.
+  - Shopify app/provider data exposure.
+  - authorization/resource-scoping bugs.
+  - Stripe Connect/platform payout fraud.
+  - referral messaging legal risk.
+  - FTC endorsement/disclosure risk.
+  - SQL/parameter injection in affiliate systems.
+  - refund/chargeback farming.
+- Added/expanded categories:
+  - `COOKIE_STUFFING`
+  - `AFFILIATE_NETWORK_LIABILITY`
+  - `SHOPIFY_APP_DATA_RISK`
+  - `AUTHORIZATION_SCOPE_BUGS`
+  - `STRIPE_CONNECT_FRAUD`
+  - `REFERRAL_MESSAGING_COMPLIANCE`
+- Added regression rules:
+  - `REG-SAFETY-006` through `REG-SAFETY-012`.
+- Core safety restatement:
+  - no payout just because a conversion exists.
+  - no third-party onboarding result is sufficient fraud approval.
+  - sensitive creator/brand actions require explicit scoped ownership.
+  - PartnerLinks must minimize customer/payment-sensitive data and protect all tokens/secrets.
+- Validation:
+  - documentation/risk-modeling pass only.
+  - no runtime behavior changed.
+
+### 2026-05-16 - Small Platform Fragility Risk Model Added
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- Trigger:
+  - PartnerLinks must assume that a single serious exploit, fake-account loop, payout leak, or data exposure could materially damage or kill the company.
+- Scope:
+  - smaller platforms.
+  - Shopify apps.
+  - affiliate/referral plugins.
+  - early-stage fintech and creator reward companies.
+- Source-backed patterns incorporated from project research:
+  - affiliate software SQL injection.
+  - fake account/reward exploitation.
+  - fake user metrics and synthetic network value.
+  - incentive-plan gaming.
+  - SMS/communication cost abuse.
+  - third-party app/plugin fragility.
+  - AI/research/documentation hallucination risk.
+- Added categories:
+  - `SMALL_PLATFORM_FRAGILITY`
+  - `PLUGIN_SQL_INJECTION`
+  - `FAKE_ACCOUNT_REWARDS`
+  - `SYNTHETIC_NETWORK_METRICS`
+  - `INCENTIVE_GAMING`
+  - `COMMS_COST_ABUSE`
+  - `THIRD_PARTY_APP_RISK`
+  - `DOCS_SOURCE_INTEGRITY`
+- Added regression rules:
+  - `REG-SAFETY-013`
+  - `REG-METRICS-001`
+  - `REG-COMMS-001`
+  - `REG-DATA-001`
+  - `REG-DOCS-001`
+- Regression ID note:
+  - requested incentive-gaming rule was not assigned to `REG-SAFETY-010` because that ID is already reserved for refund/chargeback reversal integrity.
+- Validation:
+  - documentation/risk-modeling pass only.
+  - no runtime behavior changed.
 
 ## Audit Entry Template
 
