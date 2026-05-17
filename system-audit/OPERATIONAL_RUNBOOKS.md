@@ -874,3 +874,41 @@ Manual-only actions:
 - Reviewing settlement audit event evidence.
 - Approving any future settlement lifecycle mutation flow.
 - Confirming production `PAYOUT_MODE=claims_disabled` before deployment.
+
+## Draft Settlement Batch Operator Runbook
+
+Status: MANUAL OPERATOR TASK / NO MONEY MOVEMENT
+
+Dry-run first:
+
+```bash
+node scripts/settlementBatchOperator.js --dry-run --report --brand-id 9
+```
+
+Optional filters:
+
+```bash
+node scripts/settlementBatchOperator.js --dry-run --report --brand-id 9 --date-from 2026-05-17 --date-to 2026-05-17
+node scripts/settlementBatchOperator.js --dry-run --report --brand-id 9 --order-id shopify:partnerlinks-test.myshopify.com:ORDER_ID
+```
+
+Create a draft only after explicit approval:
+
+```bash
+node scripts/settlementBatchOperator.js --create-draft --brand-id 9 --operator Austin --notes "Draft settlement reconciliation only. No money movement."
+```
+
+Operator checks:
+
+1. Confirm included conversions are expected.
+2. Confirm direct commission totals.
+3. Confirm platform fee totals.
+4. Confirm creator/brand network override totals.
+5. Confirm brand funding obligation does not double-count network overrides.
+6. Confirm no Stripe PaymentIntent, invoice, or transfer was created.
+7. Confirm `settlement_items` reference source financial rows.
+8. Confirm existing source rows were not mutated.
+9. Confirm `settlement_audit_events` were written.
+10. Confirm production `PAYOUT_MODE=claims_disabled` before any deployment.
+
+Never treat a draft settlement batch as funding proof.

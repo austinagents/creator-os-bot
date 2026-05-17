@@ -3242,3 +3242,17 @@ Status: READ-ONLY DIAGNOSTIC / PLANNED RUNTIME INFRASTRUCTURE
 - Safe claimability states remain `settlement_collected`, `manual_approved`, or `reserve_covered`.
 - Blocked states remain non-claimable for live payouts, including `settlement_pending`, `settlement_authorized`, `settlement_failed`, `settlement_retrying`, `settlement_disputed`, `refund_pending`, `reversed`, and `ignored`.
 - `PAYOUT_MODE=claims_disabled` remains the production recommendation until funding/approval/reserve coverage is implemented and verified.
+
+## Operator Draft Settlement Batches
+
+Status: RUNTIME-ENFORCED MANUAL SCRIPT / NO MONEY MOVEMENT
+
+- `scripts/settlementBatchOperator.js` creates a draft reconciliation layer from already-accounted financial rows.
+- It references existing financial rows through `settlement_items`.
+- It does not mutate `conversions`, `creator_network_earnings`, or `brand_network_earnings`.
+- Draft batch `gross_amount` represents the brand funding obligation: direct creator commissions plus PartnerLinks platform fee.
+- Network override items are included for allocation/reconciliation visibility and are funded from platform fee, so they are not added again to the brand funding obligation.
+- All created rows remain `settlement_pending`.
+- `collected_amount` remains `0`.
+- The script writes `settlement_audit_events` so operators can reconcile what was created and why.
+- It does not prove funding and does not make any earning claimable.

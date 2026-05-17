@@ -1051,3 +1051,22 @@ Regression coverage:
 
 - REG-SETTLEMENT-008: Settlement lifecycle audit events must be idempotent and must not release payouts by themselves.
 - REG-SETTLEMENT-009: Settlement diagnostics must distinguish read-only visibility from runtime-enforced funding collection.
+
+## Operator Draft Settlement Batch Audit
+
+Status: RUNTIME-ENFORCED MANUAL SCRIPT / NO MONEY MOVEMENT
+
+- `scripts/settlementBatchOperator.js` is the first operator-only settlement batch creation tool.
+- Default mode is dry-run/read-only.
+- Write mode requires explicit `--create-draft`.
+- The only allowed write targets are `settlement_batches`, `settlement_items`, and `settlement_audit_events`.
+- Existing conversion/earning/claim/payout rows are not mutated.
+- Draft creation is idempotent by deterministic batch, item, and audit-event keys.
+- No Stripe calls are made.
+- No payout status or claimability status is changed.
+
+Regression coverage:
+
+- REG-SETTLEMENT-010: Draft settlement batch creation must not mutate existing financial rows.
+- REG-SETTLEMENT-011: Draft settlement items must be idempotent by source financial row and item type.
+- REG-SETTLEMENT-012: Draft settlement batch creation must not imply funding collection or payout eligibility.

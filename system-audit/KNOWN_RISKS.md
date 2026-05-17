@@ -1235,3 +1235,13 @@ Status: READ-ONLY DIAGNOSTIC / PLANNED RUNTIME INFRASTRUCTURE
 - A settlement audit event must never be interpreted as `settlement_collected`, `manual_approved`, `reserve_covered`, or safe-to-pay unless an explicit future settlement eligibility service validates the state.
 - Brand charging, live settlement collection, reserve coverage, manual approval mutation, refund offsets, and live payout release remain blocked.
 - The main remaining risk is operator confusion: documented settlement architecture and diagnostic audit rows must not be mistaken for runtime funding enforcement.
+
+## Draft Settlement Batch Risk Boundary
+
+Status: RUNTIME-ENFORCED MANUAL SCRIPT / NO MONEY MOVEMENT
+
+- Draft settlement batches improve reconciliation visibility but are not funding proof.
+- Draft `settlement_items` can include both platform fee items and network override allocation items; operators must avoid double-counting network overrides as additional brand funding beyond platform fee.
+- Existing financial rows are intentionally not mutated in the first pass, so operators must use `settlement_items` and audit events for reconciliation.
+- `--create-draft` should be run only after dry-run review and explicit approval.
+- Live payout release remains blocked until collected funding, manual approval, or reserve coverage is runtime-verified.

@@ -1347,3 +1347,40 @@ Regression IDs:
 
 - REG-SETTLEMENT-008: Settlement lifecycle audit events must be idempotent and must not release payouts by themselves.
 - REG-SETTLEMENT-009: Settlement diagnostics must distinguish read-only visibility from runtime-enforced funding collection.
+
+## Operator Draft Settlement Batch Tests
+
+Status: READ-ONLY DIAGNOSTIC / EXPLICIT MANUAL MUTATION ONLY
+
+Required dry-run command:
+
+- `node scripts/settlementBatchOperator.js --dry-run --report --brand-id 9`
+
+Expected dry-run result:
+
+- Prints proposed batch key.
+- Prints included conversions.
+- Prints included creator network earnings.
+- Prints included brand network earnings.
+- Prints proposed settlement items.
+- Does not create rows.
+- Does not call Stripe.
+- Does not mutate existing financial rows.
+
+Optional write command after explicit approval only:
+
+- `node scripts/settlementBatchOperator.js --create-draft --brand-id 9 --operator <name> --notes <text>`
+
+Expected write result:
+
+- Creates or reuses one idempotent `settlement_batches` row.
+- Creates missing idempotent `settlement_items`.
+- Creates missing idempotent `settlement_audit_events`.
+- Leaves all created rows pending/draft-style.
+- Leaves `payout_status`, claimability, Stripe state, and existing financial rows unchanged.
+
+Regression IDs:
+
+- REG-SETTLEMENT-010: Draft settlement batch creation must not mutate existing financial rows.
+- REG-SETTLEMENT-011: Draft settlement items must be idempotent by source financial row and item type.
+- REG-SETTLEMENT-012: Draft settlement batch creation must not imply funding collection or payout eligibility.

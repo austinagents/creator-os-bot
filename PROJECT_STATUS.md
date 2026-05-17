@@ -2494,3 +2494,66 @@ Blocked / NO-GO:
 Next safest implementation step:
 
 - After Austin manually runs migration `018`, verify `settlement_audit_events` exists and then build an operator-only, explicit, idempotent settlement batch/item creation service that writes audit events but still does not charge brands or release payouts.
+
+# Operator Settlement Batch Creation
+
+Status: RUNTIME-ENFORCED MANUAL SCRIPT / FAIL-CLOSED MONEY MOVEMENT
+
+- Added `scripts/settlementBatchOperator.js`.
+- Default behavior is dry-run/read-only.
+- `--create-draft` is the only write mode.
+- Write mode creates only:
+  - `settlement_batches`
+  - `settlement_items`
+  - `settlement_audit_events`
+- The script does NOT:
+  - charge brands.
+  - create Stripe PaymentIntents.
+  - create Stripe transfers.
+  - release creator payouts.
+  - mark settlement collected.
+  - mark manual approved.
+  - mark reserve covered.
+  - mark earnings claimable.
+  - change `payout_status`.
+  - mutate existing `conversions`, `creator_network_earnings`, or `brand_network_earnings`.
+- Existing financial rows are referenced from `settlement_items`; they are not linked back through `settlement_batch_id` in this first pass.
+
+Supported flags:
+
+- `--dry-run`
+- `--report`
+- `--create-draft`
+- `--brand-id <id>`
+- `--shop-domain <domain>`
+- `--order-id <order_id>` repeatable or comma-separated
+- `--date-from <YYYY-MM-DD>`
+- `--date-to <YYYY-MM-DD>`
+- `--batch-key <key>`
+- `--operator <name>`
+- `--notes <text>`
+
+Validated dry-run:
+
+- `node scripts/settlementBatchOperator.js --dry-run --report --brand-id 9`
+- Proposed batch key: `settlement_batch:9:d3d73eedef2583c3`
+- Included:
+  - 11 conversions.
+  - 13 creator network earning rows.
+  - 0 brand network earning rows.
+  - 35 proposed settlement items.
+- Totals:
+  - direct commission total: `$29.70`
+  - platform fee total: `$9.90`
+  - creator network override total: `$2.30`
+  - brand funding obligation: `$39.60`
+  - settlement item total: `$41.90`
+- No rows were mutated during dry-run.
+
+NO-GO remains:
+
+- Brand charging.
+- Automatic settlement collection.
+- Live creator payouts.
+- Claim release.
+- Refund/offset enforcement.
