@@ -638,6 +638,22 @@ Purpose:
 - Regression test:
   - `productionSafetyTest.js` read-only invariant run fails/report-checks when duplicate orders, Level 4+, dual lineage, ambiguous attribution conversion, settlement bypass, or refund-payable contradictions exist.
 
+### REG-OPS-001 - Real-Money Beta Requires Order-Level Reconciliation Visibility
+
+- Category: `AUDITABILITY`, `WEBHOOK_REPLAY`, `NETWORK_ECONOMICS`
+- Severity: `SEV2`
+- Status: `CHECK`
+- First observed: controlled real-money beta readiness pass, 2026-05-17
+- Regression symptom:
+  - operator cannot quickly answer who received attribution, what direct commission/platform fee/network rows were created, whether fallback was used, whether duplicate replay occurred, or whether reversal rows exist for a Shopify order.
+- Root cause:
+  - core data exists across multiple tables, but launch-readiness review requires a single read-only operator report path.
+- Guardrail now expected:
+  - read-only reports expose order, attribution, economics, payout/claim, reversal, settlement-readiness, risk, lineage, and route-risk context without mutating money state.
+- Regression test:
+  - `node scripts/productionSafetyTest.js --dry-run --order-report --order-id <shopify_order_id>` returns attribution decisions, conversion rows, network rows, claim batch context, and reversal rows.
+  - `node scripts/productionSafetyTest.js --dry-run --actor-matrix --lineage-report --economic-report --refund-report --settlement-report --risk-report --route-risk-report` runs as read-only launch-reconciliation support.
+
 ## Regression Entry Template
 
 ```markdown

@@ -675,6 +675,64 @@ Do not:
 - Treat schema existence as payout eligibility.
 - Change payout math while adding failure-condition infrastructure.
 
+## Runbook: Controlled Real-Money Attribution-Only Beta
+
+Use when:
+
+- Testing real Shopify orders with PartnerLinks attribution/accounting while creator payouts remain disabled.
+
+Requirements:
+
+- Production `PAYOUT_MODE=claims_disabled`.
+- No live Stripe transfers.
+- `orders/paid` webhook active and HMAC verified.
+- `SHOPIFY_WEBHOOK_SECRET` configured.
+- Product referral URL routes through PartnerLinks.
+- Attribution diagnostics are reviewed before any economic conclusion.
+
+Checklist:
+
+1. Confirm brand/store is connected.
+2. Confirm product link uses PartnerLinks `/r/:brandSlug/:creatorCode/:productSlug`.
+3. Confirm Shopify cart/order attributes include `partnerlinks_ref`, `creator_code`, `brand_slug`, and `product_slug`.
+4. Place a small real order.
+5. Verify `shopify_attribution_events` by Shopify order id.
+6. Verify `conversions` direct commission and `platform_fee_amount`.
+7. Verify `creator_network_earnings` Level 1/2/3 rows when applicable.
+8. Confirm no `brand_network_earnings` unless intentionally testing brand-origin economics.
+9. Confirm production claims are disabled.
+10. Record reconciliation notes.
+11. If a refund occurs, do not assume reversal enforcement; record manually until refund ingestion is built.
+
+Read-only operator report commands:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --order-report --order-id shopify:{shop_domain}:{order_id}
+node scripts/productionSafetyTest.js --dry-run --actor-matrix --lineage-report --economic-report --refund-report --settlement-report --risk-report --route-risk-report
+```
+
+Use these reports to answer:
+
+- which creator/product/brand matched.
+- attribution source, confidence, fallback, duplicate/skipped decision, and checked sources.
+- direct commission and `platform_fee_amount`.
+- Level 1/2/3 creator network rows and brand-origin rows if present.
+- claim batch and payout status context.
+- reversal rows, if refund/reversal ingestion has created any.
+- payout-mode and settlement-readiness state.
+
+Expected:
+
+- Real order proves attribution/accounting only.
+- No creator payout is enabled or executed.
+
+Do not:
+
+- Change `PAYOUT_MODE` to allow live claims.
+- Treat accounted earnings as funded earnings.
+- Run Stripe live transfers.
+- Assume refunds are enforced until refund webhook ingestion and reversal application exist.
+
 ## Runbook Template
 
 ```markdown

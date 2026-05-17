@@ -2041,28 +2041,167 @@ Validation:
 - No runtime JavaScript files were touched, so no `node --check` was required for this patch.
 - SQL was not executed automatically.
 
-Recommended additions to `scripts/productionSafetyTest.js`:
+## Controlled Real-Money Beta Readiness State
 
-- Add a `--security-report --creator-code <code>` mode that read-only verifies ownership-sensitive route assumptions from DB state:
-  - creators sharing the same `auth_user_id`
-  - which creator `/dashboard` would currently select by default
-  - which creator has Stripe connected
-  - whether any sensitive claimable earnings exist under other creators for the same auth user.
-- Add a `--claim-retry-report --creator-code <code>` mode that reports:
-  - claimable row count
-  - claimed row count
-  - claim ledger rows
-  - transfer ids
-  - any duplicate claim batch or duplicate transfer indicators.
-- Add a `--collision-window-report` mode that can inspect recent clicks by product/shop across all `test-creator-*` codes, not only the scoped creator.
-- Add a `--route-risk-report` static/read-only summary if useful, but keep actual route authorization enforced in app code.
-- Add an `--economic-report --creator-code <code>` mode that explicitly reports:
-  - direct commission rows.
-  - platform fee amounts.
-  - network override rows by level.
-  - source creator own-override exclusion.
-  - brand-origin rows if present.
-  - settlement status fields once implemented.
+Current readiness split:
+
+- Real-money attribution/accounting-only beta: `GO WITH MANUAL OWNER CHECKS`.
+- Live creator payouts: `NO-GO`.
+
+Important boundary:
+
+- Real Shopify orders can be used to validate referral attribution, conversion creation, direct commission accounting, platform fee accounting, network earnings, duplicate prevention, and operator diagnostics.
+- Creator payouts must remain disabled/fail-closed until settlement/funding gates exist.
+- Production `PAYOUT_MODE` recommendation remains `claims_disabled`.
+- `sandbox_time_based` is only acceptable with `STRIPE_SECRET_KEY` starting with `sk_test_`.
+
+Environment safety audit:
+
+- `.env.example` defaults `PAYOUT_MODE=claims_disabled`.
+- `config/config/env.js` defaults missing `PAYOUT_MODE` to `claims_disabled`.
+- `/earnings/claim` checks `getPayoutClaimGate()` before `claimCreatorEarnings()`.
+- `sandbox_time_based` only allows claims when `STRIPE_SECRET_KEY` starts with `sk_test_`.
+- Local development currently reports `PAYOUT_MODE=sandbox_time_based` with a Stripe test key. This is safe only for sandbox validation and must not be copied to production.
+- Stripe key mode can be reported as `test`, `live`, `unknown`, or `missing` without exposing the secret.
+
+Shopify live-readiness audit:
+
+- Current implemented webhook:
+  - `POST /webhooks/shopify/orders-paid`
+  - verifies `X-Shopify-Hmac-Sha256` using the raw body and `SHOPIFY_WEBHOOK_SECRET`.
+  - returns safe success for unmatched/invalid attribution cases after diagnostic logging.
+  - duplicate Shopify orders are guarded by conversion order id format `shopify:{shop_domain}:{order_id}` and diagnostics.
+- Required beta webhook topics:
+  - `orders/paid` for conversion source of truth.
+  - refund handling should be added next through a Shopify-supported refund/order update strategy, such as `refunds/create` or a current equivalent supported by the installed app/API version.
+  - compliance/privacy webhooks later for app review/data compliance: `customers/data_request`, `customers/redact`, and `shop/redact`.
+- Product referral attribution currently persists through Shopify cart/order attributes:
+  - `partnerlinks_ref`
+  - `creator_code`
+  - `brand_slug`
+  - `product_slug`
+- Operator attribution diagnostics:
+  - `shopify_attribution_events` answers source, confidence, fallback, duplicate, skipped, conversion id, and checked source questions.
+
+Refund/reversal readiness:
+
+- `financial_reversal_events` exists and is readable.
+- `financial_reversal_items` exists and is readable.
+- Both tables currently contain `0` rows.
+- Migration `016_financial_reversal_ledger.sql` creates observability/accounting infrastructure only.
+- Refund enforcement is not implemented yet.
+- Next smallest safe engineering step is a read-only/refund-webhook design and diagnostic route/service plan before any reversal application logic.
+
+Settlement/funding readiness:
+
+- Current runtime accounts earnings but does not prove funding.
+- Live claimability must remain blocked until funding gates exist.
+- Required future brand settlement infrastructure:
+  - Stripe Customer per brand.
+  - SetupIntent saved payment method.
+  - `settlement_batches`.
+  - `settlement_items`.
+  - PaymentIntent or Stripe Billing invoice path.
+  - `settlement_collected` gate.
+  - manual approval and/or reserve coverage paths.
+
+Real-money attribution-only beta checklist:
+
+1. Brand account connected to Shopify.
+2. `orders/paid` webhook active and HMAC verified.
+3. Product configured with Shopify storefront/cart path.
+4. Creator referral link generated.
+5. Real order placed through referral link.
+6. `shopify_attribution_events` row verified.
+7. `conversions` row verified.
+8. Direct commission amount verified.
+9. `platform_fee_amount` verified.
+10. Level 1/2/3 network rows verified where applicable.
+11. Confirm no Claim button/live payout is enabled in production.
+12. Refund scenario recorded in `financial_reversal_events` only after refund ingestion is implemented.
+13. Operator reconciliation notes captured for expected vs accounted amounts.
+
+Admin/operator questions currently answerable:
+
+- Given Shopify order id, who got attribution?
+  - yes, through `shopify_attribution_events` and `conversions`.
+- What commission was recorded?
+  - yes, through `conversions.commission_amount`.
+- What network rows exist?
+  - yes, through `creator_network_earnings` and `brand_network_earnings`.
+- Was fallback used?
+  - yes, through `shopify_attribution_events.fallback_used`, `attribution_source`, and `attribution_confidence`.
+- Was duplicate replay seen?
+  - yes, through `shopify_attribution_events.decision = duplicate_skipped` and `duplicate_order`.
+- Is payout disabled?
+  - yes, through `PAYOUT_MODE` and `getPayoutClaimGate()` behavior.
+- Are reversal rows present?
+  - yes, through `financial_reversal_events` and `financial_reversal_items`; currently both are empty.
+
+Manual owner tasks before controlled real-money attribution-only beta:
+
+- Confirm production `PAYOUT_MODE=claims_disabled`.
+- Confirm production Stripe key mode is not used for transfers while claims are disabled.
+- Confirm `SHOPIFY_WEBHOOK_SECRET` is set in production.
+- Confirm `orders/paid` webhook is registered for the connected real store.
+- Confirm product/variant/storefront route points to the intended live Shopify product.
+- Confirm compliance/privacy webhook requirements in Shopify Partner configuration before broader app review.
+- Place a small real order through a PartnerLinks referral link.
+- Verify attribution/accounting rows before any refund or payout work.
+
+Safe engineering tasks Codex can do next:
+
+- Validate the new read-only `productionSafetyTest.js` reports against production Supabase after network access is available.
+- Design refund webhook ingestion without applying reversals.
+- Add diagnostic-only refund event recording to `financial_reversal_events`.
+- Add operator docs for real-order reconciliation.
+
+New read-only operator reports in `scripts/productionSafetyTest.js`:
+
+- `--order-report`
+  - lookup by `--order-id`, `--partnerlinks-ref`, `--creator-code`, `--brand-id`, or `--shop-domain`.
+  - reports attribution decision, conversion accounting, Level 1/2/3 network rows, claim batches, and reversal rows.
+- `--actor-matrix`
+  - reports test/brand-origin actor roles, auth binding, Stripe state, direct conversions, network earnings, and claim totals.
+- `--lineage-report`
+  - reports parent lineage, brand-origin lineage, dual-lineage rows, self-parent rows, and circular lineage findings.
+- `--economic-report`
+  - reports direct commission rows, `platform_fee_amount`, creator/brand network rows, Level 4+ violations, duplicate order ids, duplicate network earning keys, and self-generated override findings.
+- `--refund-report`
+  - reports `financial_reversal_events` and `financial_reversal_items` presence/counts and scoped reversal rows without applying reversals.
+- `--settlement-report`
+  - reports local payout gate state, Stripe key mode, missing settlement columns, and required future funding infrastructure.
+- `--risk-report`
+  - reports controlled-beta risk signals such as duplicate auth bindings, duplicate Stripe accounts, first-payout actors, conversion velocity clusters, and refund-enforcement gap.
+- `--route-risk-report`
+  - statically classifies Express routes as read-only, attribution, auth/lineage, conversion/economics, payout/claim, Stripe, or admin/debug.
+  - reports `getSignedInCreator()` references and payout/Stripe guard references for human review.
+
+Validation run on 2026-05-17:
+
+- `node --check scripts/productionSafetyTest.js`: passed.
+- `git diff --check`: passed.
+- `node scripts/productionSafetyTest.js --dry-run --report --matrix-report`: passed with 12 `PASS`, 2 `CHECK`, 1 `INFO`.
+  - `CHECK` items were expected operator-test gaps: no ambiguous fallback event in the current query window and no duplicate webhook replay diagnostic in the scoped result.
+- `node scripts/productionSafetyTest.js --dry-run --actor-matrix --lineage-report --economic-report --refund-report --settlement-report --risk-report --route-risk-report`: completed read-only.
+  - dual brand/creator lineage rows: 0.
+  - self-parent rows: 0.
+  - circular lineage findings: 0.
+  - Level 4+ findings: 0.
+  - self-generated network override findings: 0.
+  - duplicate conversion/order findings in scope: 0.
+  - duplicate creator/brand network earning key findings: 0.
+  - reversal tables readable and empty.
+  - local payout gate reports `sandbox_time_based` + Stripe test key as locally allowed; production remains `claims_disabled`.
+- `node scripts/productionSafetyTest.js --dry-run --order-report --order-id shopify:partnerlinks-test.myshopify.com:6549690941614`: completed read-only.
+  - decision: `conversion_created`.
+  - source: `partnerlinks_ref`.
+  - confidence: `exact`.
+  - fallback used: false.
+  - direct commission: 2.70.
+  - platform fee amount: 0.90.
+  - creator network rows: Level 1 = 0.27, Level 2 = 0.03, no Level 3 because the conversion source was `test-creator-03`.
+  - reversal rows: 0.
 
 Recommended fixes before broader real brand onboarding:
 

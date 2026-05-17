@@ -2859,7 +2859,7 @@ It must not:
 
 `scripts/productionSafetyTest.js` should evolve from reporting toward read-only invariant checks.
 
-Proposed flags:
+Current read-only reporting flags:
 
 - `--actor-matrix`
 - `--economic-report`
@@ -2868,7 +2868,21 @@ Proposed flags:
 - `--refund-report`
 - `--risk-report`
 - `--route-risk-report`
+- `--order-report`
+
+Current lookup inputs:
+
+- `--order-id`
+- `--partnerlinks-ref`
+- `--creator-code`
+- `--brand-id`
+- `--shop-domain`
+
+Still-proposed future flags:
+
 - `--idempotency-report`
+- `--claim-retry-report`
+- `--collision-window-report`
 
 Required invariant checks:
 

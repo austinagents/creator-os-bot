@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 
+const fs = require('fs');
+const path = require('path');
 const supabase = require('../database/database/supabase');
-const { PUBLIC_BASE_URL } = require('../config/config/env');
+const {
+  PUBLIC_BASE_URL,
+  PAYOUT_MODE,
+  STRIPE_SECRET_KEY
+} = require('../config/config/env');
 const { normalizeCode } = require('../utils/slug');
 
 const TEST_CODES = Array.from({ length: 10 }, (_, index) => `test-creator-${String(index + 1).padStart(2, '0')}`);
@@ -54,6 +60,38 @@ async function main() {
     });
   }
 
+  if (args.orderReport) {
+    await printOrderReport(args);
+  }
+
+  if (args.actorMatrix) {
+    await printActorMatrixReport();
+  }
+
+  if (args.lineageReport) {
+    await printLineageReport(args);
+  }
+
+  if (args.economicReport) {
+    await printEconomicReport(args);
+  }
+
+  if (args.refundReport) {
+    await printRefundReport(args);
+  }
+
+  if (args.settlementReport) {
+    await printSettlementReport();
+  }
+
+  if (args.riskReport) {
+    await printRiskReport(args);
+  }
+
+  if (args.routeRiskReport) {
+    await printRouteRiskReport();
+  }
+
   printHeader('Done');
 }
 
@@ -68,8 +106,19 @@ function parseArgs(argv) {
     payoutTest: false,
     stressTest: false,
     matrixReport: false,
+    orderReport: false,
+    actorMatrix: false,
+    lineageReport: false,
+    economicReport: false,
+    refundReport: false,
+    settlementReport: false,
+    riskReport: false,
+    routeRiskReport: false,
     orderId: null,
-    creatorCode: null
+    creatorCode: null,
+    partnerlinksRef: null,
+    brandId: null,
+    shopDomain: null
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -83,19 +132,36 @@ function parseArgs(argv) {
     else if (arg === '--payout-test') args.payoutTest = true;
     else if (arg === '--stress-test') args.stressTest = true;
     else if (arg === '--matrix-report') args.matrixReport = true;
+    else if (arg === '--order-report') args.orderReport = true;
+    else if (arg === '--actor-matrix') args.actorMatrix = true;
+    else if (arg === '--lineage-report') args.lineageReport = true;
+    else if (arg === '--economic-report') args.economicReport = true;
+    else if (arg === '--refund-report') args.refundReport = true;
+    else if (arg === '--settlement-report') args.settlementReport = true;
+    else if (arg === '--risk-report') args.riskReport = true;
+    else if (arg === '--route-risk-report') args.routeRiskReport = true;
     else if (arg === '--order-id') {
       args.orderId = argv[index + 1] || null;
       index += 1;
     } else if (arg === '--creator-code') {
       args.creatorCode = normalizeCode(argv[index + 1] || '');
       index += 1;
+    } else if (arg === '--partnerlinks-ref') {
+      args.partnerlinksRef = String(argv[index + 1] || '').trim();
+      index += 1;
+    } else if (arg === '--brand-id') {
+      args.brandId = argv[index + 1] ? Number(argv[index + 1]) : null;
+      index += 1;
+    } else if (arg === '--shop-domain') {
+      args.shopDomain = String(argv[index + 1] || '').trim().toLowerCase();
+      index += 1;
     } else {
       throw new Error(`Unknown flag: ${arg}`);
     }
   }
 
-  if (args.creatorCode && !isAllowedTestCode(args.creatorCode)) {
-    throw new Error(`Refusing creator_code outside test namespace: ${args.creatorCode}`);
+  if (args.seedTestCreators && args.creatorCode && !isAllowedTestCode(args.creatorCode)) {
+    throw new Error(`Refusing seed operation with creator_code outside test namespace: ${args.creatorCode}`);
   }
 
   return args;
@@ -110,8 +176,19 @@ function hasAnyAction(args) {
     args.payoutTest ||
     args.stressTest ||
     args.matrixReport ||
+    args.orderReport ||
+    args.actorMatrix ||
+    args.lineageReport ||
+    args.economicReport ||
+    args.refundReport ||
+    args.settlementReport ||
+    args.riskReport ||
+    args.routeRiskReport ||
     args.orderId ||
     args.creatorCode ||
+    args.partnerlinksRef ||
+    args.brandId ||
+    args.shopDomain ||
     args.dryRun;
 }
 
@@ -749,6 +826,331 @@ async function analyzeAttributionStress({ context, creators, clicks, attribution
   ];
 }
 
+async function printOrderReport(args) {
+  printHeader('Order / Attribution Operator Report');
+  const events = await getAttributionEventsForLookup(args);
+  const orderIds = unique(events.map((event) => event.order_id).concat(args.orderId ? [args.orderId] : []));
+  const conversionIds = unique(events.map((event) => event.conversion_id).filter(Boolean));
+  const conversions = await getConversionsForLookup({ orderIds, conversionIds, creatorCode: args.creatorCode });
+  const allConversionIds = unique(conversions.map((row) => row.id).concat(conversionIds));
+  const creatorNetwork = await getCreatorNetworkEarningsByConversions(allConversionIds);
+  const brandNetwork = await getBrandNetworkEarnings({ conversionIds: allConversionIds });
+  const claims = await getClaimsByBatchIds(unique([
+    ...conversions.map((row) => row.claim_batch_id).filter(Boolean),
+    ...creatorNetwork.map((row) => row.claim_batch_id).filter(Boolean)
+  ]));
+  const reversals = await getReversalRows({ orderIds, conversionIds: allConversionIds });
+
+  printRows('Attribution Decisions', events, (event) => ({
+    id: event.id,
+    order_id: event.order_id,
+    shopify_order_id: event.shopify_order_id,
+    shop_domain: event.shop_domain,
+    brand_id: event.brand_id,
+    matched_creator_code: event.matched_creator_code,
+    matched_product_slug: event.matched_product_slug,
+    partnerlinks_ref: event.partnerlinks_ref,
+    attribution_source: event.attribution_source,
+    attribution_confidence: event.attribution_confidence,
+    fallback_used: event.fallback_used,
+    decision: event.decision,
+    unmatched_reason: event.unmatched_reason,
+    duplicate_order: event.duplicate_order,
+    conversion_id: event.conversion_id,
+    checked_sources: event.checked_sources
+  }));
+
+  printRows('Conversion Accounting', conversions, (row) => ({
+    id: row.id,
+    order_id: row.order_id,
+    creator_id: row.creator_id,
+    order_value: row.order_value,
+    direct_commission_amount: row.commission_amount,
+    platform_fee_amount: row.platform_fee_amount,
+    payout_status: row.payout_status,
+    claim_batch_id: row.claim_batch_id,
+    claimed_at: row.claimed_at
+  }));
+
+  printRows('Creator Network Rows For Order', creatorNetwork, (row) => ({
+    id: row.id,
+    earning_creator_id: row.earning_creator_id,
+    source_creator_id: row.source_creator_id,
+    conversion_id: row.conversion_id,
+    level: row.level,
+    platform_fee_amount: row.platform_fee_amount,
+    commission_rate: row.commission_rate,
+    commission_amount: row.commission_amount,
+    payout_status: row.payout_status,
+    claim_batch_id: row.claim_batch_id
+  }));
+
+  printRows('Brand Network Rows For Order', brandNetwork, (row) => ({
+    id: row.id,
+    earning_brand_id: row.earning_brand_id,
+    source_creator_id: row.source_creator_id,
+    conversion_id: row.conversion_id,
+    level: row.level,
+    platform_fee_amount: row.platform_fee_amount,
+    commission_rate: row.commission_rate,
+    commission_amount: row.commission_amount,
+    payout_status: row.payout_status
+  }));
+
+  printRows('Claim Batches For Order', claims, (row) => ({
+    id: row.id,
+    creator_id: row.creator_id,
+    total_claimed_amount: row.total_claimed_amount,
+    status: row.status,
+    stripe_transfer_id: row.stripe_transfer_id,
+    stripe_transfer_status: row.stripe_transfer_status,
+    created_at: row.created_at
+  }));
+
+  printReversalRows(reversals);
+}
+
+async function printActorMatrixReport() {
+  printHeader('Actor Matrix Report');
+  const creators = await getActorCreators();
+  const creatorIds = creators.map((creator) => creator.id);
+  const conversions = await getConversions({ creatorIds });
+  const claims = await getCreatorClaims({ creatorIds });
+  const creatorNetwork = await getCreatorNetworkEarnings({
+    testCreatorIds: creatorIds,
+    conversionIds: conversions.map((row) => row.id)
+  });
+
+  printRows('Actors', creators, (creator) => ({
+    id: creator.id,
+    creator_code: creator.creator_code,
+    email: creator.email || null,
+    auth_bound: Boolean(creator.auth_user_id),
+    parent_creator_id: creator.parent_creator_id || null,
+    invited_by_brand_id: creator.invited_by_brand_id || null,
+    stripe_status: creator.stripe_onboarding_status || null,
+    has_stripe_account: Boolean(creator.stripe_account_id),
+    intended_test_role: getActorRole(creator.creator_code)
+  }));
+
+  printRows('Actor Conversion Summary', creators, (creator) => {
+    const directConversions = conversions.filter((row) => row.creator_id === creator.id);
+    const upstreamEarnings = creatorNetwork.filter((row) => row.earning_creator_id === creator.id);
+    const claimRows = claims.filter((row) => row.creator_id === creator.id);
+    return {
+      creator_code: creator.creator_code,
+      direct_conversions: directConversions.length,
+      direct_commission_total: sumRows(directConversions, 'commission_amount'),
+      platform_fee_total: sumRows(directConversions, 'platform_fee_amount'),
+      network_earning_rows: upstreamEarnings.length,
+      network_earning_total: sumRows(upstreamEarnings, 'commission_amount'),
+      claim_rows: claimRows.length,
+      claimed_total: sumRows(claimRows, 'total_claimed_amount')
+    };
+  });
+}
+
+async function printLineageReport(args) {
+  printHeader('Lineage Integrity Report');
+  const creators = await getActorCreators(args.creatorCode);
+  const allCreators = await getCreatorsForLineage();
+  const byId = new Map(allCreators.map((creator) => [creator.id, creator]));
+
+  const dualLineage = allCreators.filter((creator) => creator.parent_creator_id && creator.invited_by_brand_id);
+  const selfParent = allCreators.filter((creator) => creator.parent_creator_id === creator.id);
+  const circular = findCircularLineage(allCreators);
+
+  printRows('Selected Creator Lineage', creators, (creator) => ({
+    id: creator.id,
+    creator_code: creator.creator_code,
+    parent_creator_id: creator.parent_creator_id || null,
+    parent_creator_code: creator.parent_creator_id && byId.get(creator.parent_creator_id)
+      ? byId.get(creator.parent_creator_id).creator_code
+      : null,
+    invited_by_brand_id: creator.invited_by_brand_id || null,
+    brand_referred_at: creator.brand_referred_at || null,
+    lineage_path: buildLineagePath(creator, byId)
+  }));
+
+  printRows('Dual Brand/Creator Lineage Rows', dualLineage, (creator) => ({
+    id: creator.id,
+    creator_code: creator.creator_code,
+    parent_creator_id: creator.parent_creator_id,
+    invited_by_brand_id: creator.invited_by_brand_id
+  }));
+  printRows('Self-Parent Rows', selfParent, (creator) => ({
+    id: creator.id,
+    creator_code: creator.creator_code,
+    parent_creator_id: creator.parent_creator_id
+  }));
+  printRows('Circular Lineage Findings', circular, (finding) => finding);
+}
+
+async function printEconomicReport(args) {
+  printHeader('Economic Invariant Report');
+  const creators = args.creatorCode ? await getCreatorsByCode(args.creatorCode) : await getTestCreators();
+  const creatorIds = creators.map((creator) => creator.id);
+  const events = await getAttributionEventsForLookup(args);
+  const orderIds = unique(events.map((event) => event.order_id).concat(args.orderId ? [args.orderId] : []));
+  const conversions = await getConversionsForLookup({ orderIds, creatorCode: args.creatorCode });
+  const scopedConversionIds = conversions.length ? conversions.map((row) => row.id) : [];
+  const creatorNetwork = await getCreatorNetworkEarnings({
+    testCreatorIds: creatorIds,
+    conversionIds: scopedConversionIds
+  });
+  const brandNetwork = await getBrandNetworkEarnings({ conversionIds: scopedConversionIds });
+
+  const levelFour = creatorNetwork.filter((row) => Number(row.level) > 3);
+  const selfOverrides = creatorNetwork.filter((row) => row.earning_creator_id === row.source_creator_id);
+  const duplicateConversionOrders = duplicateGroups(conversions, (row) => row.order_id);
+  const duplicateCreatorNetwork = findDuplicateEarningRows(creatorNetwork, ['earning_creator_id', 'source_creator_id', 'conversion_id', 'level']);
+  const duplicateBrandNetwork = findDuplicateEarningRows(brandNetwork, ['earning_brand_id', 'source_creator_id', 'conversion_id', 'level']);
+
+  printRows('Direct Conversion Economics', conversions, (row) => ({
+    id: row.id,
+    order_id: row.order_id,
+    creator_id: row.creator_id,
+    order_value: row.order_value,
+    commission_rate: row.commission_rate,
+    direct_commission_amount: row.commission_amount,
+    platform_fee_amount: row.platform_fee_amount,
+    payout_status: row.payout_status
+  }));
+  printRows('Creator Network Economics', creatorNetwork, (row) => ({
+    id: row.id,
+    conversion_id: row.conversion_id,
+    earning_creator_id: row.earning_creator_id,
+    source_creator_id: row.source_creator_id,
+    level: row.level,
+    platform_fee_amount: row.platform_fee_amount,
+    commission_rate: row.commission_rate,
+    commission_amount: row.commission_amount,
+    payout_status: row.payout_status
+  }));
+  printRows('Economic Invariant Findings', [
+    { check: 'no Level 4+', status: levelFour.length ? 'FAIL' : 'PASS', rows: levelFour.length },
+    { check: 'no self-generated creator network override', status: selfOverrides.length ? 'FAIL' : 'PASS', rows: selfOverrides.length },
+    { check: 'no duplicate conversion order ids in scope', status: duplicateConversionOrders.length ? 'FAIL' : 'PASS', rows: duplicateConversionOrders.length },
+    { check: 'no duplicate creator network earning keys', status: duplicateCreatorNetwork.length ? 'FAIL' : 'PASS', rows: duplicateCreatorNetwork.length },
+    { check: 'no duplicate brand network earning keys', status: duplicateBrandNetwork.length ? 'FAIL' : 'PASS', rows: duplicateBrandNetwork.length }
+  ], (row) => row);
+}
+
+async function printRefundReport(args) {
+  printHeader('Refund / Reversal Readiness Report');
+  const eventsStatus = await tableStatus('financial_reversal_events');
+  const itemsStatus = await tableStatus('financial_reversal_items');
+  const attributionEvents = await getAttributionEventsForLookup(args);
+  const orderIds = unique(attributionEvents.map((event) => event.order_id).concat(args.orderId ? [args.orderId] : []));
+  const conversionIds = unique(attributionEvents.map((event) => event.conversion_id).filter(Boolean));
+  const reversals = await getReversalRows({ orderIds, conversionIds });
+
+  console.log(JSON.stringify({
+    financial_reversal_events: eventsStatus,
+    financial_reversal_items: itemsStatus,
+    enforcement_enabled: false,
+    notes: [
+      'Reversal tables are observability/accounting infrastructure only.',
+      'No payout_status, claimability, dashboard total, Stripe transfer, or settlement behavior is changed by this report.'
+    ]
+  }, null, 2));
+  printReversalRows(reversals);
+}
+
+async function printSettlementReport() {
+  printHeader('Settlement / Funding Readiness Report');
+  const payoutGate = getLocalPayoutGateSummary();
+  const columnChecks = [];
+  for (const table of ['conversions', 'creator_network_earnings', 'brand_network_earnings']) {
+    columnChecks.push(await checkColumnReadable(table, 'settlement_status'));
+    columnChecks.push(await checkColumnReadable(table, 'settlement_collected_at'));
+    columnChecks.push(await checkColumnReadable(table, 'settlement_batch_id'));
+    columnChecks.push(await checkColumnReadable(table, 'risk_status'));
+    columnChecks.push(await checkColumnReadable(table, 'reversal_status'));
+  }
+
+  console.log(JSON.stringify({
+    payout_mode: payoutGate,
+    live_claimability_status: 'blocked until settlement_collected, manual_approved, or reserve_covered exists',
+    settlement_automation_built: false,
+    brand_funding_proven: false,
+    required_future_infrastructure: [
+      'Stripe Customer per brand',
+      'SetupIntent saved payment method',
+      'settlement_batches',
+      'settlement_items',
+      'PaymentIntent or Billing invoice',
+      'settlement_collected gate'
+    ],
+    column_checks: columnChecks
+  }, null, 2));
+}
+
+async function printRiskReport(args) {
+  printHeader('Controlled-Beta Risk Report');
+  const creators = args.creatorCode ? await getCreatorsByCode(args.creatorCode) : await getActorCreators();
+  const creatorIds = creators.map((creator) => creator.id);
+  const conversions = await getConversions({ creatorIds });
+  const claims = await getCreatorClaims({ creatorIds });
+  const duplicateAuthUsers = duplicateGroups(creators.filter((creator) => creator.auth_user_id), (creator) => creator.auth_user_id);
+  const duplicateStripeAccounts = duplicateGroups(creators.filter((creator) => creator.stripe_account_id), (creator) => creator.stripe_account_id);
+  const firstPayoutActors = creators.filter((creator) => claims.some((claim) => claim.creator_id === creator.id));
+  const recentVelocity = buildVelocityFindings(conversions);
+
+  printRows('Risk Signals', [
+    {
+      signal: 'duplicate auth_user_id among selected actors',
+      status: duplicateAuthUsers.length ? 'CHECK' : 'PASS',
+      count: duplicateAuthUsers.length,
+      note: 'Same operator owning multiple creators is not automatically abuse, but sensitive routes must remain creator-scoped.'
+    },
+    {
+      signal: 'duplicate Stripe account among selected actors',
+      status: duplicateStripeAccounts.length ? 'CHECK' : 'PASS',
+      count: duplicateStripeAccounts.length
+    },
+    {
+      signal: 'first payout actors',
+      status: firstPayoutActors.length ? 'CHECK' : 'INFO',
+      count: firstPayoutActors.length,
+      creator_codes: firstPayoutActors.map((creator) => creator.creator_code)
+    },
+    {
+      signal: 'conversion velocity clusters',
+      status: recentVelocity.length ? 'CHECK' : 'PASS',
+      count: recentVelocity.length
+    },
+    {
+      signal: 'refund enforcement',
+      status: 'CHECK',
+      note: 'Refund/reversal ledger exists, but refund webhook ingestion and reversal enforcement are not built.'
+    }
+  ], (row) => row);
+}
+
+async function printRouteRiskReport() {
+  printHeader('Route Risk Report');
+  const indexPath = path.join(__dirname, '..', 'index.js');
+  const source = fs.readFileSync(indexPath, 'utf8');
+  const lines = source.split('\n');
+  const routeRows = [];
+  const routePattern = /app\.(get|post|put|patch|delete)\(['"`]([^'"`]+)['"`]/;
+  lines.forEach((line, index) => {
+    const match = line.match(routePattern);
+    if (!match) return;
+    const method = match[1].toUpperCase();
+    const route = match[2];
+    routeRows.push(classifyRoute({ method, route, line: index + 1 }));
+  });
+
+  const defaultResolverRows = findSourceMatches(lines, /getSignedInCreator\(/);
+  const payoutModeRows = findSourceMatches(lines, /getPayoutClaimGate|claimCreatorEarnings|stripe\/connect|earnings\/claim/);
+
+  printRows('Routes', routeRows, (row) => row);
+  printRows('Default/Convenience Creator Resolver References', defaultResolverRows, (row) => row);
+  printRows('Payout/Stripe Guard References', payoutModeRows, (row) => row);
+}
+
 async function getShopifyStore(shopDomain) {
   const { data, error } = await supabase
     .from('shopify_stores')
@@ -982,6 +1384,219 @@ async function getCreatorClaims({ creatorIds }) {
   return data || [];
 }
 
+async function getCreatorsByCode(creatorCode) {
+  if (!creatorCode) return [];
+  const { data, error } = await supabase
+    .from('creators')
+    .select('*')
+    .or(`creator_code.eq.${escapeFilter(normalizeCode(creatorCode))},referral_code.eq.${escapeFilter(normalizeCode(creatorCode))}`)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  return data || [];
+}
+
+async function getActorCreators(optionalCreatorCode) {
+  if (optionalCreatorCode) return getCreatorsByCode(optionalCreatorCode);
+  const actorCodes = [...TEST_CODES, 'mrmario'];
+  const { data, error } = await supabase
+    .from('creators')
+    .select('*')
+    .in('creator_code', actorCodes)
+    .order('creator_code', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+async function getCreatorsForLineage() {
+  const { data, error } = await supabase
+    .from('creators')
+    .select('id, creator_code, parent_creator_id, invited_by_brand_id, brand_referred_at, email, auth_user_id, stripe_account_id, stripe_onboarding_status')
+    .order('id', { ascending: true })
+    .limit(500);
+  if (error) throw error;
+  return data || [];
+}
+
+async function getAttributionEventsForLookup(args) {
+  let query = supabase
+    .from('shopify_attribution_events')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  if (args.orderId) {
+    query = query.or(`order_id.eq.${escapeFilter(args.orderId)},shopify_order_id.eq.${escapeFilter(args.orderId)}`);
+  } else if (args.partnerlinksRef) {
+    query = query.eq('partnerlinks_ref', args.partnerlinksRef);
+  } else if (args.creatorCode) {
+    query = query.eq('matched_creator_code', normalizeCode(args.creatorCode));
+  } else if (args.brandId) {
+    query = query.eq('brand_id', args.brandId);
+  } else if (args.shopDomain) {
+    query = query.eq('shop_domain', args.shopDomain);
+  }
+
+  const { data, error } = await query;
+  if (error && ['42P01', 'PGRST205'].includes(error.code)) return [];
+  if (error) throw error;
+  return data || [];
+}
+
+async function getConversionsForLookup({ orderIds = [], conversionIds = [], creatorCode = null }) {
+  const rows = [];
+  if (orderIds.length) {
+    const { data, error } = await supabase
+      .from('conversions')
+      .select('*')
+      .in('order_id', orderIds)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    rows.push(...(data || []));
+  }
+
+  if (conversionIds.length) {
+    const { data, error } = await supabase
+      .from('conversions')
+      .select('*')
+      .in('id', conversionIds)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    rows.push(...(data || []));
+  }
+
+  if (!rows.length && creatorCode) {
+    const creators = await getCreatorsByCode(creatorCode);
+    const creatorIds = creators.map((creator) => creator.id);
+    if (creatorIds.length) {
+      const { data, error } = await supabase
+        .from('conversions')
+        .select('*')
+        .in('creator_id', creatorIds)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      rows.push(...(data || []));
+    }
+  }
+
+  return uniqueById(rows);
+}
+
+async function getCreatorNetworkEarningsByConversions(conversionIds) {
+  if (!conversionIds.length) return [];
+  const { data, error } = await supabase
+    .from('creator_network_earnings')
+    .select('*')
+    .in('conversion_id', conversionIds)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+async function getClaimsByBatchIds(batchIds) {
+  if (!batchIds.length) return [];
+  const { data, error } = await supabase
+    .from('creator_earning_claims')
+    .select('*')
+    .in('id', batchIds)
+    .order('created_at', { ascending: false });
+  if (error && ['42P01', 'PGRST205'].includes(error.code)) return [];
+  if (error) throw error;
+  return data || [];
+}
+
+async function getReversalRows({ orderIds = [], conversionIds = [] }) {
+  const eventRows = [];
+  const itemRows = [];
+  const eventStatus = await tableStatus('financial_reversal_events');
+  const itemStatus = await tableStatus('financial_reversal_items');
+  if (!eventStatus.ok || !itemStatus.ok) {
+    return { events: [], items: [], eventStatus, itemStatus };
+  }
+
+  if (orderIds.length) {
+    const { data, error } = await supabase
+      .from('financial_reversal_events')
+      .select('*')
+      .in('order_id', orderIds)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    eventRows.push(...(data || []));
+  }
+
+  if (conversionIds.length) {
+    const { data, error } = await supabase
+      .from('financial_reversal_events')
+      .select('*')
+      .in('conversion_id', conversionIds)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    eventRows.push(...(data || []));
+
+    const itemResult = await supabase
+      .from('financial_reversal_items')
+      .select('*')
+      .in('conversion_id', conversionIds)
+      .order('created_at', { ascending: false });
+    if (itemResult.error) throw itemResult.error;
+    itemRows.push(...(itemResult.data || []));
+  }
+
+  if (!orderIds.length && !conversionIds.length) {
+    const { data, error } = await supabase
+      .from('financial_reversal_events')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    eventRows.push(...(data || []));
+  }
+
+  const reversalEventIds = unique(eventRows.map((row) => row.id));
+  if (reversalEventIds.length) {
+    const { data, error } = await supabase
+      .from('financial_reversal_items')
+      .select('*')
+      .in('reversal_event_id', reversalEventIds)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    itemRows.push(...(data || []));
+  }
+
+  return {
+    events: uniqueById(eventRows),
+    items: uniqueById(itemRows),
+    eventStatus,
+    itemStatus
+  };
+}
+
+async function tableStatus(table) {
+  const { count, error } = await supabase
+    .from(table)
+    .select('*', { count: 'exact', head: true });
+  return {
+    table,
+    ok: !error,
+    count: count ?? null,
+    error: error ? `${error.code || ''} ${error.message}`.trim() : null
+  };
+}
+
+async function checkColumnReadable(table, column) {
+  const { error } = await supabase
+    .from(table)
+    .select(`id, ${column}`)
+    .limit(1);
+  return {
+    table,
+    column,
+    exists: !error,
+    error: error ? `${error.code || ''} ${error.message}`.trim() : null
+  };
+}
+
 function printRows(title, rows, mapper) {
   printHeader(`${title} (${rows.length})`);
   if (!rows.length) {
@@ -991,6 +1606,203 @@ function printRows(title, rows, mapper) {
   for (const row of rows) {
     console.log(JSON.stringify(mapper(row), null, 2));
   }
+}
+
+function printReversalRows(reversals) {
+  printHeader(`Financial Reversal Events (${reversals.events.length})`);
+  console.log(JSON.stringify({
+    table_status: reversals.eventStatus,
+    rows: reversals.events.map((row) => ({
+      id: row.id,
+      idempotency_key: row.idempotency_key,
+      source_system: row.source_system,
+      source_event_id: row.source_event_id,
+      order_id: row.order_id,
+      shopify_order_id: row.shopify_order_id,
+      conversion_id: row.conversion_id,
+      reversal_type: row.reversal_type,
+      reversal_status: row.reversal_status,
+      reversed_order_amount: row.reversed_order_amount,
+      created_at: row.created_at
+    }))
+  }, null, 2));
+
+  printHeader(`Financial Reversal Items (${reversals.items.length})`);
+  console.log(JSON.stringify({
+    table_status: reversals.itemStatus,
+    rows: reversals.items.map((row) => ({
+      id: row.id,
+      reversal_event_id: row.reversal_event_id,
+      item_type: row.item_type,
+      conversion_id: row.conversion_id,
+      creator_network_earning_id: row.creator_network_earning_id,
+      brand_network_earning_id: row.brand_network_earning_id,
+      creator_earning_claim_id: row.creator_earning_claim_id,
+      affected_creator_id: row.affected_creator_id,
+      affected_brand_id: row.affected_brand_id,
+      original_amount: row.original_amount,
+      reversed_amount: row.reversed_amount,
+      offset_required: row.offset_required,
+      offset_status: row.offset_status,
+      created_at: row.created_at
+    }))
+  }, null, 2));
+}
+
+function getLocalPayoutGateSummary() {
+  const mode = String(PAYOUT_MODE || 'claims_disabled').trim().toLowerCase();
+  const recognized = ['sandbox_time_based', 'claims_disabled', 'manual_approval', 'settlement_gated'].includes(mode);
+  const stripeKeyMode = getStripeKeyMode();
+  const allowed = mode === 'sandbox_time_based' && stripeKeyMode === 'test';
+  return {
+    mode,
+    recognized,
+    stripe_key_mode: stripeKeyMode,
+    allowed,
+    production_recommendation: 'claims_disabled',
+    live_payouts_go_no_go: 'NO-GO'
+  };
+}
+
+function getStripeKeyMode() {
+  const key = String(STRIPE_SECRET_KEY || '');
+  if (!key) return 'missing';
+  if (/^sk_test_/.test(key)) return 'test';
+  if (/^sk_live_/.test(key)) return 'live';
+  return 'unknown';
+}
+
+function getActorRole(creatorCode) {
+  const code = normalizeCode(creatorCode);
+  const roles = {
+    'test-creator-01': 'root/upstream test actor; should not claim',
+    'test-creator-02': 'upstream Level 2/Level 1 test actor; should not claim',
+    'test-creator-03': 'mid-chain conversion actor; should not claim unless explicitly onboarded later',
+    'test-creator-04': 'primary auth/payout sandbox actor; only sandbox claims',
+    'test-creator-05': 'isolated/direct attribution actor; should not claim',
+    'test-creator-06': 'isolated/direct attribution actor; should not claim',
+    'test-creator-07': 'future refund/reversal actor; visit/click only until approved',
+    'test-creator-08': 'future settlement-failure actor; visit/click only until approved',
+    'test-creator-09': 'seeded isolated actor; keep clean unless explicitly assigned',
+    'test-creator-10': 'spare seeded actor',
+    mrmario: 'brand-origin actor; use for brand-origin lineage/economic tests'
+  };
+  return roles[code] || 'operator-selected creator';
+}
+
+function buildLineagePath(creator, byId) {
+  const pathRows = [];
+  const seen = new Set();
+  let current = creator;
+  while (current) {
+    if (seen.has(current.id)) {
+      pathRows.push(`CYCLE:${current.creator_code}`);
+      break;
+    }
+    seen.add(current.id);
+    pathRows.push(current.creator_code);
+    current = current.parent_creator_id ? byId.get(current.parent_creator_id) : null;
+  }
+  return pathRows.join(' <- ');
+}
+
+function findCircularLineage(creators) {
+  const byId = new Map(creators.map((creator) => [creator.id, creator]));
+  const findings = [];
+  for (const creator of creators) {
+    const seen = new Set();
+    let current = creator;
+    while (current && current.parent_creator_id) {
+      if (seen.has(current.id)) {
+        findings.push({
+          creator_id: creator.id,
+          creator_code: creator.creator_code,
+          cycle_at_creator_id: current.id,
+          cycle_at_creator_code: current.creator_code
+        });
+        break;
+      }
+      seen.add(current.id);
+      current = byId.get(current.parent_creator_id);
+    }
+  }
+  return findings;
+}
+
+function sumRows(rows, key) {
+  return roundCurrency((rows || []).reduce((total, row) => total + Number(row[key] || 0), 0));
+}
+
+function duplicateGroups(rows, keyFn) {
+  return [...groupBy(rows || [], keyFn).entries()]
+    .filter(([, groupRows]) => groupRows.length > 1)
+    .map(([key, groupRows]) => ({ key, count: groupRows.length, ids: groupRows.map((row) => row.id) }));
+}
+
+function buildVelocityFindings(conversions) {
+  const byCreator = groupBy(conversions || [], (row) => row.creator_id || 'unknown');
+  const findings = [];
+  for (const [creatorId, rows] of byCreator.entries()) {
+    if (rows.length < 3) continue;
+    const sorted = [...rows].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const windowHours = Math.max(1, (new Date(last.created_at) - new Date(first.created_at)) / 36e5);
+    if (rows.length / windowHours >= 3) {
+      findings.push({
+        creator_id: creatorId,
+        conversions: rows.length,
+        window_hours: roundCurrency(windowHours)
+      });
+    }
+  }
+  return findings;
+}
+
+function classifyRoute({ method, route, line }) {
+  let category = 'read-only';
+  if (/webhooks\/shopify\/orders-paid/.test(route)) category = 'conversion/economics';
+  else if (/^\/r\//.test(route)) category = 'creates attribution/click/session';
+  else if (/^\/join/.test(route) || /auth|signup/.test(route)) category = 'creates auth/lineage';
+  else if (/earnings\/claim/.test(route)) category = 'mutates payout/claim';
+  else if (/stripe\/connect\/debug/.test(route)) category = 'admin/debug';
+  else if (/stripe\/connect/.test(route)) category = 'mutates Stripe';
+  else if (/api\/shopify\/start/.test(route)) category = 'creates auth/lineage';
+  else if (/api\/shopify\/callback/.test(route)) category = 'creates auth/lineage';
+  else if (method !== 'GET' && /brand\/setup/.test(route)) category = 'mutates brand setup';
+  else if (/shopify_attribution_debug|debug/.test(route)) category = 'admin/debug';
+  else if (/dashboard|brand-dashboard|brands|register-business/.test(route)) category = 'read-only/dashboard';
+  return {
+    line,
+    method,
+    route,
+    category,
+    requires_attention: /earnings\/claim|stripe\/connect|webhooks\/shopify|api\/shopify|brand\/setup/.test(route),
+    note: routeRiskNote(route)
+  };
+}
+
+function routeRiskNote(route) {
+  if (/earnings\/claim/.test(route)) return 'must remain explicit creator-scoped and payout-mode gated';
+  if (/stripe\/connect\/debug/.test(route)) return 'must remain explicit creator-scoped, ownership-checked, and read-only';
+  if (/stripe\/connect/.test(route)) return 'must remain explicit creator-scoped and ownership-checked';
+  if (/webhooks\/shopify/.test(route)) return 'must verify HMAC and remain idempotent';
+  if (/api\/shopify/.test(route)) return 'must preserve OAuth state validation and least-privilege token handling';
+  if (/brand\/setup/.test(route)) return 'must remain brand-scoped and avoid hidden default brand assumptions';
+  if (/debug/.test(route)) return 'must remain read-only/protected';
+  if (/^\/r\//.test(route)) return 'creates click/session attribution but must not create payout';
+  if (/^\/join/.test(route)) return 'creates onboarding lineage but must not create product attribution';
+  return null;
+}
+
+function findSourceMatches(lines, regex) {
+  return lines
+    .map((text, index) => ({ line: index + 1, text: text.trim() }))
+    .filter((row) => regex.test(row.text))
+    .map((row) => ({
+      line: row.line,
+      text: row.text.slice(0, 180)
+    }));
 }
 
 function assertTestCreatorPayload(payload) {

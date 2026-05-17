@@ -1101,6 +1101,58 @@ The following examples are source-backed risk patterns or user-provided research
   - Only a central settlement eligibility service can later promote live claimability.
   - Dashboard wording must keep accounted, pending settlement, funded, claimable, claimed, reversed, and held states separate.
 
+### RISK-062 - Real-Money Attribution Beta Could Be Mistaken For Payout Readiness
+
+- Severity: `SEV1`
+- Category: `PAYOUT_LIFECYCLE`, `SETTLEMENT_FAILURE`, `DASHBOARD_MONEY_CLARITY`
+- Status: `OPEN`
+- Description:
+  - PartnerLinks can safely test real Shopify order attribution/accounting before it is safe to pay creators live. Operators or users may confuse accounted earnings with funded/claimable earnings.
+- Safe current behavior:
+  - production recommendation remains `PAYOUT_MODE=claims_disabled`.
+  - claim route is payout-mode gated.
+  - refund/reversal tables are observability-only.
+- Unsafe assumption:
+  - Do not treat real conversion accounting as proof of funding.
+  - Do not enable live creator payouts until settlement/funding gates exist.
+- Recommended mitigation:
+  - Keep real-money beta explicitly attribution/accounting-only.
+  - Add settlement and refund diagnostics before payout enablement.
+  - Make dashboard language distinguish accounted vs funded/claimable earnings.
+
+### RISK-063 - Shopify Refund Handling Not Yet Connected To Reversal Ledger
+
+- Severity: `SEV1`
+- Category: `REFUND_REVERSAL`, `SHOPIFY_APP_DATA_RISK`, `PAYOUT_LIFECYCLE`
+- Status: `OPEN`
+- Description:
+  - Reversal ledger tables exist, but Shopify refund/dispute events are not ingested into them yet.
+- Safe current behavior:
+  - live payouts remain blocked.
+  - ledger tables are empty and non-enforcing.
+- Unsafe assumption:
+  - Do not assume refunds are automatically captured or enforced.
+- Recommended mitigation:
+  - Add diagnostic-only Shopify refund webhook ingestion next.
+  - Keep reversal application and payout offset behavior separate from ingestion.
+
+### RISK-064 - Operator Reconciliation Could Miss Cross-Table Financial Context
+
+- Severity: `SEV2`
+- Category: `AUDITABILITY`, `WEBHOOK_REPLAY`, `NETWORK_ECONOMICS`
+- Status: `PARTIALLY MITIGATED`
+- Description:
+  - Real-money attribution-only beta requires operators to reconcile Shopify order attribution, conversion accounting, direct commission, platform fee, Level 1/2/3 network rows, duplicate/skipped diagnostics, payout/claim context, and reversal rows across multiple tables.
+- Safe current behavior:
+  - read-only `productionSafetyTest.js` reports now provide order, actor, lineage, economic, refund, settlement, risk, and route-risk views.
+  - reports do not mutate financial state.
+- Remaining risk:
+  - reports still require Supabase-backed execution and human review.
+  - they do not replace settlement funding, refund enforcement, risk holds, or launch-grade admin UI.
+- Recommended mitigation:
+  - run read-only reports during every controlled beta order reconciliation.
+  - keep all money movement disabled until settlement/funding gates exist.
+
 ## Risk Entry Template
 
 ```markdown

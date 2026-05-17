@@ -797,6 +797,78 @@ node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify
   - `git diff --check`.
   - no runtime JS touched.
 
+### 2026-05-17 - Controlled Real-Money Attribution-Only Beta Readiness Audit
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- GO / NO-GO:
+  - real-money attribution/accounting-only beta: `GO WITH MANUAL OWNER CHECKS`.
+  - live creator payouts: `NO-GO`.
+- Environment safety:
+  - production recommendation remains `PAYOUT_MODE=claims_disabled`.
+  - missing `PAYOUT_MODE` defaults to `claims_disabled`.
+  - `sandbox_time_based` is safe only with a Stripe test key.
+  - local development currently reports `PAYOUT_MODE=sandbox_time_based` and Stripe key mode `test`; this is not the production recommendation.
+  - claim route checks the payout-mode gate before `claimCreatorEarnings()`.
+- Shopify readiness:
+  - `orders/paid` handler uses raw-body HMAC verification.
+  - duplicate order idempotency is already validated for conversion creation.
+  - product referrals persist attribution through Shopify cart/order attributes.
+  - `shopify_attribution_events` provides operator diagnostics.
+- Required Shopify topics for beta/app readiness:
+  - `orders/paid`.
+  - refund handling next through `refunds/create` or current equivalent refund/order update strategy.
+  - compliance/privacy topics later for app review: `customers/data_request`, `customers/redact`, `shop/redact`.
+- Refund/reversal readiness:
+  - `financial_reversal_events` exists and is readable.
+  - `financial_reversal_items` exists and is readable.
+  - both tables currently contain `0` rows.
+  - migration 016 is observability/accounting only and does not enforce reversals.
+- Settlement readiness:
+  - current runtime accounts earnings but does not prove funding.
+  - live claimability remains blocked until `settlement_collected`, manual approval, or reserve coverage exists.
+- Validation:
+  - read-only Supabase count/read checks.
+  - `node scripts/productionSafetyTest.js --dry-run --report --matrix-report`.
+  - no data mutation, deploy, push, or live payout action.
+
+### 2026-05-17 - Read-Only Operator Reporting Expansion
+
+- Severity: `SEV2`
+- Status: `CHECK`
+- Impacted systems:
+  - `scripts/productionSafetyTest.js`
+- Finding:
+  - Added read-only report modes so operators can inspect attribution, economics, lineage, refund/reversal readiness, settlement readiness, risk signals, and route-risk assumptions without mutating financial rows.
+- New report modes:
+  - `--order-report`
+  - `--actor-matrix`
+  - `--lineage-report`
+  - `--economic-report`
+  - `--refund-report`
+  - `--settlement-report`
+  - `--risk-report`
+  - `--route-risk-report`
+- Lookup inputs:
+  - `--order-id`
+  - `--partnerlinks-ref`
+  - `--creator-code`
+  - `--brand-id`
+  - `--shop-domain`
+- Safety boundary:
+  - Reports only read Supabase rows and local route source.
+  - Reports do not apply refunds, change payout status, create claims, create Stripe transfers, change settlement state, or mutate conversion/earning rows.
+- Validation:
+  - `node --check scripts/productionSafetyTest.js`
+  - `git diff --check`
+  - Supabase-backed reports completed read-only:
+    - `--report --matrix-report`
+    - `--actor-matrix --lineage-report --economic-report --refund-report --settlement-report --risk-report --route-risk-report`
+    - `--order-report --order-id shopify:partnerlinks-test.myshopify.com:6549690941614`
+- Result:
+  - No data mutation, deploy, push, live payout, settlement enforcement, refund application, or Stripe transfer occurred.
+  - New reports confirmed zero dual-lineage rows, zero self-parent rows, zero circular lineage findings, zero Level 4+ findings, zero self-generated network override findings, readable empty reversal tables, and exact `partnerlinks_ref` attribution for the tested order.
+
 ## Audit Entry Template
 
 ```markdown

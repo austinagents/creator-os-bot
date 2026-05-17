@@ -1083,6 +1083,92 @@ node scripts/productionSafetyTest.js --actor-matrix --economic-report --lineage-
 - Status:
   - `UNKNOWN`
 
+### BETA_READINESS-001 - Real-Money Attribution-Only Beta
+
+- Mode: `READ_ONLY_AND_MANUAL_OWNER_CHECKS`
+- Status:
+  - `CHECK`
+- GO / NO-GO:
+  - attribution/accounting-only beta: `GO WITH MANUAL OWNER CHECKS`.
+  - live creator payouts: `NO-GO`.
+- Preconditions:
+  - production `PAYOUT_MODE=claims_disabled`.
+  - `orders/paid` webhook active.
+  - `SHOPIFY_WEBHOOK_SECRET` configured.
+  - product referral link routes through PartnerLinks and Shopify cart/order attributes.
+- Expected:
+  - real Shopify order creates attribution diagnostics.
+  - conversion is created exactly once.
+  - direct commission and `platform_fee_amount` are accounted.
+  - Level 1/2/3 network rows are created where applicable.
+  - no claim/live payout can execute in production.
+- Validation command:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --report --matrix-report
+```
+
+- Last audit:
+  - 2026-05-17
+- Result:
+  - no new invariant, payout, lineage, or attribution regressions found.
+
+### BETA_READINESS-002 - Refund/Reversal Infrastructure Present But Non-Enforcing
+
+- Mode: `READ_ONLY`
+- Status:
+  - `PASS`
+- Expected:
+  - `financial_reversal_events` exists.
+  - `financial_reversal_items` exists.
+  - both tables are readable.
+  - both tables may be empty until refund ingestion exists.
+  - no dashboard/payout/settlement behavior changes from table existence alone.
+- Last audit:
+  - 2026-05-17
+- Result:
+  - both tables exist and currently contain `0` rows.
+
+### BETA_READINESS-003 - Live Payouts Remain Fail-Closed
+
+- Mode: `READ_ONLY`
+- Status:
+  - `PASS`
+- Expected:
+  - production recommendation is `PAYOUT_MODE=claims_disabled`.
+  - `sandbox_time_based` only allows claims with `sk_test_`.
+  - live key plus sandbox mode blocks claims.
+  - unknown/missing mode blocks claims.
+- Last audit:
+  - 2026-05-17
+- Result:
+  - code path confirms fail-closed payout gate.
+
+### BETA_READINESS-004 - Read-Only Operator Reports
+
+- Mode: `READ_ONLY`
+- Status:
+  - `CHECK`
+- Expected:
+  - operators can inspect attribution and economics by Shopify order id, `partnerlinks_ref`, creator code, brand id, or shop domain.
+  - reports expose conversion, direct commission, platform fee, Level 1/2/3 network rows, duplicate/skipped diagnostics, claim batches, reversal rows, payout-mode gate state, and route-risk categories.
+  - reports do not mutate conversion, earnings, payout, Stripe, settlement, or reversal state.
+- Validation commands:
+
+```bash
+node --check scripts/productionSafetyTest.js
+node scripts/productionSafetyTest.js --dry-run --order-report --order-id shopify:partnerlinks-test.myshopify.com:{order_id}
+node scripts/productionSafetyTest.js --dry-run --actor-matrix --lineage-report --economic-report --refund-report --settlement-report --risk-report --route-risk-report
+```
+
+- Last audit:
+  - 2026-05-17
+- Result:
+  - syntax validation passed.
+  - Supabase-backed execution completed read-only on 2026-05-17.
+  - order report for `shopify:partnerlinks-test.myshopify.com:6549690941614` showed exact `partnerlinks_ref` attribution, direct commission, platform fee, Level 1/2 network rows, no claim batch, and no reversal rows.
+  - actor/economic/lineage/refund/settlement/risk/route-risk report completed without mutation.
+
 ## Test Case Template
 
 ~~~markdown
