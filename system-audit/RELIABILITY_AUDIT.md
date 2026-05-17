@@ -8,6 +8,19 @@ Purpose:
 
 This file is implementation and reliability focused. Product philosophy belongs in `CHAT_HANDOFF.md`; current implementation status belongs in `PROJECT_STATUS.md`.
 
+## Classification Guardrail
+
+Reliability claims in this file must be interpreted by label:
+
+- `RUNTIME-ENFORCED`: current code/schema actively enforces the behavior.
+- `READ-ONLY DIAGNOSTIC`: current tooling exposes visibility only; it does not enforce or mutate.
+- `DOCUMENTED ARCHITECTURE ONLY`: reliability principle or target design, not current enforcement.
+- `PLANNED / NOT IMPLEMENTED`: future work.
+- `MANUAL OPERATOR TASK`: requires human action outside the app runtime.
+- `BLOCKED / NO-GO`: not safe for live payouts or public money movement.
+
+If an entry lacks an explicit enforcement label, treat it as evidence or documentation, not a live financial control.
+
 ## Audit Principles
 
 - Prefer deterministic attribution over fallback guessing.
@@ -46,28 +59,67 @@ Last updated: 2026-05-16
 
 - Stripe Connect route scoping:
   - `PASS`
+  - Classification: `RUNTIME-ENFORCED`
   - `/stripe/connect/start`, `/stripe/connect/return`, `/stripe/connect/refresh`, `/earnings/claim`, and `/stripe/connect/debug?creator_code=...` use explicit creator context for sensitive Stripe behavior or Stripe diagnostics.
 - Shopify deterministic attribution:
   - `PASS`
+  - Classification: `RUNTIME-ENFORCED`
   - Cart/order attributes with `partnerlinks_ref`, `creator_code`, `brand_slug`, and `product_slug` have produced exact attribution without fallback.
 - Creator economics:
   - `PASS`
+  - Classification: `RUNTIME-ENFORCED` for current creator-origin Level 1/2/3 calculations; `DOCUMENTED ARCHITECTURE ONLY` for broader entity economics.
   - Test conversion for `test-creator-04` produced direct commission and Level 1/2/3 network earnings with no Level 4.
 - Economic architecture:
   - `CHECK`
+  - Classification: `DOCUMENTED ARCHITECTURE ONLY` except where explicitly reflected in current services/tables.
   - Canonical economic model is documented in `system-audit/ECONOMIC_ARCHITECTURE.md`. Future settlement automation must implement the documented separation of direct commission, platform fee, and network overrides.
 - Payout lifecycle:
   - `PASS`
+  - Classification: `RUNTIME-ENFORCED` for sandbox/test claim idempotency and payout-mode guard; `UNSAFE FOR LIVE PAYOUTS` until settlement gates exist.
   - `test-creator-04` completed Stripe test onboarding and successfully claimed direct commission through the real claim route.
 - Duplicate webhook replay:
   - `PASS`
+  - Classification: `RUNTIME-ENFORCED`
   - Signed duplicate Shopify webhook replay is idempotent: it returns safely, records duplicate diagnostics, and does not create duplicate conversions or earnings.
 - Ambiguous fallback safety:
   - `PASS`
+  - Classification: `RUNTIME-ENFORCED`
   - When deterministic Shopify attribution is missing and multiple recent clicks could match, attribution is skipped instead of guessed.
 - Multi-creator convenience navigation:
   - `CHECK`
+  - Classification: `RUNTIME-ENFORCED` for sensitive routes; `PLANNED / NOT IMPLEMENTED` for broader UX simplification.
   - `/dashboard` and homepage dashboard navigation still use default/latest creator resolution for convenience. Sensitive payout routes are scoped, but UX can be confusing when one auth user owns multiple creators.
+
+## Enforcement Boundary Summary
+
+`RUNTIME-ENFORCED`:
+
+- HMAC verification for Shopify `orders/paid`.
+- exact `partnerlinks_ref` matching before fallback.
+- ambiguous fallback skip behavior.
+- duplicate conversion prevention.
+- creator-scoped Stripe/claim routes.
+- payout-mode fail-closed guard.
+- current creator-origin Level 1/2/3 network economics.
+- lineage dual-binding guard in normal invite binding.
+
+`READ-ONLY DIAGNOSTIC`:
+
+- `shopify_attribution_events`.
+- Discord `/shopify_attribution_debug`.
+- `productionSafetyTest.js` report modes.
+- route-risk report.
+- refund/reversal table presence reports.
+
+`DOCUMENTED ARCHITECTURE ONLY` / `PLANNED / NOT IMPLEMENTED`:
+
+- automated settlement collection.
+- settlement-aware live claim promotion.
+- refund/chargeback enforcement.
+- negative balance offsets.
+- payout clawbacks.
+- synthetic-commerce risk scoring.
+- daily threat intelligence scans.
 
 ## Guaranteed Behaviors
 

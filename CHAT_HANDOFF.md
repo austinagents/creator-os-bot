@@ -1,5 +1,12 @@
 # PartnerLinks / Creator OS Vision
 
+Important continuity rule:
+
+- `PROJECT_STATUS.md` is the source of truth for what currently exists and works.
+- `system-audit/ECONOMIC_ARCHITECTURE.md` and ADRs contain canonical architecture direction, but architecture direction is not automatically runtime-enforced.
+- Treat claims as `RUNTIME-ENFORCED` only when the status docs or code explicitly say they are implemented.
+- Settlement collection, settlement-aware live claimability, refund enforcement, chargeback enforcement, payout clawbacks, negative balance offsets, synthetic-commerce scoring, threat intelligence scanning, live brand auto-charging, and live creator payout release remain planned/blocked unless explicitly updated in `PROJECT_STATUS.md`.
+
 - PartnerLinks is a creator-first affiliate/referral infrastructure platform.
 - Focus:
   - creator communities
@@ -701,4 +708,3 @@ Do not drift toward:
 - AI content workflow platform
 - complex campaign CMS
 - public marketplace-first product
-

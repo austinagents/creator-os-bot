@@ -5,6 +5,17 @@ Purpose:
 - Track reliability, attribution, payout, security, and UX risks that are known but not yet fully eliminated.
 - Keep risk language precise and operational.
 
+## Risk Classification Labels
+
+- `RUNTIME-ENFORCED`: mitigation exists in current code/schema.
+- `READ-ONLY DIAGNOSTIC`: visibility exists, but enforcement does not.
+- `DOCUMENTED ARCHITECTURE ONLY`: mitigation is described but not built.
+- `PLANNED / NOT IMPLEMENTED`: mitigation is future work.
+- `MANUAL OPERATOR TASK`: mitigation requires human action.
+- `BLOCKED / NO-GO`: unsafe until mitigation is implemented.
+
+Risk entries may mention desired safeguards that are not built yet. Treat desired safeguards as `DOCUMENTED ARCHITECTURE ONLY` unless the entry explicitly says `RUNTIME-ENFORCED`.
+
 ## Risk Severity
 
 - `SEV0`: Active production integrity issue.

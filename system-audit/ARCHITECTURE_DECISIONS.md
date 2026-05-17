@@ -5,6 +5,15 @@ Purpose:
 - Record reliability-relevant architecture decisions and their rationale.
 - Keep future changes aligned with proven Shopify/Stripe/SRE-grade patterns.
 
+## Runtime Boundary
+
+Architecture decisions are binding design direction, not automatic runtime enforcement.
+
+- `ACCEPTED` means PartnerLinks should follow the decision.
+- `ACCEPTED` does not mean every part of the decision is implemented.
+- Runtime behavior must be verified in `PROJECT_STATUS.md`, service code, migrations, and read-only diagnostics.
+- Future implementation requirements in ADR consequences should be treated as `DOCUMENTED ARCHITECTURE ONLY` or `PLANNED / NOT IMPLEMENTED` until explicitly marked `RUNTIME-ENFORCED`.
+
 ## Decision Status
 
 - `ACCEPTED`: Current direction.

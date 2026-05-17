@@ -7,6 +7,14 @@ Purpose:
 
 This is not a changelog. Only record reliability-relevant events.
 
+## Incident Classification Boundary
+
+Incident mitigations are historical facts, not blanket runtime guarantees.
+
+- Treat a mitigation as `RUNTIME-ENFORCED` only when the incident entry or `PROJECT_STATUS.md` explicitly says the current code/schema enforces it.
+- Follow-up items remain `PLANNED / NOT IMPLEMENTED` until completed.
+- Manual validation steps remain `MANUAL OPERATOR TASK` unless automated runtime checks exist.
+
 ## Incident Severity
 
 - `SEV0`: Active money movement, attribution, auth, or data integrity failure affecting production users.
@@ -78,4 +86,3 @@ This is not a changelog. Only record reliability-relevant events.
 - Follow-up:
   - Remaining work.
 ```
-

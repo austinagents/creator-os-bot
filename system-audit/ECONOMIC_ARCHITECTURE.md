@@ -8,6 +8,45 @@ Purpose:
 
 This is an architecture document. It does not describe every current implementation detail, and it does not authorize code changes by itself.
 
+## Runtime Enforcement Boundary
+
+This file is mostly `DOCUMENTED ARCHITECTURE ONLY` unless an item is explicitly listed as currently implemented.
+
+`RUNTIME-ENFORCED` today:
+
+- attributed Shopify `orders/paid` conversion ingestion.
+- deterministic `partnerlinks_ref` attribution before fallback.
+- duplicate conversion prevention for Shopify order ids.
+- direct creator commission accounting on attributed conversions.
+- `platform_fee_amount` accounting on attributed conversions.
+- current creator-origin Level 1/2/3 network earnings from `platform_fee_amount`.
+- hard stop after Level 3 in current creator-origin network logic.
+- payout-mode gate before claims.
+- `financial_reversal_events` and `financial_reversal_items` tables exist as additive ledger infrastructure.
+
+`READ-ONLY DIAGNOSTIC` today:
+
+- attribution decisions in `shopify_attribution_events`.
+- production safety reports for orders, economics, refunds, settlement readiness, risk, lineage, and routes.
+
+`DOCUMENTED ARCHITECTURE ONLY` / `PLANNED / NOT IMPLEMENTED`:
+
+- automatic brand settlement collection.
+- `settlement_batches` / `settlement_items`.
+- settlement-aware live claim promotion.
+- refund webhook ingestion.
+- refund/chargeback enforcement.
+- payout clawbacks.
+- negative balance offsets.
+- synthetic-commerce risk scoring and risk holds.
+- automated threat intelligence scanning.
+- live creator payout release.
+
+`UNSAFE FOR LIVE PAYOUTS`:
+
+- any payout flow based only on `claimable_at` or accounted conversion rows.
+- any payout flow before `settlement_collected`, `manual_approved`, or `reserve_covered` exists and is enforced.
+
 ## Core Principle
 
 PartnerLinks has two major economic layers:

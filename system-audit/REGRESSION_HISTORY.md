@@ -5,6 +5,18 @@ Purpose:
 - Track reliability regressions and the checks that now protect against them.
 - Keep future edits from reintroducing old failures.
 
+## Classification Boundary
+
+Regression entries are permanent memory and guardrails. They do not automatically mean a guardrail is runtime-enforced.
+
+- `RUNTIME-ENFORCED`: current code/schema enforces the guardrail.
+- `READ-ONLY DIAGNOSTIC`: reports can detect the issue but do not prevent it.
+- `DOCUMENTED ARCHITECTURE ONLY`: intended future behavior.
+- `PLANNED / NOT IMPLEMENTED`: not built yet.
+- `BLOCKED / NO-GO`: unsafe until the guardrail is implemented.
+
+When in doubt, verify current enforcement in `PROJECT_STATUS.md` and the relevant service/route/migration.
+
 ## Regression Categories
 
 - `AUTH_SCOPE`

@@ -4,6 +4,80 @@ Last updated: 2026-05-17
 
 This file is the current implementation snapshot for starting a new ChatGPT/Codex project chat with minimal context loss. Permanent product philosophy, UX guardrails, terminology, and long-term architecture rules live in `CHAT_HANDOFF.md`.
 
+## Status Classification Warning
+
+Documented architecture is not automatically runtime-enforced. Treat all financial safety claims as runtime-enforced only when explicitly marked `RUNTIME-ENFORCED`.
+
+Use these labels throughout PartnerLinks docs:
+
+- `RUNTIME-ENFORCED`: implemented in app code, database schema, route checks, service logic, or webhook processing today.
+- `READ-ONLY DIAGNOSTIC`: visible through scripts, debug routes, logs, or reports, but does not mutate or enforce money state.
+- `DOCUMENTED ARCHITECTURE ONLY`: accepted design direction, but not runtime behavior by itself.
+- `PLANNED / NOT IMPLEMENTED`: planned future work with no current runtime behavior.
+- `MANUAL OPERATOR TASK`: requires Austin/operator action in Shopify, Stripe, Railway, Supabase, or production testing.
+- `BLOCKED / NO-GO`: not safe to run for live money or public launch.
+- `SAFE FOR CONTROLLED BETA`: safe only within the explicitly stated beta boundary.
+- `UNSAFE FOR LIVE PAYOUTS`: must not be used to release live creator payouts.
+
+## Current Classification Snapshot
+
+`RUNTIME-ENFORCED`:
+
+- deterministic Shopify `partnerlinks_ref` attribution before fallback.
+- Shopify `orders/paid` HMAC verification.
+- duplicate conversion prevention for Shopify order ids.
+- creator-origin lineage through `parent_creator_id`.
+- brand-origin onboarding lineage through `invited_by_brand_id`.
+- creator/brand lineage dual-binding guard for normal invite binding.
+- Level 1/2/3 creator network economics from `platform_fee_amount`.
+- hard stop after Level 3 in current creator network economics.
+- payout mode guard on `/earnings/claim`.
+- Stripe/claim routes use explicit creator scoping and ownership checks.
+- `financial_reversal_events` and `financial_reversal_items` tables exist after migration 016.
+
+`READ-ONLY DIAGNOSTIC`:
+
+- Discord `/shopify_attribution_debug`.
+- `shopify_attribution_events`.
+- `scripts/productionSafetyTest.js` reports:
+  - `--order-report`
+  - `--actor-matrix`
+  - `--lineage-report`
+  - `--economic-report`
+  - `--refund-report`
+  - `--settlement-report`
+  - `--risk-report`
+  - `--route-risk-report`
+
+`DOCUMENTED ARCHITECTURE ONLY` / `PLANNED / NOT IMPLEMENTED`:
+
+- settlement collection.
+- settlement-aware live claimability.
+- automatic brand charging.
+- refund/chargeback enforcement.
+- payout clawbacks.
+- negative balance offsets.
+- synthetic-commerce scoring and risk holds.
+- threat intelligence scanning.
+- live creator payout release.
+- brand-origin network economics end-to-end validation at live scale.
+
+`MANUAL OPERATOR TASK`:
+
+- confirm production `PAYOUT_MODE=claims_disabled`.
+- confirm Railway/Shopify/Stripe/Supabase env and webhook settings.
+- place controlled real Shopify test orders.
+- reconcile first beta orders manually with read-only reports.
+- approve any future payout, settlement, refund, or brand-billing changes.
+
+`BLOCKED / NO-GO`:
+
+- live creator payouts.
+- live settlement automation.
+- automatic refund enforcement.
+- automatic negative-balance collection.
+- live Stripe transfers.
+
 ## Current Live State
 
 - Production app is deployed on Railway.

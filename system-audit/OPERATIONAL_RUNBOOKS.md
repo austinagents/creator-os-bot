@@ -5,6 +5,17 @@ Purpose:
 - Provide safe, repeatable operator procedures for reliability testing and debugging.
 - Keep commands explicit and non-destructive by default.
 
+## Runbook Classification Labels
+
+- `READ-ONLY DIAGNOSTIC`: safe inspection only.
+- `MANUAL OPERATOR TASK`: human action outside app automation.
+- `SANDBOX_ACTION`: test-only action requiring approval.
+- `RUNTIME-ENFORCED`: behavior currently enforced by code/schema.
+- `PLANNED / NOT IMPLEMENTED`: runbook describes future process but runtime support is incomplete.
+- `BLOCKED / NO-GO`: do not execute for live money.
+
+Runbooks are not automatic controls. A runbook step is runtime-enforced only when explicitly labeled `RUNTIME-ENFORCED`.
+
 ## Safety Rules
 
 - Do not deploy or push unless explicitly approved.

@@ -13,6 +13,19 @@ Purpose:
 - `MANUAL_PRODUCTION_SAFE`: Uses real production routes but test data only. Requires operator review before execution.
 - `DO_NOT_AUTOMATE`: Should remain manual or require a formal runbook before execution.
 
+## Enforcement Labels
+
+Use these labels to prevent confusing test coverage with runtime controls:
+
+- `RUNTIME-ENFORCED`: app/schema currently enforces this behavior.
+- `READ-ONLY DIAGNOSTIC`: test/report observes behavior only.
+- `DOCUMENTED ARCHITECTURE ONLY`: documented target, not currently enforced.
+- `PLANNED / NOT IMPLEMENTED`: not built yet.
+- `MANUAL OPERATOR TASK`: requires human action.
+- `BLOCKED / NO-GO`: unsafe until further runtime controls exist.
+
+Test entries may prove `RUNTIME-ENFORCED` behavior, but a test entry alone does not create runtime enforcement.
+
 ## Core Test Creators
 
 - `test-creator-01`
@@ -78,6 +91,12 @@ test-creator-01 -> test-creator-02 -> test-creator-03 -> test-creator-04
 - `DASHBOARD_MONEY_CLARITY`: accounted vs funded vs claimable money-state clarity.
 
 ## Guaranteed Behaviors
+
+Important:
+
+- Some guarantees are already `RUNTIME-ENFORCED`.
+- Some guarantees are `DOCUMENTED ARCHITECTURE ONLY` or `PLANNED / NOT IMPLEMENTED` until future settlement/refund/risk systems are built.
+- Live payout safety claims are `BLOCKED / NO-GO` unless a guarantee explicitly says it is runtime-enforced today.
 
 - `REG-AUTH-001`: Sensitive Stripe routes must require explicit `creator_code` scoping and ownership verification.
 - `REG-AUTH-002`: Dashboard claim eligibility must compare the active dashboard creator `auth_user_id` to the signed-in auth user, not the default/latest creator.
