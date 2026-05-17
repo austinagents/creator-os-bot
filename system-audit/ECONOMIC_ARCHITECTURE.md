@@ -2689,3 +2689,444 @@ Additional regression rules:
 - `REG-SAFETY-010`: Refunded or charged-back orders must create reversal/offset records, not silent deletion.
 - `REG-SAFETY-011`: PartnerLinks must not rely on third-party onboarding alone as fraud approval.
 - `REG-SAFETY-012`: Creator/brand promotional abuse must have takedown and audit workflow.
+
+## Financial Failure Conditions Architecture
+
+This section defines the canonical failure-condition model before refund, chargeback, settlement, or live payout automation is built.
+
+Core invariant:
+
+- `conversion_created` does not mean `safe_to_pay`.
+- Accounted earnings are not necessarily funded earnings.
+- Money cannot remain permanently earned if the underlying commerce reverses.
+- No live payout can be claimable unless funding is proven by `settlement_collected`, `manual_approved`, or `reserve_covered`.
+
+### Refund / Chargeback / Reversal Lifecycle
+
+Required future states:
+
+- `refund_pending`: Shopify refund/dispute signal received; affected earnings are frozen from claim promotion.
+- `reversal_pending`: system is calculating direct commission, platform fee, creator network, and brand-origin reversal impact.
+- `reversed`: earnings were not paid and have been reversed from payable balances.
+- `offset_required`: earnings were already claimed/paid; future earnings must offset the reversed amount or operator review is required.
+- `chargeback_review`: chargeback/dispute signal needs operator review before release or reversal.
+
+Required future ledgers:
+
+- `refund_reversal_events`
+  - source event id, Shopify order id, conversion id, refund amount, refund percentage, reason, evidence payload hash, created_at.
+- `earning_reversal_items`
+  - direct commission reversal rows.
+  - Level 1/2/3 creator-network override reversal rows.
+  - brand-origin network override reversal rows.
+  - platform-fee settlement reversal rows.
+- `creator_balance_offsets`
+  - creator id, amount, source reversal item, status, applied_to_future_claim_batch_id.
+
+Canonical paths:
+
+- Full refund before payout:
+  - freeze affected conversion and earning rows.
+  - create reversal items for direct commission, platform fee, creator network overrides, and brand-origin rewards.
+  - mark affected earnings `reversed`.
+  - no payout or settlement release.
+- Full refund after payout:
+  - never delete paid rows.
+  - create reversal and offset records.
+  - set creator/network balance to `offset_required`.
+  - apply future earnings offsets or require operator intervention.
+- Partial refund before payout:
+  - calculate refund ratio against eligible order subtotal.
+  - reduce unpaid direct commission and platform-fee-derived overrides proportionally.
+  - mark remaining funded portion according to settlement state.
+- Partial refund after payout:
+  - create proportional offset records only for the refunded portion.
+  - keep original claim ledger immutable.
+- Chargeback/dispute before payout:
+  - move related rows to hold/review.
+  - do not allow claimability until dispute is resolved or manually approved.
+- Chargeback/dispute after payout:
+  - create `offset_required` records and operator risk event.
+  - future earnings may be held until offset clears.
+
+### Settlement-Aware Claim Promotion Plan
+
+Current sandbox behavior:
+
+- `claimable_at` and payout lifecycle support test-mode validation.
+- `PAYOUT_MODE=sandbox_time_based` with a Stripe test key preserves sandbox claim testing.
+
+Required live behavior:
+
+- A central settlement eligibility service must decide whether each earning row can become live-claimable.
+- Claim promotion must require:
+  - `settlement_collected`, or
+  - `manual_approved`, or
+  - `reserve_covered`.
+- Failed settlement, refund hold, risk hold, dispute hold, or unknown settlement status blocks live claimability.
+
+Minimal future schema additions:
+
+- On earning/accounting rows:
+  - `settlement_status`
+  - `settlement_item_id`
+  - `settlement_eligible_at`
+  - `manual_approved_at`
+  - `manual_approved_by`
+  - `reserve_covered_at`
+  - `risk_status`
+  - `refund_status`
+- Settlement tables:
+  - `settlement_batches`
+  - `settlement_items`
+  - `brand_payment_methods`
+  - `brand_reserve_ledger`
+  - `settlement_attempts`
+  - `settlement_events`
+
+Dashboard language:
+
+- Show accounted earnings separately from funded/claimable earnings.
+- Use "Pending settlement" for earnings that exist but are not funded.
+- Use "Claimable" only when settlement, manual approval, or reserve coverage is true.
+- Disabled claim states must explain the funding/approval requirement.
+
+### Brand-Origin Economic Validation Plan
+
+Brand-origin onboarding is proven as lineage. Brand-origin economics still need end-to-end proof.
+
+Required future validation:
+
+- Brand invites creator through `/join/brand/:brandSlug`.
+- Creator signs up and receives `invited_by_brand_id`.
+- Creator later generates attributed conversion through product referral flow.
+- System calculates brand-origin network reward from downstream `platform_fee_amount` only.
+- No creator-origin parent is set.
+- No self-generated override is created.
+- No duplicate `brand_network_earnings` row is created for replayed webhook.
+- Settlement gate applies before any brand-origin reward is payable.
+
+Brand-origin rewards are network overrides, not affiliate commissions. The inviting brand is rewarded only for downstream entity activity that creates eligible PartnerLinks platform fee.
+
+### Synthetic-Commerce Risk Model
+
+Controlled-beta risk model should stay small but explicit:
+
+- New creator payout hold:
+  - first payout and abnormal first conversion spike require review or settlement/reserve protection.
+- Refund-heavy hold:
+  - creators/brands/products with high refund or chargeback rates cannot bypass settlement/refund gates.
+- Velocity hold:
+  - abnormal order count, repeated buyer/order patterns, or sudden platform-fee spikes create risk review rows.
+- Identity-cluster review:
+  - duplicate Stripe accounts, payout methods, tax IDs, devices, IP clusters, or emails are risk signals.
+- Commerce-quality review:
+  - fake orders, circular purchases, stolen-card indicators, buyer/creator collusion, and low-quality incentive orders block claimability until reviewed.
+
+Risk status must never create payout eligibility by itself. It can only hold, release after approved review, or require more evidence.
+
+### Audit Automation / Threat Intelligence Plan
+
+The future safety monitor is read-only by default.
+
+It should produce a daily report with:
+
+- source or incident summary.
+- mapped PartnerLinks subsystem.
+- severity.
+- possible exploit path.
+- current protection status.
+- recommended docs/tests/code follow-up.
+- human approval requirement before any code or money-state change.
+
+It should monitor:
+
+- affiliate fraud and attribution hijacking cases.
+- Shopify app incidents.
+- Stripe Connect and marketplace payout fraud.
+- synthetic commerce cases.
+- refund/chargeback abuse.
+- small-platform security failures.
+- referral messaging and disclosure issues.
+
+It must not:
+
+- mutate code.
+- mutate payout, settlement, attribution, or creator state.
+- auto-create payouts, reversals, settlements, or moderation actions.
+
+### Automated Invariant Enforcement Plan
+
+`scripts/productionSafetyTest.js` should evolve from reporting toward read-only invariant checks.
+
+Proposed flags:
+
+- `--actor-matrix`
+- `--economic-report`
+- `--lineage-report`
+- `--settlement-report`
+- `--refund-report`
+- `--risk-report`
+- `--route-risk-report`
+- `--idempotency-report`
+
+Required invariant checks:
+
+- no Level 4+ network earnings.
+- no duplicate conversion order ids.
+- no duplicate network earning keys.
+- no self-generated network override.
+- no dual brand/creator lineage.
+- no ambiguous attribution conversion.
+- no payout-mode bypass.
+- no claimable live earnings without settlement, approval, or reserve.
+- no refunded conversion still payable.
+- no duplicate settlement item.
+- no duplicate claim transfer.
+- no unsafe admin/debug mutation route.
+
+Recommended build order:
+
+1. Add read-only invariant reports.
+2. Add refund/reversal schema and diagnostics.
+3. Add settlement item schema and eligibility service.
+4. Add manual approval gate.
+5. Add reserve/prepaid balance mode.
+6. Add Shopify refund/dispute webhook ingestion.
+7. Add risk holds and operator review queue.
+
+## Controlled Financial-Failure Implementation Sequence
+
+This is the sequencing model for moving from documented architecture to runtime infrastructure. Each phase must be small, isolated, and fail closed.
+
+### Phase 1 - Refund / Reversal Ledger Infrastructure
+
+Goal:
+
+- create accounting-safe reversal infrastructure before automated payout mutation.
+- preserve immutable evidence that a conversion or earning was reversed.
+- make it possible to prove that refunded commerce cannot remain permanently payable.
+
+Smallest isolated runtime patch:
+
+- add reversal ledger tables only.
+- do not automatically claw back payouts.
+- do not create Stripe reversals.
+- do not collect negative balances.
+- do not automatically mutate historical claim ledgers.
+
+Recommended schema:
+
+- `financial_reversal_events`
+  - `id`
+  - `created_at`
+  - `updated_at`
+  - `source_type`
+  - `source_event_id`
+  - `shop_domain`
+  - `shopify_order_id`
+  - `order_id`
+  - `brand_id`
+  - `conversion_id`
+  - `reversal_type`
+  - `reversal_reason`
+  - `reversal_status`
+  - `currency`
+  - `original_order_amount`
+  - `reversed_order_amount`
+  - `reversal_ratio`
+  - `idempotency_key`
+  - `evidence`
+  - `notes`
+- `financial_reversal_items`
+  - `id`
+  - `created_at`
+  - `reversal_event_id`
+  - `item_type`
+  - `conversion_id`
+  - `creator_network_earning_id`
+  - `brand_network_earning_id`
+  - `creator_earning_claim_id`
+  - `affected_creator_id`
+  - `affected_brand_id`
+  - `original_amount`
+  - `reversal_amount`
+  - `currency`
+  - `payout_status_at_reversal`
+  - `offset_required`
+  - `offset_status`
+  - `settlement_status_at_reversal`
+  - `notes`
+
+Allowed initial values:
+
+- `reversal_type`
+  - `full_refund`
+  - `partial_refund`
+  - `chargeback`
+  - `dispute`
+  - `manual_adjustment`
+- `reversal_status`
+  - `recorded`
+  - `review_required`
+  - `applied`
+  - `offset_required`
+  - `voided`
+- `item_type`
+  - `direct_commission`
+  - `platform_fee`
+  - `creator_network_override`
+  - `brand_network_override`
+  - `claim_offset`
+
+Migration safety concerns:
+
+- Use additive tables first; do not rewrite existing earnings rows in the first migration.
+- Add uniqueness on `idempotency_key` for events.
+- Allow nullable links for future compatibility, but enforce at least one target reference through application validation first.
+- Use `jsonb` evidence only for minimal non-sensitive diagnostics; never store full customer/payment payloads by default.
+- Do not require historical backfill before deployment.
+
+Backward compatibility:
+
+- Existing conversions, network earnings, and claim rows remain valid.
+- Existing dashboard totals are unchanged until explicit reversal application logic is built.
+- Existing `PAYOUT_MODE` fail-closed behavior remains the live safety guard.
+
+Runtime artifact:
+
+- `database/migrations/016_financial_reversal_ledger.sql`
+
+Current status:
+
+- migration file created.
+- SQL not run automatically.
+- no runtime JS behavior changed.
+
+Tables created by the migration:
+
+- `financial_reversal_events`
+- `financial_reversal_items`
+
+Important boundary:
+
+- migration 016 creates reversal observability/accounting infrastructure only.
+- it does not enforce reversals.
+- it does not mutate payout state.
+- it does not change dashboard balances.
+- it does not create Stripe reversals, payout clawbacks, or negative-balance collection.
+
+### Phase 2 - Settlement-State Runtime Schema
+
+Goal:
+
+- make settlement status queryable before settlement automation exists.
+- prepare earnings rows for settlement-aware claim promotion.
+
+Smallest safe schema additions:
+
+- On `conversions`:
+  - `settlement_status`
+  - `settlement_collected_at`
+  - `settlement_batch_id`
+  - `reversal_status`
+  - `risk_status`
+  - `reserve_covered_at`
+- On `creator_network_earnings`:
+  - same settlement/reversal/risk fields.
+- On `brand_network_earnings`:
+  - same settlement/reversal/risk fields.
+- On future `settlement_items`:
+  - direct commission item.
+  - platform fee item.
+  - creator network override item.
+  - brand-origin network override item.
+
+Initial defaults:
+
+- `reversal_status = 'none'`.
+- `risk_status = 'normal'`.
+- settlement status should not imply live claimability until a settlement eligibility service exists.
+
+Fail-closed rule:
+
+- unknown settlement status cannot make live earnings claimable.
+
+### Phase 3 - Read-Only Invariant Reporting Expansion
+
+Goal:
+
+- expand `scripts/productionSafetyTest.js` into repeatable financial invariant reporting before new mutation systems are enabled.
+
+Initial flags:
+
+- `--actor-matrix`
+- `--economic-report`
+- `--lineage-report`
+- `--settlement-report`
+- `--refund-report`
+- `--risk-report`
+- `--idempotency-report`
+
+Reports must be read-only by default and safe against production data.
+
+### Phase 4 - Controlled-Beta Synthetic-Commerce Detection
+
+Goal:
+
+- add the smallest practical risk model before public beta.
+
+Minimal runtime pieces:
+
+- `risk_reviews`
+- `risk_signals`
+- `creator_risk_status`
+- `brand_risk_status`
+- manual hold/release state.
+
+Initial signals:
+
+- first payout.
+- conversion velocity spike.
+- refund ratio.
+- repeated buyer/order patterns when available.
+- duplicate payout method or Stripe account when available.
+- suspicious creator clusters.
+
+### Phase 5 - Read-Only Threat Intelligence / Audit Monitor
+
+Goal:
+
+- create daily risk scan output that maps external incidents to PartnerLinks subsystems.
+
+Rules:
+
+- no code mutation.
+- no money-state mutation.
+- no automatic moderation or payout actions.
+- human approval required before implementation.
+
+### Phase 6 - Replay / Idempotency Hardening
+
+Goal:
+
+- extend idempotency from orders/paid and claims into refunds, settlements, reversals, and risk review events.
+
+Required idempotency keys:
+
+- Shopify order paid event.
+- Shopify refund event.
+- Shopify dispute/chargeback event.
+- reversal event.
+- reversal item.
+- settlement item.
+- settlement batch.
+- brand payment attempt.
+- Stripe transfer/claim batch.
+
+Validation required before each phase:
+
+- migration SQL reviewed manually before Supabase execution.
+- `node --check` for touched JS files.
+- read-only `productionSafetyTest.js` report before and after.
+- docs updated with new invariant and rollback/disable behavior.

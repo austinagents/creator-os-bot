@@ -1827,6 +1827,220 @@ Remaining untested or partially tested edge cases:
   - authenticated `test-creator-04` attempting Stripe start/claim against another creator code should be blocked.
   - authenticated `test-creator-04` attempting dashboard claim without explicit `creator_code` should not mutate another creator.
 
+## Current Financial Failure-Condition Design State
+
+The happy-path referral/economic system has been proven across deterministic attribution, direct commission accounting, platform-fee accounting, Level 1/2/3 creator network propagation, duplicate webhook idempotency, ambiguous fallback skip behavior, lineage isolation, and Stripe test-mode claim flow.
+
+The next layer is financial correctness when commerce, settlement, or payout assumptions fail.
+
+Documentation updated:
+
+- `system-audit/ECONOMIC_ARCHITECTURE.md`
+- `system-audit/RELIABILITY_AUDIT.md`
+- `system-audit/TEST_MATRIX.md`
+- `system-audit/KNOWN_RISKS.md`
+- `system-audit/OPERATIONAL_RUNBOOKS.md`
+- `system-audit/REGRESSION_HISTORY.md`
+
+Newly clarified invariant:
+
+- `conversion_created` does not mean `safe_to_pay`.
+- Accounted earnings are not necessarily funded earnings.
+- Money cannot remain permanently earned if the underlying commerce reverses.
+- Live claimability requires `settlement_collected`, `manual_approved`, or `reserve_covered`.
+
+Refund/reversal architecture now documented:
+
+- full refund before payout.
+- full refund after payout.
+- partial refund before payout.
+- partial refund after payout.
+- chargeback/dispute before payout.
+- chargeback/dispute after payout.
+- direct commission reversal.
+- Level 1/2/3 network override reversal.
+- brand-origin network reversal.
+- post-payout `offset_required` / negative-balance behavior.
+- immutable claim ledger interaction.
+
+Settlement-aware claimability plan now documented:
+
+- add central settlement eligibility service before live claims.
+- add settlement status/manual approval/reserve coverage fields.
+- add `settlement_batches`, `settlement_items`, `brand_payment_methods`, `brand_reserve_ledger`, `settlement_attempts`, and `settlement_events`.
+- dashboard should distinguish accounted earnings, pending settlement, funded/claimable earnings, claimed earnings, reversed earnings, and on-hold earnings.
+
+Brand-origin economic validation state:
+
+- brand-origin onboarding lineage is proven.
+- brand-origin economic conversion behavior is not yet end-to-end proven.
+- future proof must show `brand_network_earnings` generated only from downstream `platform_fee_amount`, with no creator-origin contamination, no self-generated override, no duplicate brand-network rows, and settlement gating.
+
+Synthetic-commerce risk model now documented:
+
+- new creator payout holds.
+- first-payout review.
+- refund-heavy creator/brand/product holds.
+- abnormal conversion velocity review.
+- duplicate payout method / Stripe account / device / IP / email cluster review.
+- risk status can hold/release after review but must not create payout eligibility by itself.
+
+Audit automation / threat intelligence plan:
+
+- daily read-only safety scan proposed.
+- maps external affiliate, Shopify, Stripe Connect, marketplace, payout, and creator-reward incidents to PartnerLinks subsystems.
+- requires human approval before code, money-state, attribution, settlement, payout, moderation, or risk-state changes.
+
+Proposed `productionSafetyTest.js` future read-only flags:
+
+- `--actor-matrix`
+- `--economic-report`
+- `--lineage-report`
+- `--settlement-report`
+- `--refund-report`
+- `--risk-report`
+- `--route-risk-report`
+- `--idempotency-report`
+
+New/proposed regression coverage:
+
+- `REG-REFUND-001`: refunded commerce must reverse all related earnings.
+- `REG-SETTLEMENT-008`: risk holds must block claim promotion.
+- `REG-BRAND-ECON-001`: brand-origin rewards require downstream commerce.
+- `REG-INVARIANT-001`: production safety reports must cover financial failure states.
+
+No runtime code, payout math, Stripe logic, settlement logic, deployment, or data mutation changed in this documentation pass.
+
+## Current Controlled Implementation Sequence
+
+PartnerLinks is now moving from happy-path proof toward financial correctness under failure conditions.
+
+Runtime implementation order:
+
+1. Refund / reversal ledger infrastructure.
+2. Settlement-state runtime schema.
+3. Read-only invariant reporting expansion.
+4. Controlled-beta synthetic-commerce detection.
+5. Read-only threat intelligence / audit monitor.
+6. Replay / idempotency hardening across refunds, reversals, settlements, claims, transfers, and settlement batches.
+
+Smallest first runtime patch:
+
+- additive migration only.
+- create `financial_reversal_events`.
+- create `financial_reversal_items`.
+- link reversals to the original conversion/network earning/brand earning/claim rows.
+- include `reversal_reason`, `reversal_status`, `offset_required`, idempotency key, timestamps, and minimal evidence.
+- do not automatically claw back payouts.
+- do not create Stripe reversals.
+- do not collect negative balances.
+- do not change dashboard totals or payout state until reversal application logic is separately reviewed.
+
+Proposed reversal schema:
+
+- `financial_reversal_events`
+  - source/event identity.
+  - Shopify order/conversion/brand references.
+  - reversal type, reason, status.
+  - original amount, reversed amount, reversal ratio.
+  - unique idempotency key.
+  - minimal non-sensitive evidence.
+- `financial_reversal_items`
+  - reversal event reference.
+  - direct commission / platform fee / creator network / brand network / claim offset item type.
+  - original financial-row reference.
+  - affected creator or brand.
+  - original amount, reversal amount.
+  - payout status and settlement status at reversal time.
+  - offset-required status.
+
+Migration safety concerns:
+
+- additive-only first migration.
+- no destructive SQL.
+- no automatic historical backfill.
+- unique reversal event idempotency key.
+- nullable references where needed for forward compatibility.
+- no full Shopify/Stripe/customer/payment payload storage.
+- SQL must be pasted/run manually in Supabase SQL Editor by the user.
+
+Backward compatibility:
+
+- existing conversions remain unchanged.
+- existing creator/network/brand earnings remain unchanged.
+- existing claim ledger remains unchanged.
+- `PAYOUT_MODE` remains the active live-claim safety guard.
+- current dashboard behavior remains unchanged until explicit reversal/settlement application logic is built.
+
+Validation required for the first implementation patch:
+
+- run read-only `productionSafetyTest.js --dry-run --report --matrix-report` before and after.
+- run `node --check` on any touched JS files.
+- inspect generated migration SQL before manual Supabase execution.
+- update `PROJECT_STATUS.md` and system-audit docs with migration name, invariants, and known limitations.
+
+## Migration 016 Financial Reversal Ledger
+
+Status:
+
+- Created locally.
+- Not run in Supabase.
+- Not deployed.
+
+File:
+
+- `database/migrations/016_financial_reversal_ledger.sql`
+
+Adds additive-only tables:
+
+- `financial_reversal_events`
+- `financial_reversal_items`
+
+Purpose:
+
+- create immutable observability/accounting infrastructure for refunds, partial refunds, chargebacks, disputes, manual adjustments, future negative-balance offsets, and future reversal application.
+
+What it includes:
+
+- unique `idempotency_key` on reversal events.
+- `source_system` values: `shopify`, `stripe`, `admin`, `manual`.
+- `reversal_type` values: `refund`, `partial_refund`, `chargeback`, `dispute`, `manual_adjustment`.
+- `reversal_status` values: `detected`, `pending_review`, `applied`, `ignored`, `failed`.
+- `offset_required` and `offset_status` on reversal items.
+- links to affected rows where applicable:
+  - `conversion_id`
+  - `creator_network_earning_id`
+  - `brand_network_earning_id`
+  - `creator_earning_claim_id`
+  - `affected_creator_id`
+  - `affected_brand_id`
+- minimal `evidence` JSON with explicit comments warning against full Shopify/Stripe/customer/payment payload storage.
+- indexes for order, brand, conversion, source, affected creator/brand, and offset lookups.
+
+What it does not do:
+
+- does not change dashboard totals.
+- does not change `payout_status`.
+- does not create Stripe reversals.
+- does not claw back payouts.
+- does not collect negative balances.
+- does not alter claim logic.
+- does not alter settlement logic.
+- does not alter attribution logic.
+- does not rewrite existing conversion, earning, or claim rows.
+
+Operational note:
+
+- SQL must be run manually in Supabase SQL Editor when approved.
+- This migration only creates reversal observability/accounting infrastructure. It does not enforce reversals yet.
+
+Validation:
+
+- `git diff --check` passed.
+- `node scripts/productionSafetyTest.js --dry-run --report --matrix-report` completed read-only.
+- No runtime JavaScript files were touched, so no `node --check` was required for this patch.
+- SQL was not executed automatically.
+
 Recommended additions to `scripts/productionSafetyTest.js`:
 
 - Add a `--security-report --creator-code <code>` mode that read-only verifies ownership-sensitive route assumptions from DB state:

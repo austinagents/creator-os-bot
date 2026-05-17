@@ -962,6 +962,145 @@ The following examples are source-backed risk patterns or user-provided research
   - `/earnings/claim` blocks unless `PAYOUT_MODE=sandbox_time_based` and `STRIPE_SECRET_KEY` starts with `sk_test_`.
   - `manual_approval` and `settlement_gated` are recognized but blocked until their schemas/services exist.
 
+### RISK-055 - Refund / Chargeback Failure Conditions Are Not Implemented
+
+- Severity: `SEV1`
+- Category: `REFUND_REVERSAL`, `REFUND_FRAUD`, `PAYOUT_LIFECYCLE`
+- Status: `OPEN`
+- Impacted systems:
+  - future Shopify refund/dispute webhooks.
+  - `conversions`
+  - `creator_network_earnings`
+  - `brand_network_earnings`
+  - `creator_earning_claims`
+  - future reversal/offset ledgers.
+- Description:
+  - Direct commission, platform fee, creator-network overrides, and brand-origin rewards need formal reversal behavior when Shopify orders refund, partially refund, dispute, or charge back.
+- Safe current behavior:
+  - Live public payout automation is blocked by `PAYOUT_MODE`.
+  - Current proven claims are Stripe test-mode only.
+  - Migration `016_financial_reversal_ledger.sql` now exists locally to create reversal observability/accounting tables once manually run.
+- Unsafe assumption:
+  - Do not assume a conversion that was valid at purchase time remains payable after refund or chargeback.
+  - Do not silently delete or edit paid earnings after payout.
+- Recommended mitigation:
+  - Run/review migration `016_financial_reversal_ledger.sql` to create `financial_reversal_events` and `financial_reversal_items`.
+  - Add Shopify refund/dispute webhook ingestion.
+  - Add pre-payout reversal and post-payout offset paths.
+  - Add operator review for disputes and refund-heavy creators/brands/products.
+
+### RISK-056 - Synthetic Commerce Can Exploit Correct Attribution
+
+- Severity: `SEV1`
+- Category: `SYNTHETIC_COMMERCE`, `FAKE_IDENTITY_NETWORKS`, `STRIPE_CONNECT_FRAUD`
+- Status: `OPEN`
+- Description:
+  - A conversion can be correctly attributed but still be unsafe commerce: fake orders, collusion, stolen cards, refund loops, or payout extraction clusters.
+- Safe current behavior:
+  - No live payout automation.
+  - Settlement-aware payout invariant is documented.
+- Unsafe assumption:
+  - Do not treat deterministic attribution as commerce-quality approval.
+  - Do not treat Stripe onboarding as fraud approval.
+- Recommended mitigation:
+  - Add risk holds for new creators, first payout, high velocity, high refund rate, repeated buyer/order patterns, duplicate payout methods, and suspicious identity clusters.
+  - Add manual review before large first payouts.
+  - Add risk status to earnings/claims so claimability can be blocked while preserving accounting.
+
+### RISK-057 - Brand-Origin Economics Are Not End-To-End Proven
+
+- Severity: `SEV2`
+- Category: `NETWORK_ECONOMICS`, `BRAND_ORIGIN`, `SETTLEMENT_FAILURE`
+- Status: `OPEN`
+- Description:
+  - Brand-origin onboarding lineage is proven, but brand-origin network reward creation from downstream real commerce has not been fully validated.
+- Safe current behavior:
+  - `REG-LINEAGE-001` prevents accidental dual creator/brand lineage.
+  - `brand_network_earnings` was not created in the latest test-creator conversion audit.
+- Unsafe assumption:
+  - Do not claim brand-as-origin network economics are production-proven until a deterministic downstream conversion creates the correct brand-origin row and no creator-origin contamination.
+- Recommended mitigation:
+  - Run controlled brand-origin conversion test after settlement/refund safety plan is clear.
+  - Verify rewards come only from downstream `platform_fee_amount`.
+  - Verify no self-generated override and no duplicate brand-network rows on replay.
+
+### RISK-058 - Invariant Reporting Is Not Yet Enforceable
+
+- Severity: `SEV2`
+- Category: `AUDITABILITY`, `PAYOUT_IDEMPOTENCY`, `WEBHOOK_REPLAY`
+- Status: `OPEN`
+- Description:
+  - `scripts/productionSafetyTest.js` reports many core invariants, but the next financial-failure layer needs dedicated read-only reports for settlement, refunds, risk holds, and route-risk assumptions.
+- Safe current behavior:
+  - Existing script is dry-run/read-only by default.
+  - Current matrix verifies core attribution, idempotency, payout ledger, and lineage checks.
+- Unsafe assumption:
+  - Do not rely on manual spot checks once refund, settlement, or risk states exist.
+- Recommended mitigation:
+  - Add read-only flags:
+    - `--actor-matrix`
+    - `--economic-report`
+    - `--lineage-report`
+    - `--settlement-report`
+    - `--refund-report`
+    - `--risk-report`
+    - `--route-risk-report`
+    - `--idempotency-report`
+
+### RISK-059 - Bundling Financial Mutation Systems Too Early
+
+- Severity: `SEV1`
+- Category: `PAYOUT_LIFECYCLE`, `REFUND_REVERSAL`, `SETTLEMENT_FAILURE`
+- Status: `OPEN`
+- Description:
+  - Implementing refunds, settlement, payout clawbacks, negative-balance collection, risk scoring, and dashboard balance changes in one patch would increase the chance of hidden financial-state bugs.
+- Safe current behavior:
+  - next implementation order is documented and starts with additive reversal ledger infrastructure only.
+- Unsafe assumption:
+  - Do not assume reversal ledgering implies automatic clawback, Stripe reversal, or live payout mutation.
+- Recommended mitigation:
+  - Phase implementation:
+    1. reversal ledger tables.
+    2. settlement status fields.
+    3. read-only invariant reports.
+    4. risk holds.
+    5. threat-intelligence monitoring.
+    6. idempotency expansion.
+  - Require manual review and validation after each phase.
+
+### RISK-060 - Reversal Ledger Could Store Sensitive Payloads
+
+- Severity: `SEV1`
+- Category: `DATA_BREACH_RESPONSE`, `SHOPIFY_APP_DATA_RISK`, `REFUND_REVERSAL`
+- Status: `OPEN`
+- Description:
+  - Refund/dispute evidence payloads can accidentally store customer, payment, or unnecessary Shopify order data.
+- Safe current behavior:
+  - no reversal ledger exists yet.
+  - documentation now requires minimal non-sensitive diagnostics only.
+- Unsafe assumption:
+  - Do not store full Shopify or Stripe payloads by default.
+- Recommended mitigation:
+  - Store source ids, amounts, statuses, hashes, and minimal evidence.
+  - Redact customer/payment data.
+  - keep service-role access server-side only.
+
+### RISK-061 - Settlement Fields Could Be Mistaken For Claim Approval
+
+- Severity: `SEV1`
+- Category: `SETTLEMENT_FAILURE`, `DASHBOARD_MONEY_CLARITY`, `PAYOUT_LIFECYCLE`
+- Status: `OPEN`
+- Description:
+  - Adding settlement fields before settlement automation could create a false sense that rows are live-funded or claimable.
+- Safe current behavior:
+  - `PAYOUT_MODE` fails closed for live claims.
+- Unsafe assumption:
+  - Do not treat non-null settlement fields as claim approval.
+- Recommended mitigation:
+  - Settlement fields must be non-granting by default.
+  - Only a central settlement eligibility service can later promote live claimability.
+  - Dashboard wording must keep accounted, pending settlement, funded, claimable, claimed, reversed, and held states separate.
+
 ## Risk Entry Template
 
 ```markdown

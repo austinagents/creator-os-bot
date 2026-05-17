@@ -574,6 +574,70 @@ Purpose:
 - Regression test:
   - audit scripts default dry-run/read-only; mutation requires explicit flag and test scope.
 
+### REG-REFUND-001 - Refunded Commerce Must Reverse All Related Earnings
+
+- Category: `REFUND_REVERSAL`, `NETWORK_ECONOMICS`, `PAYOUT_LIFECYCLE`
+- Severity: `SEV1`
+- Status: `OPEN`
+- First observed: failure-condition architecture pass, 2026-05-17
+- Regression symptom:
+  - refunded or charged-back commerce leaves direct commission, creator-network overrides, or brand-origin rewards payable.
+- Root cause:
+  - refund/dispute signals not ledgered against all financial rows created from the original platform-fee/direct-commission accounting.
+- Guardrail now expected:
+  - full and partial refunds create reversal rows for direct commission, platform fee, creator Level 1/2/3 overrides, and brand-origin overrides.
+  - post-payout refunds create offset/negative-balance records instead of deletion.
+- Regression test:
+  - Shopify refund/dispute event for an attributed order reverses or offsets every affected earning and leaves an audit trail.
+
+### REG-SETTLEMENT-008 - Risk Holds Must Block Claim Promotion
+
+- Category: `SYNTHETIC_COMMERCE`, `SETTLEMENT_FAILURE`, `PAYOUT_LIFECYCLE`
+- Severity: `SEV1`
+- Status: `OPEN`
+- First observed: failure-condition architecture pass, 2026-05-17
+- Regression symptom:
+  - suspicious commerce, refund-heavy activity, or new/high-risk creator activity becomes claimable without review.
+- Root cause:
+  - claim promotion only checks time/status and not settlement, refund, or risk eligibility.
+- Guardrail now expected:
+  - risk-held rows remain non-claimable until explicitly released.
+  - risk status can hold or release after review, but cannot create payout eligibility by itself.
+- Regression test:
+  - risk-held earning remains excluded from claimable balance even after `claimable_at`.
+
+### REG-BRAND-ECON-001 - Brand-Origin Rewards Require Downstream Commerce
+
+- Category: `NETWORK_ECONOMICS`, `BRAND_ORIGIN`, `SETTLEMENT_FAILURE`
+- Severity: `SEV1`
+- Status: `OPEN`
+- First observed: failure-condition architecture pass, 2026-05-17
+- Regression symptom:
+  - brand receives network reward from onboarding alone, self-generated activity, creator commission principal, or ambiguous attribution.
+- Root cause:
+  - brand-origin lineage confused with product attribution or creator-origin referral lineage.
+- Guardrail now expected:
+  - brand-origin rewards come only from eligible downstream `platform_fee_amount`.
+  - brand-origin onboarding alone creates no conversion or payout.
+  - `REG-LINEAGE-001` prevents accidental dual creator/brand lineage.
+- Regression test:
+  - brand-invited creator generates deterministic conversion; expected brand-origin row appears only if within network cap and settlement gate allows future payable status.
+
+### REG-INVARIANT-001 - Production Safety Reports Must Cover Financial Failure States
+
+- Category: `AUDITABILITY`, `PAYOUT_IDEMPOTENCY`, `WEBHOOK_REPLAY`
+- Severity: `SEV2`
+- Status: `OPEN`
+- First observed: failure-condition architecture pass, 2026-05-17
+- Regression symptom:
+  - refund, settlement, risk, or route-scope regression is only found manually after money state changes.
+- Root cause:
+  - reliability scripts report happy-path invariants but do not yet enforce future financial-failure invariants.
+- Guardrail now expected:
+  - read-only reports cover actor matrix, economics, lineage, settlement, refunds, risk, route risk, and idempotency.
+- Regression test:
+  - `productionSafetyTest.js` read-only invariant run fails/report-checks when duplicate orders, Level 4+, dual lineage, ambiguous attribution conversion, settlement bypass, or refund-payable contradictions exist.
+
 ## Regression Entry Template
 
 ```markdown

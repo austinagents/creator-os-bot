@@ -878,6 +878,211 @@ node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify
   - no duplicate conversion groups found.
   - no duplicate earning keys found.
 
+### REFUND-001 - Full Refund Before Payout Reverses All Earnings
+
+- Regression IDs:
+  - `REG-SETTLEMENT-004`
+  - `REG-SAFETY-010`
+- Mode: `FUTURE_CONTROLLED`
+- Systems:
+  - future Shopify refund webhook.
+  - future `refund_reversal_events`.
+  - future `earning_reversal_items`.
+- Setup:
+  - attributed conversion exists.
+  - direct commission and Level 1/2/3 overrides are accounted but not claimed.
+- Expected:
+  - direct creator commission is reversed.
+  - platform fee settlement item is reversed.
+  - Level 1/2/3 creator-network overrides are reversed.
+  - brand-origin network reward is reversed if present.
+  - no claimable earnings remain for the refunded amount.
+- Status:
+  - `UNKNOWN`
+- Notes:
+  - Not implemented. Required before public live settlement/payout automation.
+
+### REFUND-002 - Partial Refund Reverses Proportional Earnings
+
+- Regression IDs:
+  - `REG-SETTLEMENT-004`
+  - `REG-SAFETY-010`
+- Mode: `FUTURE_CONTROLLED`
+- Expected:
+  - reversal percentage is calculated from eligible refunded order amount.
+  - direct commission and platform-fee-derived overrides are reduced proportionally.
+  - remaining non-refunded portion keeps its settlement state.
+- Status:
+  - `UNKNOWN`
+
+### REFUND-003 - Refund After Payout Creates Offset
+
+- Regression IDs:
+  - `REG-SETTLEMENT-004`
+  - `REG-SAFETY-010`
+- Mode: `FUTURE_CONTROLLED`
+- Expected:
+  - original claim ledger remains immutable.
+  - reversal records are created.
+  - creator balance receives `offset_required` / negative-balance treatment.
+  - future earnings offset the paid reversal or operator review is required.
+- Status:
+  - `UNKNOWN`
+
+### SETTLEMENT-008 - Claim Promotion Requires Funding Evidence
+
+- Regression IDs:
+  - `REG-SETTLEMENT-001`
+  - `REG-SETTLEMENT-002`
+  - `REG-SAFETY-001`
+- Mode: `FUTURE_CONTROLLED`
+- Expected:
+  - earning rows cannot become live-claimable unless one of these is true:
+    - `settlement_collected`
+    - `manual_approved`
+    - `reserve_covered`
+  - failed, retrying, disputed, refund-pending, or risk-held settlement rows remain non-claimable.
+- Status:
+  - `UNKNOWN`
+- Current guard:
+  - `PAYOUT_MODE` blocks live claims unless explicit sandbox/test conditions are present.
+
+### BRAND_ORIGIN_ECON-001 - Brand-Origin Network Reward From Downstream Commerce
+
+- Regression IDs:
+  - `REG-ECONOMICS-001`
+  - `REG-LINEAGE-001`
+  - `REG-SETTLEMENT-002`
+- Mode: `FUTURE_CONTROLLED`
+- Setup:
+  - brand invites creator through `/join/brand/:brandSlug`.
+  - creator signs up and receives `invited_by_brand_id`.
+  - creator later generates deterministic attributed conversion.
+- Expected:
+  - `brand_network_earnings` row is created only from eligible downstream `platform_fee_amount`.
+  - no direct creator commission is redirected to the brand.
+  - no creator-origin parent is added.
+  - no self-generated override is created.
+  - settlement gate applies before payable status.
+- Status:
+  - `UNKNOWN`
+- Current state:
+  - brand-origin onboarding lineage is proven.
+  - end-to-end brand-origin economics are not yet proven.
+
+### RISK-001 - Synthetic Commerce Hold Blocks Claimability
+
+- Regression IDs:
+  - `REG-SAFETY-009`
+  - `REG-SECURITY-003`
+  - `REG-SECURITY-007`
+- Mode: `FUTURE_CONTROLLED`
+- Expected:
+  - high refund rate, suspicious velocity, duplicate payout methods, duplicate Stripe accounts, or repeated buyer/order patterns create a risk hold.
+  - held earnings do not become claimable until reviewed/released.
+  - risk status never creates payout eligibility by itself.
+- Status:
+  - `UNKNOWN`
+
+### INVARIANT-001 - Read-Only Financial Invariant Report
+
+- Proposed command:
+
+```bash
+node scripts/productionSafetyTest.js --actor-matrix --economic-report --lineage-report --settlement-report --refund-report --risk-report --idempotency-report
+```
+
+- Expected checks:
+  - no Level 4+.
+  - no duplicate conversion order ids.
+  - no duplicate network earning keys.
+  - no self-generated network override.
+  - no dual brand/creator lineage.
+  - no ambiguous attribution conversion.
+  - no payout-mode bypass.
+  - no live claimable earnings without settlement, approval, or reserve.
+  - no refunded conversion still payable.
+  - no duplicate settlement item.
+  - no duplicate claim transfer.
+  - no unsafe admin/debug mutation route.
+- Status:
+  - `PROPOSED`
+
+### IMPLEMENTATION_SEQUENCE-001 - Refund Ledger Comes Before Payout Mutation
+
+- Regression IDs:
+  - `REG-REFUND-001`
+  - `REG-SETTLEMENT-001`
+  - `REG-INVARIANT-001`
+- Mode: `REVIEW`
+- Expected:
+  - first runtime financial-failure patch is additive reversal ledger infrastructure.
+  - no Stripe reversal, negative-balance collection, automatic clawback, or payout mutation is bundled into the first patch.
+  - migration is safe to run manually and does not rewrite existing conversion/earning/claim rows.
+- Status:
+  - `PROPOSED`
+
+### REFUND_SCHEMA-001 - Reversal Event Idempotency
+
+- Regression IDs:
+  - `REG-REFUND-001`
+  - `REG-INVARIANT-001`
+- Mode: `FUTURE_READ_ONLY`
+- Expected:
+  - `financial_reversal_events.idempotency_key` is unique.
+  - replaying the same refund/dispute/reversal signal cannot create duplicate reversal event rows.
+  - duplicate reversal signals remain explainable in diagnostics.
+- Status:
+  - `READY_FOR_MANUAL_SQL`
+- Implementation artifact:
+  - `database/migrations/016_financial_reversal_ledger.sql`
+- Notes:
+  - migration creates a unique index on `financial_reversal_events.idempotency_key`.
+  - SQL has not been run in Supabase yet.
+
+### REFUND_SCHEMA-002 - Reversal Items Link To Original Financial Rows
+
+- Regression IDs:
+  - `REG-REFUND-001`
+- Mode: `FUTURE_READ_ONLY`
+- Expected:
+  - reversal items can link to the original conversion, creator network earning, brand network earning, or claim ledger row.
+  - item type clearly distinguishes direct commission, platform fee, creator-network override, brand-network override, and claim offset.
+  - offset-required rows preserve the original claimed/paid history.
+- Status:
+  - `READY_FOR_MANUAL_SQL`
+- Implementation artifact:
+  - `database/migrations/016_financial_reversal_ledger.sql`
+- Notes:
+  - migration adds nullable links to `conversions`, `creator_network_earnings`, `brand_network_earnings`, `creator_earning_claims`, `creators`, and `brands`.
+  - migration is observability/accounting only and does not apply reversals.
+
+### SETTLEMENT_SCHEMA-001 - Settlement Status Fields Are Non-Granting By Default
+
+- Regression IDs:
+  - `REG-SETTLEMENT-001`
+  - `REG-SETTLEMENT-002`
+- Mode: `FUTURE_READ_ONLY`
+- Expected:
+  - added settlement fields do not make rows claimable by themselves.
+  - unknown, null, failed, retrying, disputed, refund-pending, or risk-held status blocks live claimability.
+  - only settlement eligibility service can later promote live claimability.
+- Status:
+  - `UNKNOWN`
+
+### RISK_SCHEMA-001 - Risk Holds Block But Do Not Pay
+
+- Regression IDs:
+  - `REG-SETTLEMENT-008`
+  - `REG-SAFETY-009`
+- Mode: `FUTURE_READ_ONLY`
+- Expected:
+  - risk review can hold earnings/claims.
+  - risk review cannot itself make earnings payable.
+  - risk release still requires settlement, manual approval, or reserve coverage.
+- Status:
+  - `UNKNOWN`
+
 ## Test Case Template
 
 ~~~markdown

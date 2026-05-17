@@ -490,6 +490,191 @@ Do not:
 - Bypass HMAC/idempotency/ownership checks for convenience.
 - Run destructive SQL through scripts.
 
+## Runbook: Refund / Chargeback / Reversal Review
+
+Use when:
+
+- Shopify order is fully refunded, partially refunded, disputed, or charged back.
+- A creator, brand, or operator reports a reversed order.
+- Future Shopify refund/dispute webhook creates a review event.
+
+Requirements:
+
+- Do not delete conversion, earning, claim, or transfer rows.
+- Freeze affected unpaid earnings while review is active.
+- Preserve the original claim ledger if payout already occurred.
+- Create reversal/offset records once reversal tooling exists.
+- Migration `016_financial_reversal_ledger.sql` creates the first reversal event/item tables, but does not apply reversals automatically.
+
+Steps:
+
+1. Identify Shopify order id, conversion id, creator id, brand id, product slug, and original attribution event.
+2. Determine whether the affected direct commission or network override rows are unclaimed, claimable, claimed, or paid.
+3. For pre-payout reversals, mark affected earnings as reversed and remove from claimable balance after ledgering.
+4. For post-payout reversals, create `offset_required` / negative-balance records and hold future earnings if needed.
+5. Review Level 1/2/3 creator-network and brand-origin rewards created from the same `platform_fee_amount`.
+6. Record operator, timestamp, refund amount, refund percentage, reason, evidence, and affected rows.
+7. Add creator/brand risk hold if refund/chargeback pattern is suspicious.
+
+Expected:
+
+- Money does not remain permanently earned after commerce reverses.
+- Paid rows remain auditable and immutable.
+- Future earnings can offset post-payout reversals.
+
+Do not:
+
+- Silently edit claimed rows.
+- Delete payout history.
+- Leave network overrides payable when the platform fee source has reversed.
+
+## Runbook: Brand Settlement Failure
+
+Use when:
+
+- Future brand payment collection fails.
+- Settlement batch or settlement item enters `settlement_failed` or `settlement_retrying`.
+- Brand reserve is insufficient.
+
+Requirements:
+
+- Do not mark related earnings live-claimable.
+- Keep direct commission, platform fee, and network override items separate.
+- Keep operator diagnostics clear enough to explain blocked claimability.
+
+Steps:
+
+1. Identify settlement batch, settlement items, brand id, conversions, affected creators, and affected network rows.
+2. Verify whether failure is payment method failure, insufficient reserve, dispute, refund, or integration error.
+3. Keep affected earnings in pending settlement or hold state.
+4. Retry according to future settlement retry policy.
+5. Notify/operator-review brand if retries fail.
+6. Suspend claimability for affected rows until `settlement_collected`, `manual_approved`, or `reserve_covered`.
+7. Record all attempts, Stripe ids, operator notes, and final status.
+
+Expected:
+
+- Failed settlement cannot create claimable earnings.
+- Creators see clear pending-settlement language, not guaranteed payout language.
+
+Do not:
+
+- Release payouts because `claimable_at` elapsed.
+- Mix direct commission settlement with PartnerLinks platform fee accounting.
+
+## Runbook: Synthetic Commerce / Fraud Review
+
+Use when:
+
+- Order, creator, brand, product, payout, or network activity looks abnormal.
+- Signals include refund loops, repeated buyer/order patterns, sudden conversion velocity, duplicate payout methods, duplicate Stripe accounts, suspicious IP/device clusters, or first-payout spikes.
+
+Requirements:
+
+- Risk review can hold payout eligibility but must not create payout eligibility.
+- Do not assume correct attribution means safe commerce.
+- Do not assume Stripe onboarding proves user quality.
+
+Steps:
+
+1. Identify the affected creators, brands, conversions, clicks, attribution events, settlement items, and claim rows.
+2. Confirm deterministic attribution and duplicate prevention still behaved correctly.
+3. Review refund/chargeback history and conversion velocity.
+4. Review payout method/Stripe account overlap when available.
+5. Place affected earnings or creators on review hold once risk tooling exists.
+6. Decide: release, continue hold, reverse, offset, suspend, or escalate.
+7. Record evidence, operator, timestamp, decision, and follow-up date.
+
+Expected:
+
+- New/high-risk creators cannot instantly extract payouts.
+- Synthetic commerce does not become claimable just because conversion attribution was correct.
+
+Do not:
+
+- Pay solely from raw clicks, signups, or deterministic-but-suspicious conversions.
+- Resolve risk holds without an audit trail.
+
+## Runbook: Daily Threat Intelligence / Reliability Scan
+
+Use when:
+
+- Running future read-only safety monitoring.
+- Reviewing external affiliate, Shopify app, Stripe Connect, marketplace, payout, or creator-reward incidents.
+
+Requirements:
+
+- Read-only by default.
+- Human approval required before code, payout, settlement, attribution, or moderation changes.
+- Separate verified facts, assumptions, and internal opinions.
+
+Output format:
+
+- Date.
+- Source/incident summary.
+- Mapped PartnerLinks subsystem.
+- Severity.
+- Possible exploit path.
+- Current protection status.
+- Recommended docs/tests/code follow-up.
+- Approval needed before action.
+
+Do not:
+
+- Auto-mutate code.
+- Auto-mutate creator, attribution, payout, settlement, or risk state.
+- Treat AI-generated research as legal advice.
+
+## Runbook: Financial-Failure Implementation Review
+
+Use when:
+
+- Adding refund, reversal, settlement, risk, payout, or idempotency infrastructure.
+
+Required implementation order:
+
+1. Refund / reversal ledger infrastructure.
+2. Settlement-state runtime schema.
+3. Read-only invariant reporting.
+4. Controlled-beta synthetic-commerce risk holds.
+5. Read-only threat intelligence / audit monitor.
+6. Replay / idempotency hardening.
+
+Requirements:
+
+- One financial mutation class per patch.
+- Additive migrations first.
+- No destructive SQL.
+- No automatic payout clawback in reversal-ledger patch.
+- No Stripe reversal or negative-balance collection until explicitly designed.
+- No live claimability from settlement fields until eligibility service exists.
+- Manual Supabase SQL execution by operator only.
+- Migration `016_financial_reversal_ledger.sql` is the current first patch and should be reviewed/run manually before any reversal application logic is considered.
+
+Review checklist:
+
+1. Does this patch mutate money state, or only add audit/schema infrastructure?
+2. What is the idempotency key?
+3. What happens if the same event arrives twice?
+4. What happens if the event arrives out of order?
+5. What happens if payout already occurred?
+6. What rows prove the operator can audit the decision?
+7. Are sensitive payloads minimized/redacted?
+8. Does the patch fail closed?
+9. Are docs and regression tests updated?
+10. Were read-only reports run before and after?
+
+Expected:
+
+- Financial-failure infrastructure arrives in layers.
+- Each layer is explainable, auditable, and reversible from rollout behavior.
+
+Do not:
+
+- Bundle settlement collection, reversal application, risk scoring, and payout mutation together.
+- Treat schema existence as payout eligibility.
+- Change payout math while adding failure-condition infrastructure.
+
 ## Runbook Template
 
 ```markdown

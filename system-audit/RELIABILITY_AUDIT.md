@@ -681,6 +681,122 @@ node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify
   - documentation/risk-modeling pass only.
   - no runtime behavior changed.
 
+### 2026-05-17 - Failure-Condition Financial Correctness Layer Defined
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- Trigger:
+  - Happy-path referral attribution, direct commission accounting, Level 1/2/3 network propagation, collision handling, duplicate webhook idempotency, lineage isolation, and sandbox claim flow are proven.
+  - The next reliability layer is financial correctness when commerce, settlement, or payout assumptions fail.
+- Impacted systems:
+  - `conversions`
+  - `creator_network_earnings`
+  - `brand_network_earnings`
+  - `creator_earning_claims`
+  - future `settlement_batches`
+  - future `settlement_items`
+  - future `refund_reversal_events`
+  - future `earning_reversal_items`
+  - future risk/hold ledgers.
+- Findings:
+  - Refund, chargeback, partial refund, post-payout reversal, failed settlement, synthetic-commerce hold, and brand-origin economic proof paths must be explicit before public beta.
+  - `conversion_created` is not equivalent to `safe_to_pay`.
+  - Current payout protection is fail-closed for live mode through `PAYOUT_MODE`, but refund/reversal and settlement eligibility ledgers are not built.
+- Required invariants:
+  - full or partial refunds reverse direct creator commission and all platform-fee-derived network overrides proportionally.
+  - post-payout refunds create offset/negative-balance records, not silent edits or deletion.
+  - chargebacks and disputes hold claimability until resolved or manually approved.
+  - live claim promotion requires `settlement_collected`, `manual_approved`, or `reserve_covered`.
+  - duplicate refund, settlement, replay, and transfer events must be idempotent.
+  - synthetic commerce and risk holds cannot create payout eligibility; they can only block or require review.
+- Brand-origin economics:
+  - onboarding lineage is proven.
+  - brand-origin network earnings still need end-to-end validation from downstream real commerce.
+  - future proof must show platform-fee-only funding, no self-generated override, no creator-origin contamination, and settlement gating.
+- Recommended implementation sequence:
+  1. Extend read-only reliability reports in `scripts/productionSafetyTest.js`.
+  2. Add refund/reversal schema and diagnostics.
+  3. Add settlement item schema and central eligibility service.
+  4. Add manual approval and reserve coverage gates.
+  5. Add Shopify refund/dispute webhook ingestion.
+  6. Add risk holds and operator review queue.
+- Validation:
+  - documentation/architecture pass only.
+  - no runtime behavior changed.
+  - no payout math, Stripe logic, settlement logic, or deploy action changed.
+
+### 2026-05-17 - Financial Failure Implementation Sequence Approved
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- Trigger:
+  - PartnerLinks is ready to begin controlled implementation planning for financial-failure infrastructure.
+- Decision:
+  - implement in small isolated phases, with refund/reversal ledger infrastructure first.
+  - do not start with payout clawbacks, Stripe reversals, negative-balance collection, settlement automation, or risk scoring.
+- Approved order:
+  1. Refund / reversal ledger infrastructure.
+  2. Settlement-state runtime schema.
+  3. Read-only invariant reporting expansion.
+  4. Controlled-beta synthetic-commerce detection.
+  5. Read-only threat intelligence / audit monitor.
+  6. Replay / idempotency hardening across refunds, reversals, settlements, claims, and transfers.
+- Minimal first runtime patch:
+  - additive migration for `financial_reversal_events` and `financial_reversal_items`.
+  - immutable audit rows only.
+  - no automatic money movement.
+  - no automatic payout mutation.
+  - no dashboard balance changes until explicit reversal application logic is reviewed.
+- Migration safety rules:
+  - additive-only first.
+  - no destructive SQL.
+  - no historical backfill required.
+  - unique idempotency key for reversal events.
+  - no full customer/payment payload storage.
+- Required validation:
+  - migration SQL pasted for manual Supabase execution.
+  - read-only `productionSafetyTest.js` before and after.
+  - `node --check` for any touched JS.
+  - docs updated with new invariants and rollback/disable behavior.
+- Validation:
+  - documentation/sequencing pass only.
+  - no runtime behavior changed.
+
+### 2026-05-17 - Migration 016 Financial Reversal Ledger Created
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- Trigger:
+  - first approved controlled runtime patch for financial-failure infrastructure.
+- File:
+  - `database/migrations/016_financial_reversal_ledger.sql`
+- Scope:
+  - additive-only schema infrastructure.
+  - creates `financial_reversal_events`.
+  - creates `financial_reversal_items`.
+- Safety boundary:
+  - no dashboard total changes.
+  - no `payout_status` changes.
+  - no Stripe reversals.
+  - no payout clawbacks.
+  - no negative-balance collection.
+  - no claim logic changes.
+  - no settlement logic changes.
+  - no attribution logic changes.
+- Financial-safety features:
+  - unique reversal event `idempotency_key`.
+  - source system and source event tracking.
+  - links to affected conversion/network/brand/claim rows where applicable.
+  - `offset_required` and `offset_status` for future negative-balance/offset behavior.
+  - minimal non-sensitive evidence field.
+- Operational status:
+  - migration created locally.
+  - SQL not run automatically.
+  - requires manual Supabase SQL Editor execution when approved.
+- Validation:
+  - `git diff --check`.
+  - no runtime JS touched.
+
 ## Audit Entry Template
 
 ```markdown
