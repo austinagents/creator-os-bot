@@ -1158,14 +1158,16 @@ The following examples are source-backed risk patterns or user-provided research
 - Description:
   - Migration 017 proposes settlement batches/items and settlement/risk metadata fields, but schema existence alone does not prove funding or release claimability.
 - Safe current behavior:
-  - migration 017 is additive and not executed automatically.
-  - `PAYOUT_MODE` still blocks production claims.
+  - migration 017 is additive and does not collect money by itself.
+  - `PAYOUT_MODE=claims_disabled` still blocks production claims.
+  - runtime claimability now requires the active payout mode and matching row-level evidence.
+  - `manual_approval` and `settlement_gated` remain test-key guarded in this MVP.
   - settlement automation is not built.
 - Unsafe assumption:
-  - Do not treat `settlement_status`, `manual_approved_at`, or `reserve_covered_at` columns as live payout authorization until a central eligibility service enforces them.
+  - Do not treat `settlement_status`, `manual_approved_at`, or `reserve_covered_at` columns as proof that brand funding was collected.
 - Recommended mitigation:
   - Keep production claims disabled.
-  - Build settlement eligibility as a separate service with tests before enabling `settlement_gated`.
+  - Build settlement collection/reconciliation before enabling live `settlement_gated` claims.
 
 ### RISK-064 - Operator Reconciliation Could Miss Cross-Table Financial Context
 

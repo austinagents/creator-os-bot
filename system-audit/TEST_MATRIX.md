@@ -1238,6 +1238,36 @@ node scripts/productionSafetyTest.js --dry-run --settlement-report
 - Result:
   - migration file created locally; SQL was not run automatically.
 
+### SETTLEMENT-003 - Runtime Settlement-Aware Claimability Gate
+
+- Mode: `READ_ONLY`
+- Classification:
+  - `RUNTIME-ENFORCED`
+- Status:
+  - `CHECK`
+- Expected:
+  - `claims_disabled` blocks all claims.
+  - unknown/missing payout mode blocks all claims.
+  - `sandbox_time_based` requires `sk_test_` and uses `claimable_at`.
+  - `manual_approval` requires `sk_test_` and only permits manually approved rows.
+  - `settlement_gated` requires `sk_test_` and only permits settlement-collected or reserve-covered rows.
+  - dashboard separates Accounted, Pending settlement, Claimable, and Claimed earnings.
+  - no live Stripe transfer path is enabled.
+- Validation commands:
+
+```bash
+node --check index.js
+node --check services/payoutModeService.js
+node --check services/earningsLifecycleService.js
+node --check services/creatorDashboardService.js
+node scripts/productionSafetyTest.js --dry-run --settlement-report
+```
+
+- Last audit:
+  - 2026-05-17
+- Result:
+  - implemented as a payout-mode/row-level eligibility gate; live payouts remain NO-GO.
+
 ### IDEMPOTENCY-002 - Financial Failure Idempotency Report
 
 - Mode: `READ_ONLY`

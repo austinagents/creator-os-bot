@@ -4,6 +4,11 @@ const {
   createStripeTestTransfer,
   findStripeTestTransferForClaim
 } = require('./stripeConnectService');
+const {
+  getPayoutClaimGate,
+  isRowClaimableByPayoutMode,
+  applyClaimabilityFilter
+} = require('./payoutModeService');
 const { log } = require('./services/logger');
 
 const DEFAULT_PENDING_WINDOW_HOURS = 24;
@@ -18,20 +23,33 @@ function getClaimableAt(createdAt = new Date()) {
   return new Date(baseDate.getTime() + PENDING_WINDOW_HOURS * 60 * 60 * 1000).toISOString();
 }
 
-function resolveLifecycleStatus(row, now = new Date()) {
+function resolveLifecycleStatus(row, now = new Date(), options = {}) {
+  const payoutClaimGate = options.payoutClaimGate || getPayoutClaimGate();
   const status = row.payout_status || EARNING_STATUS_PENDING;
   if (status === EARNING_STATUS_CLAIMED) return EARNING_STATUS_CLAIMED;
-  if (status === EARNING_STATUS_CLAIMABLE) return EARNING_STATUS_CLAIMABLE;
+  if (status === EARNING_STATUS_CLAIMABLE && isRowClaimableByPayoutMode(row, payoutClaimGate)) {
+    return EARNING_STATUS_CLAIMABLE;
+  }
 
   const claimableAt = row.claimable_at ? new Date(row.claimable_at) : null;
-  if (claimableAt && claimableAt <= now) return EARNING_STATUS_CLAIMABLE;
+  if (
+    payoutClaimGate.allowed
+    && payoutClaimGate.claimabilityRule === 'time_based'
+    && claimableAt
+    && claimableAt <= now
+  ) {
+    return EARNING_STATUS_CLAIMABLE;
+  }
+
+  if (isRowClaimableByPayoutMode(row, payoutClaimGate)) return EARNING_STATUS_CLAIMABLE;
   return EARNING_STATUS_PENDING;
 }
 
-function sumLifecycleAmounts(rows, amountField = 'commission_amount', now = new Date()) {
+function sumLifecycleAmounts(rows, amountField = 'commission_amount', now = new Date(), options = {}) {
+  const payoutClaimGate = options.payoutClaimGate || getPayoutClaimGate();
   return (rows || []).reduce((totals, row) => {
     const amount = Number(row[amountField] || 0);
-    const status = resolveLifecycleStatus(row, now);
+    const status = resolveLifecycleStatus(row, now, { payoutClaimGate });
 
     totals.lifetime += amount;
     if (status === EARNING_STATUS_PENDING) totals.pending += amount;
@@ -46,43 +64,69 @@ function sumLifecycleAmounts(rows, amountField = 'commission_amount', now = new 
   });
 }
 
-async function promoteClaimableEarningsForCreator(creatorId) {
+async function promoteClaimableEarningsForCreator(creatorId, options = {}) {
+  const payoutClaimGate = options.payoutClaimGate || getPayoutClaimGate();
+  if (!payoutClaimGate.allowed) {
+    log('Claimable promotion skipped by payout mode gate:', {
+      creatorId,
+      payoutMode: payoutClaimGate.mode,
+      claimabilityRule: payoutClaimGate.claimabilityRule,
+      reason: payoutClaimGate.reason
+    });
+    return;
+  }
+
   const now = new Date().toISOString();
 
-  const { error: conversionError } = await supabase
+  let conversionQuery = supabase
     .from('conversions')
     .update({ payout_status: EARNING_STATUS_CLAIMABLE })
     .eq('creator_id', creatorId)
-    .eq('payout_status', EARNING_STATUS_PENDING)
-    .lte('claimable_at', now);
+    .eq('payout_status', EARNING_STATUS_PENDING);
+  if (payoutClaimGate.claimabilityRule === 'time_based') {
+    conversionQuery = conversionQuery.lte('claimable_at', now);
+  } else {
+    conversionQuery = applyClaimabilityFilter(conversionQuery, payoutClaimGate);
+  }
+  const { error: conversionError } = await conversionQuery;
   if (conversionError) throw conversionError;
 
-  const { error: networkError } = await supabase
+  let networkQuery = supabase
     .from('creator_network_earnings')
     .update({ payout_status: EARNING_STATUS_CLAIMABLE })
     .eq('earning_creator_id', creatorId)
-    .eq('payout_status', EARNING_STATUS_PENDING)
-    .lte('claimable_at', now);
+    .eq('payout_status', EARNING_STATUS_PENDING);
+  if (payoutClaimGate.claimabilityRule === 'time_based') {
+    networkQuery = networkQuery.lte('claimable_at', now);
+  } else {
+    networkQuery = applyClaimabilityFilter(networkQuery, payoutClaimGate);
+  }
+  const { error: networkError } = await networkQuery;
   if (networkError) throw networkError;
 }
 
 async function claimCreatorEarnings({
   creatorId,
   stripeAccountId,
-  currency = 'USD'
+  currency = 'USD',
+  payoutClaimGate = getPayoutClaimGate()
 }) {
-  await promoteClaimableEarningsForCreator(creatorId);
+  if (!payoutClaimGate.allowed) {
+    throw new Error(`Claims are blocked by payout mode ${payoutClaimGate.mode}: ${payoutClaimGate.reason}`);
+  }
 
-  const existingClaimBatchId = await getExistingReservedClaimBatchId(creatorId);
+  await promoteClaimableEarningsForCreator(creatorId, { payoutClaimGate });
+
+  const existingClaimBatchId = await getExistingReservedClaimBatchId(creatorId, { payoutClaimGate });
   const claimBatchId = existingClaimBatchId || crypto.randomUUID();
   if (!existingClaimBatchId) {
-    await reserveClaimableEarnings(creatorId, claimBatchId);
+    await reserveClaimableEarnings(creatorId, claimBatchId, { payoutClaimGate });
   }
 
   const {
     reservedConversions,
     reservedNetworkEarnings
-  } = await getReservedClaimRows(creatorId, claimBatchId);
+  } = await getReservedClaimRows(creatorId, claimBatchId, { payoutClaimGate });
 
   let directCommissionAmount = sumAmounts(reservedConversions);
   let networkEarningAmount = sumAmounts(reservedNetworkEarnings);
@@ -211,42 +255,52 @@ async function claimCreatorEarnings({
   };
 }
 
-async function reserveClaimableEarnings(creatorId, claimBatchId) {
-  const { error: conversionsError } = await supabase
+async function reserveClaimableEarnings(creatorId, claimBatchId, options = {}) {
+  const payoutClaimGate = options.payoutClaimGate || getPayoutClaimGate();
+  let conversionQuery = supabase
     .from('conversions')
     .update({ claim_batch_id: claimBatchId })
     .eq('creator_id', creatorId)
     .eq('payout_status', EARNING_STATUS_CLAIMABLE)
     .is('claim_batch_id', null);
+  conversionQuery = applyClaimabilityFilter(conversionQuery, payoutClaimGate);
+  const { error: conversionsError } = await conversionQuery;
   if (conversionsError) throw conversionsError;
 
-  const { error: networkError } = await supabase
+  let networkQuery = supabase
     .from('creator_network_earnings')
     .update({ claim_batch_id: claimBatchId })
     .eq('earning_creator_id', creatorId)
     .eq('payout_status', EARNING_STATUS_CLAIMABLE)
     .is('claim_batch_id', null);
+  networkQuery = applyClaimabilityFilter(networkQuery, payoutClaimGate);
+  const { error: networkError } = await networkQuery;
   if (networkError) throw networkError;
 }
 
-async function getExistingReservedClaimBatchId(creatorId) {
+async function getExistingReservedClaimBatchId(creatorId, options = {}) {
+  const payoutClaimGate = options.payoutClaimGate || getPayoutClaimGate();
   const batchIds = new Set();
 
-  const { data: conversionRows, error: conversionError } = await supabase
+  let conversionQuery = supabase
     .from('conversions')
     .select('claim_batch_id')
     .eq('creator_id', creatorId)
     .eq('payout_status', EARNING_STATUS_CLAIMABLE)
     .not('claim_batch_id', 'is', null);
+  conversionQuery = applyClaimabilityFilter(conversionQuery, payoutClaimGate);
+  const { data: conversionRows, error: conversionError } = await conversionQuery;
   if (conversionError) throw conversionError;
   for (const row of conversionRows || []) batchIds.add(row.claim_batch_id);
 
-  const { data: networkRows, error: networkError } = await supabase
+  let networkQuery = supabase
     .from('creator_network_earnings')
     .select('claim_batch_id')
     .eq('earning_creator_id', creatorId)
     .eq('payout_status', EARNING_STATUS_CLAIMABLE)
     .not('claim_batch_id', 'is', null);
+  networkQuery = applyClaimabilityFilter(networkQuery, payoutClaimGate);
+  const { data: networkRows, error: networkError } = await networkQuery;
   if (networkError) throw networkError;
   for (const row of networkRows || []) batchIds.add(row.claim_batch_id);
 
@@ -260,21 +314,26 @@ async function getExistingReservedClaimBatchId(creatorId) {
   return cleanBatchIds[0] || null;
 }
 
-async function getReservedClaimRows(creatorId, claimBatchId) {
-  const { data: reservedConversions, error: conversionError } = await supabase
+async function getReservedClaimRows(creatorId, claimBatchId, options = {}) {
+  const payoutClaimGate = options.payoutClaimGate || getPayoutClaimGate();
+  let conversionQuery = supabase
     .from('conversions')
     .select('id, commission_amount')
     .eq('creator_id', creatorId)
     .eq('payout_status', EARNING_STATUS_CLAIMABLE)
     .eq('claim_batch_id', claimBatchId);
+  conversionQuery = applyClaimabilityFilter(conversionQuery, payoutClaimGate);
+  const { data: reservedConversions, error: conversionError } = await conversionQuery;
   if (conversionError) throw conversionError;
 
-  const { data: reservedNetworkEarnings, error: networkError } = await supabase
+  let networkQuery = supabase
     .from('creator_network_earnings')
     .select('id, commission_amount')
     .eq('earning_creator_id', creatorId)
     .eq('payout_status', EARNING_STATUS_CLAIMABLE)
     .eq('claim_batch_id', claimBatchId);
+  networkQuery = applyClaimabilityFilter(networkQuery, payoutClaimGate);
+  const { data: reservedNetworkEarnings, error: networkError } = await networkQuery;
   if (networkError) throw networkError;
 
   return {

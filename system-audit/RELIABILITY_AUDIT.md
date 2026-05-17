@@ -980,6 +980,36 @@ node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify
   - `node scripts/productionSafetyTest.js --dry-run --idempotency-report`
   - `node scripts/productionSafetyTest.js --dry-run --report --matrix-report`
 
+### 2026-05-17 - Settlement-Aware Claimability Gate
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- Impacted systems:
+  - `services/payoutModeService.js`
+  - `services/earningsLifecycleService.js`
+  - `services/creatorDashboardService.js`
+  - `/earnings/claim`
+  - Creator Dashboard earnings display
+- Finding:
+  - Claimability now routes through a payout-mode gate instead of assuming `claimable_at` is sufficient in every mode.
+  - `claims_disabled` and unknown/missing modes fail closed.
+  - `sandbox_time_based` keeps current sandbox behavior only with `sk_test_`.
+  - `manual_approval` only permits rows explicitly marked manual-approved.
+  - `settlement_gated` only permits rows marked settlement-collected or reserve-covered.
+- Safety boundary:
+  - Production remains `claims_disabled`.
+  - Stripe transfer creation remains test-mode guarded.
+  - No live payouts, settlement collection, refund enforcement, payout math changes, or claim ledger schema changes were introduced.
+- Dashboard result:
+  - Creator Dashboard now separates Accounted earnings, Pending settlement, Claimable earnings, and Claimed earnings.
+- Validation:
+  - `node --check index.js`
+  - `node --check services/payoutModeService.js`
+  - `node --check services/earningsLifecycleService.js`
+  - `node --check services/creatorDashboardService.js`
+  - `node scripts/productionSafetyTest.js --dry-run --settlement-report`
+  - `node scripts/productionSafetyTest.js --dry-run --report --matrix-report`
+
 ## Audit Entry Template
 
 ```markdown

@@ -4,6 +4,7 @@ const {
   promoteClaimableEarningsForCreator,
   sumLifecycleAmounts
 } = require('./earningsLifecycleService');
+const { getPayoutClaimGate } = require('./payoutModeService');
 
 async function getCreatorDashboardByCode(creatorCode) {
   const normalizedCreatorCode = normalizeCode(creatorCode);
@@ -12,7 +13,8 @@ async function getCreatorDashboardByCode(creatorCode) {
   const creator = await findCreatorByCode(normalizedCreatorCode);
   if (!creator) return null;
 
-  await promoteClaimableEarningsForCreator(creator.id);
+  const payoutClaimGate = getPayoutClaimGate();
+  await promoteClaimableEarningsForCreator(creator.id, { payoutClaimGate });
 
   const [
     directReferralsCount,
@@ -25,8 +27,8 @@ async function getCreatorDashboardByCode(creatorCode) {
     countDirectReferrals(creator.id),
     countNestedReferrals(creator.id, 2),
     countNestedReferrals(creator.id, 3),
-    getConversionStats(creator.id),
-    getNetworkEarnings(creator.id),
+    getConversionStats(creator.id, { payoutClaimGate }),
+    getNetworkEarnings(creator.id, { payoutClaimGate }),
     getPayoutHistory(creator.id)
   ]);
 
@@ -52,6 +54,7 @@ async function getCreatorDashboardByCode(creatorCode) {
     claimableEarnings,
     claimedEarnings,
     totalEarnings,
+    pendingSettlementEarnings: pendingEarnings,
     payoutHistory,
     stripeAccountId: creator.stripe_account_id || null,
     stripeOnboardingStatus: creator.stripe_onboarding_status || 'not_connected'
@@ -107,15 +110,16 @@ async function countNestedReferrals(rootCreatorId, level) {
   return 0;
 }
 
-async function getConversionStats(creatorId) {
+async function getConversionStats(creatorId, options = {}) {
+  const payoutClaimGate = options.payoutClaimGate || getPayoutClaimGate();
   const { data, error } = await supabase
     .from('conversions')
-    .select('order_value, commission_amount, payout_status, claimable_at')
+    .select('order_value, commission_amount, payout_status, claimable_at, settlement_status, settlement_collected_at, manual_approved_at, reserve_covered_at')
     .eq('creator_id', creatorId);
   if (error) throw error;
 
   const conversions = data || [];
-  const lifecycle = sumLifecycleAmounts(conversions);
+  const lifecycle = sumLifecycleAmounts(conversions, 'commission_amount', new Date(), { payoutClaimGate });
   return {
     totalConversions: conversions.length,
     totalOrderValue: conversions.reduce((sum, row) => sum + Number(row.order_value || 0), 0),
@@ -126,14 +130,15 @@ async function getConversionStats(creatorId) {
   };
 }
 
-async function getNetworkEarnings(creatorId) {
+async function getNetworkEarnings(creatorId, options = {}) {
+  const payoutClaimGate = options.payoutClaimGate || getPayoutClaimGate();
   const { data, error } = await supabase
     .from('creator_network_earnings')
-    .select('commission_amount, payout_status, claimable_at')
+    .select('commission_amount, payout_status, claimable_at, settlement_status, settlement_collected_at, manual_approved_at, reserve_covered_at')
     .eq('earning_creator_id', creatorId);
   if (error) throw error;
 
-  const lifecycle = sumLifecycleAmounts(data || []);
+  const lifecycle = sumLifecycleAmounts(data || [], 'commission_amount', new Date(), { payoutClaimGate });
   return {
     total: lifecycle.lifetime,
     pending: lifecycle.pending,

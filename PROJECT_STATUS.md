@@ -2355,6 +2355,50 @@ New read-only diagnostics:
   - checks duplicate Stripe transfer ids in `creator_earning_claims`.
   - shows duplicate webhook replay diagnostics when present.
 
+## Settlement-Aware Claimability Gate
+
+Classification:
+
+- claimability gate: `RUNTIME-ENFORCED`
+- live creator payouts: `BLOCKED / NO-GO`
+- settlement collection: `PLANNED / NOT IMPLEMENTED`
+
+Runtime behavior:
+
+- Claimability is centralized in `services/payoutModeService.js`.
+- `/earnings/claim` still requires scoped creator ownership and Stripe payouts enabled.
+- `claimCreatorEarnings()` independently checks the payout mode gate before reserving rows.
+- claim reservation only selects eligible rows for the active payout mode.
+- dashboard totals now distinguish:
+  - Accounted earnings
+  - Pending settlement
+  - Claimable earnings
+  - Claimed earnings
+
+Behavior by `PAYOUT_MODE`:
+
+- `sandbox_time_based`
+  - allowed only when `STRIPE_SECRET_KEY` starts with `sk_test_`.
+  - keeps current sandbox behavior based on `claimable_at`.
+- `claims_disabled`
+  - blocks claims.
+  - production default/recommendation.
+- `manual_approval`
+  - allowed only with a Stripe test key.
+  - only earnings with `manual_approved_at` or `settlement_status='manual_approved'` can be reserved/claimed.
+- `settlement_gated`
+  - allowed only with a Stripe test key.
+  - only earnings with `settlement_collected_at`, `reserve_covered_at`, `settlement_status='settlement_collected'`, or `settlement_status='reserve_covered'` can be reserved/claimed.
+- missing/unknown mode:
+  - blocks claims.
+
+Safety notes:
+
+- Non-sandbox live claims remain unavailable because production must stay `claims_disabled`.
+- Existing Stripe transfer creation remains test-mode guarded by `sk_test_`.
+- Time-based claim promotion no longer runs when payout mode is blocked.
+- Settlement/manual/reserve fields do not collect money or prove funding by themselves.
+
 Remaining blocked before live payouts:
 
 - settlement collection is not built.

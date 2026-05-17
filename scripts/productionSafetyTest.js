@@ -1797,11 +1797,18 @@ function getLocalPayoutGateSummary() {
   const mode = String(PAYOUT_MODE || 'claims_disabled').trim().toLowerCase();
   const recognized = ['sandbox_time_based', 'claims_disabled', 'manual_approval', 'settlement_gated'].includes(mode);
   const stripeKeyMode = getStripeKeyMode();
-  const allowed = mode === 'sandbox_time_based' && stripeKeyMode === 'test';
+  const claimabilityRules = {
+    sandbox_time_based: 'time_based',
+    manual_approval: 'manual_approved_only',
+    settlement_gated: 'settlement_collected_or_reserve_covered',
+    claims_disabled: 'none'
+  };
+  const allowed = stripeKeyMode === 'test' && ['sandbox_time_based', 'manual_approval', 'settlement_gated'].includes(mode);
   return {
     mode,
     recognized,
     stripe_key_mode: stripeKeyMode,
+    claimability_rule: claimabilityRules[mode] || 'none',
     allowed,
     production_recommendation: 'claims_disabled',
     live_payouts_go_no_go: 'NO-GO'

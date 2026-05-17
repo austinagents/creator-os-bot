@@ -40,27 +40,20 @@ const {
   ingestShopifyOrdersPaidWebhook,
   ingestShopifyRefundWebhook
 } = require("./services/shopifyWebhookService");
+const { getPayoutClaimGate } = require("./services/payoutModeService");
 const { generateCanonicalSlug, generateSlug, normalizeCode } = require("./utils/slug");
 
 const {
   DISCORD_TOKEN,
   BOT_ALERTS_CHANNEL_ID,
   PUBLIC_BASE_URL,
-  ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID,
-  STRIPE_SECRET_KEY,
-  PAYOUT_MODE
+  ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID
 } = require("./config/config/env");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DEFAULT_PLATFORM_FEE_RATE = 5;
 const REFERRAL_LINK_HOST = 'partnerlinks.app';
-const PAYOUT_MODES = new Set([
-  'sandbox_time_based',
-  'claims_disabled',
-  'manual_approval',
-  'settlement_gated'
-]);
 const PUBLIC_SHOPIFY_BRAND_MAP = {
   'aria-wellness': 'partnerlinks-test.myshopify.com'
 };
@@ -838,7 +831,8 @@ app.post('/earnings/claim', async (req, res) => {
 
     const claimResult = await claimCreatorEarnings({
       creatorId: creator.id,
-      stripeAccountId: creator.stripe_account_id
+      stripeAccountId: creator.stripe_account_id,
+      payoutClaimGate
     });
 
     log('Claim earnings ledger update completed', {
@@ -1902,20 +1896,26 @@ function renderStripeConnectButton(creatorCode) {
 
 function renderCreatorEarningsLifecycle(dashboard, options = {}) {
   const payoutClaimGate = options.payoutClaimGate || getPayoutClaimGate();
+  const pendingSettlementEarnings = Number(dashboard.pendingSettlementEarnings || dashboard.pendingEarnings || 0);
+  const accountedUnclaimedEarnings = Math.max(0, Number(dashboard.totalEarnings || 0) - Number(dashboard.claimedEarnings || 0));
   const canClaim = Boolean(
     options.ownerCanClaim &&
     payoutClaimGate.allowed &&
     dashboard.stripeOnboardingStatus === 'payouts_enabled' &&
     Number(dashboard.claimableEarnings || 0) > 0
   );
-  const claimBlockedMessage = !payoutClaimGate.allowed && Number(dashboard.claimableEarnings || 0) > 0
+  const claimBlockedMessage = !canClaim && accountedUnclaimedEarnings > 0
     ? `<p class="claim-earnings-note">${escapeHtml(payoutClaimGate.dashboardMessage || 'Claims are unavailable until settlement or approval is enabled.')}</p>`
     : '';
 
   return `<div class="earnings-lifecycle-summary">
             <div>
-              <span>Pending earnings</span>
-              <strong>${escapeHtml(formatMoney(dashboard.pendingEarnings))}</strong>
+              <span>Accounted earnings</span>
+              <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
+            </div>
+            <div>
+              <span>Pending settlement</span>
+              <strong>${escapeHtml(formatMoney(pendingSettlementEarnings))}</strong>
             </div>
             <div>
               <span>Claimable earnings</span>
@@ -1924,10 +1924,6 @@ function renderCreatorEarningsLifecycle(dashboard, options = {}) {
             <div>
               <span>Claimed earnings</span>
               <strong>${escapeHtml(formatMoney(dashboard.claimedEarnings))}</strong>
-            </div>
-            <div>
-              <span>Lifetime earnings</span>
-              <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
             </div>
             <form class="claim-earnings-form" method="POST" action="/earnings/claim">
               <input type="hidden" name="creator_code" value="${escapeHtml(dashboard.creatorCode)}">
@@ -1941,10 +1937,10 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
   const inviteLink = dashboard.inviteLink || `${PUBLIC_BASE_URL}/join/${dashboard.creatorCode}`;
   const dashboardPath = `/dashboard/${encodeURIComponent(dashboard.creatorCode)}`;
   const primaryStats = [
-    ['Pending Earnings', formatMoney(dashboard.pendingEarnings), 'Earnings in the 24-hour pending window'],
-    ['Claimable Earnings', formatMoney(dashboard.claimableEarnings), 'Ready for future claim flow'],
+    ['Accounted Earnings', formatMoney(dashboard.totalEarnings), 'Recorded earnings before funding and settlement gates'],
+    ['Pending Settlement', formatMoney(dashboard.pendingSettlementEarnings || dashboard.pendingEarnings), 'Accounted earnings waiting for funding, approval, or reserve coverage'],
+    ['Claimable Earnings', formatMoney(dashboard.claimableEarnings), 'Funding/approval-gated earnings available in the active payout mode'],
     ['Claimed Earnings', formatMoney(dashboard.claimedEarnings), 'Internally claimed earnings ledger'],
-    ['Lifetime Earnings', formatMoney(dashboard.totalEarnings), 'Campaign plus network earnings'],
     ['Order Value', formatMoney(dashboard.totalOrderValue), 'Attributed creator sales'],
     ['Conversions', dashboard.totalConversions, 'Recorded sales'],
     ['Network Earnings', formatMoney(dashboard.networkEarnings), 'Creator referral overrides']
@@ -2755,48 +2751,6 @@ function brandStateCookieOptions() {
     sameSite: 'lax',
     maxAge: 365 * 24 * 60 * 60 * 1000,
     path: '/'
-  };
-}
-
-function getPayoutClaimGate() {
-  const rawMode = String(PAYOUT_MODE || 'claims_disabled').trim().toLowerCase();
-  const recognized = PAYOUT_MODES.has(rawMode);
-  const mode = recognized ? rawMode : 'unknown';
-  const stripeKeyIsTest = /^sk_test_/.test(String(STRIPE_SECRET_KEY || ''));
-
-  if (mode === 'sandbox_time_based') {
-    if (stripeKeyIsTest) {
-      return {
-        allowed: true,
-        mode,
-        recognized,
-        reason: 'Sandbox time-based claims are enabled with a Stripe test key.',
-        dashboardMessage: null
-      };
-    }
-
-    return {
-      allowed: false,
-      mode,
-      recognized,
-      reason: 'sandbox_time_based requires STRIPE_SECRET_KEY to start with sk_test_.',
-      dashboardMessage: 'Claims are unavailable until settlement or approval is enabled.'
-    };
-  }
-
-  const messages = {
-    claims_disabled: 'Claims are unavailable until settlement or approval is enabled.',
-    manual_approval: 'Claims are unavailable until manual approval support is enabled.',
-    settlement_gated: 'Claims are unavailable until settlement-gated claims are enabled.',
-    unknown: 'Claims are unavailable because payout mode is not recognized.'
-  };
-
-  return {
-    allowed: false,
-    mode,
-    recognized,
-    reason: messages[mode] || messages.unknown,
-    dashboardMessage: messages[mode] || messages.unknown
   };
 }
 

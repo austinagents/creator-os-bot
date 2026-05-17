@@ -3188,3 +3188,47 @@ Validation required before each phase:
 - `node --check` for touched JS files.
 - read-only `productionSafetyTest.js` report before and after.
 - docs updated with new invariant and rollback/disable behavior.
+
+## Runtime Claimability Gate
+
+Classification:
+
+- `RUNTIME-ENFORCED` for claim route/service row eligibility.
+- `BLOCKED / NO-GO` for live creator payouts.
+
+Canonical invariant:
+
+- Accounted earnings are not necessarily funded earnings.
+- Live claimability must not be based only on `claimable_at`.
+
+Current payout-mode behavior:
+
+- `sandbox_time_based`
+  - test-only behavior.
+  - requires `STRIPE_SECRET_KEY` beginning with `sk_test_`.
+  - keeps the existing `claimable_at` based sandbox validation flow.
+- `claims_disabled`
+  - production-safe default.
+  - blocks claim execution and time-based claim promotion.
+- `manual_approval`
+  - only works with a Stripe test key in this MVP.
+  - only rows with `manual_approved_at` or `settlement_status='manual_approved'` can become claimable/reserved.
+- `settlement_gated`
+  - only works with a Stripe test key in this MVP.
+  - only rows with `settlement_collected_at`, `reserve_covered_at`, `settlement_status='settlement_collected'`, or `settlement_status='reserve_covered'` can become claimable/reserved.
+- missing/unknown modes:
+  - block.
+
+Dashboard money language:
+
+- `Accounted earnings`: recorded earnings before funding gates.
+- `Pending settlement`: accounted but not currently claimable under the active payout mode.
+- `Claimable earnings`: row-level eligible under the active payout mode.
+- `Claimed earnings`: internally claimed ledger state.
+
+Important:
+
+- This gate prevents accidental live claimability before settlement infrastructure exists.
+- It does not collect brand funds.
+- It does not enforce refunds.
+- It does not enable live Stripe transfers.
