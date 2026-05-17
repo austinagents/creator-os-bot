@@ -32,15 +32,20 @@ This file is mostly `DOCUMENTED ARCHITECTURE ONLY` unless an item is explicitly 
 `DOCUMENTED ARCHITECTURE ONLY` / `PLANNED / NOT IMPLEMENTED`:
 
 - automatic brand settlement collection.
-- `settlement_batches` / `settlement_items`.
 - settlement-aware live claim promotion.
-- refund webhook ingestion.
 - refund/chargeback enforcement.
 - payout clawbacks.
 - negative balance offsets.
 - synthetic-commerce risk scoring and risk holds.
 - automated threat intelligence scanning.
 - live creator payout release.
+
+Additive infrastructure now proposed or present:
+
+- `financial_reversal_events` / `financial_reversal_items` exist as diagnostic-only reversal ledger infrastructure.
+- `POST /webhooks/shopify/refunds-create` captures Shopify refund events into reversal ledger rows without applying reversals.
+- migration `017_settlement_state_runtime_schema.sql` proposes `settlement_batches`, `settlement_items`, and settlement/risk metadata fields.
+- none of these release live claimability or prove funding by themselves.
 
 `UNSAFE FOR LIVE PAYOUTS`:
 

@@ -666,6 +666,37 @@ When in doubt, verify current enforcement in `PROJECT_STATUS.md` and the relevan
   - `node scripts/productionSafetyTest.js --dry-run --order-report --order-id <shopify_order_id>` returns attribution decisions, conversion rows, network rows, claim batch context, and reversal rows.
   - `node scripts/productionSafetyTest.js --dry-run --actor-matrix --lineage-report --economic-report --refund-report --settlement-report --risk-report --route-risk-report` runs as read-only launch-reconciliation support.
 
+### REG-REFUND-001 - Refund Capture Must Not Apply Reversals Automatically
+
+- Category: `REFUND_REVERSAL`, `PAYOUT_IDEMPOTENCY`, `SETTLEMENT_FAILURE`
+- Severity: `SEV1`
+- Status: `CHECK`
+- First observed: pre-payout financial failure infrastructure pass, 2026-05-17
+- Regression symptom:
+  - Shopify refund webhook changes `payout_status`, claimability, dashboard totals, Stripe transfer state, or settlement state during diagnostic capture.
+- Root cause:
+  - refund ingestion confused with reversal enforcement.
+- Guardrail now expected:
+  - refund webhook verifies HMAC and writes idempotent reversal ledger rows only.
+  - reversal enforcement, offsets, clawbacks, and Stripe reversals remain separate future patches.
+- Regression test:
+  - valid refund webhook creates at most one reversal event per idempotency key and does not mutate conversions, creator-network earnings, brand-network earnings, claims, Stripe transfers, or settlement state.
+
+### REG-SETTLEMENT-009 - Settlement Schema Does Not Release Claimability By Itself
+
+- Category: `SETTLEMENT_FAILURE`, `PAYOUT_LIFECYCLE`, `DASHBOARD_MONEY_CLARITY`
+- Severity: `SEV1`
+- Status: `OPEN`
+- First observed: settlement schema proposal pass, 2026-05-17
+- Regression symptom:
+  - non-null settlement fields are treated as live payout authorization without central eligibility enforcement.
+- Root cause:
+  - schema presence mistaken for funding proof.
+- Guardrail now expected:
+  - settlement fields remain diagnostic/future-state infrastructure until settlement eligibility service enforces `settlement_collected`, `manual_approved`, or `reserve_covered`.
+- Regression test:
+  - production claims remain blocked by payout mode and cannot be released by setting settlement columns alone.
+
 ## Regression Entry Template
 
 ```markdown

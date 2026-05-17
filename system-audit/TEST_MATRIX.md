@@ -1188,6 +1188,84 @@ node scripts/productionSafetyTest.js --dry-run --actor-matrix --lineage-report -
   - order report for `shopify:partnerlinks-test.myshopify.com:6549690941614` showed exact `partnerlinks_ref` attribution, direct commission, platform fee, Level 1/2 network rows, no claim batch, and no reversal rows.
   - actor/economic/lineage/refund/settlement/risk/route-risk report completed without mutation.
 
+### REFUND_REVERSAL-002 - Diagnostic-Only Shopify Refund Capture
+
+- Mode: `MANUAL_PRODUCTION_SAFE`
+- Classification:
+  - `RUNTIME-ENFORCED` for HMAC verification and idempotent diagnostic capture.
+  - `PLANNED / NOT IMPLEMENTED` for reversal enforcement.
+- Status:
+  - `CHECK`
+- Expected:
+  - `POST /webhooks/shopify/refunds-create` rejects invalid HMAC.
+  - valid refund webhooks create one `financial_reversal_events` row per idempotency key.
+  - reversal items are created only when the original conversion can be safely matched.
+  - duplicate refund webhook delivery does not create duplicate reversal events.
+  - no `payout_status`, `claimable_at`, dashboard total, Stripe transfer, or settlement state is changed.
+- Validation commands:
+
+```bash
+node --check index.js
+node --check services/shopifyWebhookService.js
+node scripts/productionSafetyTest.js --dry-run --refund-report --idempotency-report
+```
+
+- Last audit:
+  - 2026-05-17
+- Result:
+  - code path added; live refund webhook replay/Shopify delivery still requires operator-controlled test.
+
+### SETTLEMENT-002 - Additive Settlement Schema Proposal
+
+- Mode: `READ_ONLY`
+- Classification:
+  - `PLANNED / NOT IMPLEMENTED` until migration is manually run.
+  - `DOCUMENTED ARCHITECTURE ONLY` until settlement eligibility service exists.
+- Status:
+  - `CHECK`
+- Expected:
+  - migration 017 creates settlement batches/items and settlement/risk metadata fields.
+  - migration does not release payouts or change claimability.
+  - reports can detect whether settlement tables/columns exist.
+- Validation commands:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --settlement-report
+```
+
+- Last audit:
+  - 2026-05-17
+- Result:
+  - migration file created locally; SQL was not run automatically.
+
+### IDEMPOTENCY-002 - Financial Failure Idempotency Report
+
+- Mode: `READ_ONLY`
+- Classification:
+  - `READ-ONLY DIAGNOSTIC`
+- Status:
+  - `CHECK`
+- Expected:
+  - report checks duplicate Shopify conversion order ids as hard failures.
+  - report labels non-Shopify/manual/test duplicate conversion order ids as hygiene findings unless linked to financial side effects.
+  - report checks duplicate creator-network and brand-network earning keys.
+  - report checks duplicate reversal event idempotency keys.
+  - report checks duplicate settlement item idempotency keys when settlement tables exist.
+  - report checks duplicate Stripe transfer ids in claim ledger.
+  - report shows duplicate webhook replay diagnostics when present.
+- Validation commands:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --idempotency-report
+```
+
+- Last audit:
+  - 2026-05-17
+- Result:
+  - report added; run before enabling any financial-failure mutation systems.
+  - known historical manual duplicate `test-network-001` is classified as manual/test hygiene, not a Shopify launch blocker.
+  - `shopify:*` duplicate order ids remain `FAIL`.
+
 ## Test Case Template
 
 ~~~markdown

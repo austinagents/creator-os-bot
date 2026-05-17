@@ -2277,6 +2277,94 @@ Validation run on 2026-05-17:
   - creator network rows: Level 1 = 0.27, Level 2 = 0.03, no Level 3 because the conversion source was `test-creator-03`.
   - reversal rows: 0.
 
+## Pre-Payout Financial Failure Infrastructure Pass
+
+Classification:
+
+- Diagnostic refund ingestion: `RUNTIME-ENFORCED` only for HMAC verification, idempotent reversal event capture, and non-mutating reversal item capture.
+- Refund/reversal application: `PLANNED / NOT IMPLEMENTED`.
+- Settlement schema: migration proposed locally; `PLANNED / NOT IMPLEMENTED` until Austin manually runs it.
+- Live creator payouts: `BLOCKED / NO-GO`.
+
+Runtime behavior added:
+
+- `POST /webhooks/shopify/refunds-create`
+  - verifies Shopify HMAC with the same raw-body verifier used by `orders/paid`.
+  - creates an idempotent `financial_reversal_events` row using `shopify:refund:{shop_domain}:{refund_id_or_webhook_id_or_body_hash}`.
+  - stores minimal non-sensitive evidence:
+    - webhook id
+    - refund id
+    - Shopify order id
+    - timestamps
+    - currency
+    - transaction/refund-line/order-adjustment counts
+    - whether a conversion match was found
+  - optionally creates `financial_reversal_items` only when the original conversion is safely matchable by `shopify:{shop_domain}:{order_id}`.
+  - creates diagnostic item rows for:
+    - direct commission
+    - platform fee
+    - creator network overrides
+    - brand network overrides when present
+  - marks reversal items as `offset_required` only when the affected row was already claimed or reserved, but does not apply the offset.
+
+Explicitly unchanged:
+
+- no `payout_status` changes.
+- no claimability changes.
+- no dashboard total changes.
+- no Stripe reversals.
+- no payout clawbacks.
+- no negative-balance collection.
+- no settlement release.
+- no payout math changes.
+
+New additive migration proposal:
+
+- `database/migrations/017_settlement_state_runtime_schema.sql`
+  - creates `settlement_batches`.
+  - creates `settlement_items`.
+  - adds settlement/risk/manual-approval/reserve/reversal status columns to:
+    - `conversions`
+    - `creator_network_earnings`
+    - `brand_network_earnings`
+  - does not collect money or release payouts by itself.
+  - must be run manually by Austin in Supabase SQL Editor if approved.
+
+Latest validation notes:
+
+- `git diff --check` passed.
+- JS syntax checks passed for touched runtime/reporting files.
+- `node scripts/productionSafetyTest.js --dry-run --report --matrix-report` completed with no new payout, lineage, or attribution regressions; remaining `CHECK` items are expected scoped coverage gaps for recent ambiguous fallback and duplicate replay diagnostics.
+- `node scripts/productionSafetyTest.js --dry-run --refund-report --settlement-report --idempotency-report --route-risk-report` confirmed reversal tables are present and empty, refund enforcement is disabled, and route classification includes the diagnostic refund endpoint.
+- `--idempotency-report` classifies duplicate conversion order ids by namespace/source:
+  - `shopify:*` duplicates remain `FAIL` launch blockers.
+  - non-Shopify/manual/test duplicates are `CHECK` hygiene findings unless linked to earnings, claims, payouts, reversals, settlement items, or network rows.
+- Known hygiene item:
+  - `test-network-001` conversion ids `2` and `3` are historical/manual test rows from `2026-05-13` for brand `8` / creator `4`.
+  - They have `source=manual`, `notes=network test`, no Shopify attribution events, no network earnings, no reversal rows, no claim rows, and no claimed/reserved payout state.
+  - Current Shopify conversion safety remains clean: `11` Shopify conversions, `0` duplicate Shopify order ids.
+
+New read-only diagnostics:
+
+- `scripts/productionSafetyTest.js --idempotency-report`
+  - checks duplicate Shopify conversion order ids as hard failures.
+  - labels non-Shopify/manual duplicate conversion order ids as historical/test-data hygiene unless financial side effects exist.
+  - checks duplicate creator-network and brand-network earning keys.
+  - checks duplicate reversal event idempotency keys.
+  - checks duplicate settlement item idempotency keys when settlement tables exist.
+  - checks duplicate Stripe transfer ids in `creator_earning_claims`.
+  - shows duplicate webhook replay diagnostics when present.
+
+Remaining blocked before live payouts:
+
+- settlement collection is not built.
+- settlement-aware live claim promotion is not built.
+- refund enforcement is not built.
+- chargeback/dispute enforcement is not built.
+- payout clawbacks and negative-balance offsets are not built.
+- risk holds and first payout review are not enforced.
+- brand auto-charging is not built.
+
 Recommended fixes before broader real brand onboarding:
 
 - Keep all Stripe diagnostic and payout routes on explicit creator-scoped ownership checks; `/stripe/connect/debug?creator_code=...` now follows the same pattern as start/return/claim.

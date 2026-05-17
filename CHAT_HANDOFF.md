@@ -6,6 +6,7 @@ Important continuity rule:
 - `system-audit/ECONOMIC_ARCHITECTURE.md` and ADRs contain canonical architecture direction, but architecture direction is not automatically runtime-enforced.
 - Treat claims as `RUNTIME-ENFORCED` only when the status docs or code explicitly say they are implemented.
 - Settlement collection, settlement-aware live claimability, refund enforcement, chargeback enforcement, payout clawbacks, negative balance offsets, synthetic-commerce scoring, threat intelligence scanning, live brand auto-charging, and live creator payout release remain planned/blocked unless explicitly updated in `PROJECT_STATUS.md`.
+- Shopify refund webhook capture may exist as diagnostic-only reversal ledgering. It must not be confused with refund enforcement, payout clawback, negative-balance offsetting, or live claimability gating.
 
 - PartnerLinks is a creator-first affiliate/referral infrastructure platform.
 - Focus:

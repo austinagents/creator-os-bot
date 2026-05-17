@@ -921,6 +921,65 @@ node scripts/productionSafetyTest.js --report --matrix-report --order-id shopify
   - No data mutation, deploy, push, live payout, settlement enforcement, refund application, or Stripe transfer occurred.
   - New reports confirmed zero dual-lineage rows, zero self-parent rows, zero circular lineage findings, zero Level 4+ findings, zero self-generated network override findings, readable empty reversal tables, and exact `partnerlinks_ref` attribution for the tested order.
 
+### 2026-05-17 - Diagnostic-Only Shopify Refund Capture And Settlement Schema Proposal
+
+- Severity: `SEV1`
+- Status: `CHECK`
+- Impacted systems:
+  - `POST /webhooks/shopify/refunds-create`
+  - `services/shopifyWebhookService.js`
+  - `financial_reversal_events`
+  - `financial_reversal_items`
+  - `database/migrations/017_settlement_state_runtime_schema.sql`
+  - `scripts/productionSafetyTest.js`
+- Classification:
+  - refund webhook HMAC verification: `RUNTIME-ENFORCED`
+  - reversal event/item capture: `RUNTIME-ENFORCED` for diagnostics only
+  - reversal application: `PLANNED / NOT IMPLEMENTED`
+  - settlement schema: `PLANNED / NOT IMPLEMENTED` until migration is manually run
+  - live payout release: `BLOCKED / NO-GO`
+- Finding:
+  - Added a diagnostic-only Shopify refund webhook endpoint that captures refund/reversal observability without mutating payout, claimability, dashboard, settlement, or Stripe transfer state.
+  - Added an additive settlement state migration proposal for future settlement batches/items and row-level settlement/risk/manual-approval metadata.
+  - Added read-only idempotency reporting for conversion, network earning, reversal, settlement item, claim transfer, and duplicate webhook diagnostics.
+- Safety boundary:
+  - Refund webhook verifies Shopify HMAC.
+  - Refund capture uses a deterministic idempotency key.
+  - Evidence is intentionally minimal and non-sensitive.
+  - `financial_reversal_items` are written only when the source conversion can be matched safely.
+  - No refund enforcement or payout offset is applied.
+- Validation:
+  - `node --check index.js`
+  - `node --check services/shopifyWebhookService.js`
+  - `node --check scripts/productionSafetyTest.js`
+- Follow-up:
+  - Manually review and run migration 017 only after approval.
+  - Register Shopify refund webhook only when ready for diagnostic capture.
+  - Later build explicit reversal enforcement as a separate, gated patch.
+
+### 2026-05-17 - Duplicate Conversion Idempotency Classification
+
+- Severity: `SEV2`
+- Status: `CHECK`
+- Impacted systems:
+  - `scripts/productionSafetyTest.js`
+  - `conversions`
+- Finding:
+  - The idempotency report now classifies duplicate conversion order ids by namespace/source.
+  - `shopify:*` duplicate order ids remain `FAIL` launch blockers.
+  - non-Shopify/manual/test duplicates are labeled as hygiene findings unless linked to earnings, claims, payouts, reversals, settlement items, or network rows.
+- Known historical hygiene item:
+  - `test-network-001` conversion ids `2` and `3`.
+  - created `2026-05-13`.
+  - `source=manual`, `notes=network test`.
+  - brand `8` / creator `4`.
+  - no Shopify attribution events, network earnings, reversal rows, claim rows, claimed state, or reserved payout batch.
+- Safety finding:
+  - Current Shopify conversion safety remains clean: `11` Shopify conversions and `0` duplicate Shopify order ids.
+- Validation:
+  - `node scripts/productionSafetyTest.js --dry-run --idempotency-report`
+  - `node scripts/productionSafetyTest.js --dry-run --report --matrix-report`
+
 ## Audit Entry Template
 
 ```markdown

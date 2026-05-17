@@ -1135,17 +1135,37 @@ The following examples are source-backed risk patterns or user-provided research
 
 - Severity: `SEV1`
 - Category: `REFUND_REVERSAL`, `SHOPIFY_APP_DATA_RISK`, `PAYOUT_LIFECYCLE`
-- Status: `OPEN`
+- Status: `PARTIALLY MITIGATED`
 - Description:
-  - Reversal ledger tables exist, but Shopify refund/dispute events are not ingested into them yet.
+  - Reversal ledger tables exist and a diagnostic-only Shopify refund webhook capture path has been added, but refund/dispute events are not enforced against balances yet.
 - Safe current behavior:
   - live payouts remain blocked.
-  - ledger tables are empty and non-enforcing.
+  - refund webhook verifies Shopify HMAC.
+  - refund capture writes idempotent reversal event/item diagnostics only.
+  - ledger tables remain non-enforcing.
 - Unsafe assumption:
-  - Do not assume refunds are automatically captured or enforced.
+  - Do not assume refunds are enforced, claimability-blocking, offsetting, or payout-reversing.
 - Recommended mitigation:
-  - Add diagnostic-only Shopify refund webhook ingestion next.
+  - Register/test diagnostic refund webhook only when operator-approved.
   - Keep reversal application and payout offset behavior separate from ingestion.
+  - Build reversal enforcement as a separate gated patch after settlement safety is clear.
+
+### RISK-065 - Settlement Fields Could Be Mistaken For Settlement Enforcement
+
+- Severity: `SEV1`
+- Category: `SETTLEMENT_FAILURE`, `PAYOUT_LIFECYCLE`, `DASHBOARD_MONEY_CLARITY`
+- Status: `OPEN`
+- Description:
+  - Migration 017 proposes settlement batches/items and settlement/risk metadata fields, but schema existence alone does not prove funding or release claimability.
+- Safe current behavior:
+  - migration 017 is additive and not executed automatically.
+  - `PAYOUT_MODE` still blocks production claims.
+  - settlement automation is not built.
+- Unsafe assumption:
+  - Do not treat `settlement_status`, `manual_approved_at`, or `reserve_covered_at` columns as live payout authorization until a central eligibility service enforces them.
+- Recommended mitigation:
+  - Keep production claims disabled.
+  - Build settlement eligibility as a separate service with tests before enabling `settlement_gated`.
 
 ### RISK-064 - Operator Reconciliation Could Miss Cross-Table Financial Context
 
@@ -1163,6 +1183,26 @@ The following examples are source-backed risk patterns or user-provided research
 - Recommended mitigation:
   - run read-only reports during every controlled beta order reconciliation.
   - keep all money movement disabled until settlement/funding gates exist.
+
+### RISK-066 - Historical Manual Test Duplicates Can Obscure Shopify Idempotency Signals
+
+- Severity: `SEV3`
+- Category: `WEBHOOK_REPLAY`, `AUDITABILITY`, `ADMIN_TOOLING_SAFETY`
+- Status: `PARTIALLY MITIGATED`
+- Description:
+  - Historical/manual test conversion rows can share non-Shopify order ids and cause broad duplicate-order reports to look like live Shopify idempotency failures.
+- Known instance:
+  - `test-network-001` conversion ids `2` and `3`.
+  - manual test rows from `2026-05-13` with no linked Shopify attribution events, network earnings, reversal rows, claim rows, or payout reservation.
+- Safe current behavior:
+  - `productionSafetyTest.js --idempotency-report` now classifies duplicates by namespace/source.
+  - `shopify:*` duplicate order ids remain hard `FAIL` launch blockers.
+  - isolated non-Shopify/manual duplicates are `CHECK` hygiene findings unless linked to financial side effects.
+- Unsafe assumption:
+  - Do not treat historical manual duplicate fixtures as proof that Shopify duplicate webhook protection is broken.
+- Recommended mitigation:
+  - Keep manual/test conversion namespaces clearly labeled.
+  - Before launch gates, separate Shopify idempotency checks from historical fixture hygiene checks.
 
 ## Risk Entry Template
 

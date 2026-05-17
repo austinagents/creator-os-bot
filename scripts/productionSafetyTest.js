@@ -92,6 +92,10 @@ async function main() {
     await printRouteRiskReport();
   }
 
+  if (args.idempotencyReport) {
+    await printIdempotencyReport();
+  }
+
   printHeader('Done');
 }
 
@@ -114,6 +118,7 @@ function parseArgs(argv) {
     settlementReport: false,
     riskReport: false,
     routeRiskReport: false,
+    idempotencyReport: false,
     orderId: null,
     creatorCode: null,
     partnerlinksRef: null,
@@ -140,6 +145,7 @@ function parseArgs(argv) {
     else if (arg === '--settlement-report') args.settlementReport = true;
     else if (arg === '--risk-report') args.riskReport = true;
     else if (arg === '--route-risk-report') args.routeRiskReport = true;
+    else if (arg === '--idempotency-report') args.idempotencyReport = true;
     else if (arg === '--order-id') {
       args.orderId = argv[index + 1] || null;
       index += 1;
@@ -184,6 +190,7 @@ function hasAnyAction(args) {
     args.settlementReport ||
     args.riskReport ||
     args.routeRiskReport ||
+    args.idempotencyReport ||
     args.orderId ||
     args.creatorCode ||
     args.partnerlinksRef ||
@@ -1060,6 +1067,8 @@ async function printRefundReport(args) {
 async function printSettlementReport() {
   printHeader('Settlement / Funding Readiness Report');
   const payoutGate = getLocalPayoutGateSummary();
+  const settlementBatchStatus = await tableStatus('settlement_batches');
+  const settlementItemStatus = await tableStatus('settlement_items');
   const columnChecks = [];
   for (const table of ['conversions', 'creator_network_earnings', 'brand_network_earnings']) {
     columnChecks.push(await checkColumnReadable(table, 'settlement_status'));
@@ -1074,6 +1083,8 @@ async function printSettlementReport() {
     live_claimability_status: 'blocked until settlement_collected, manual_approved, or reserve_covered exists',
     settlement_automation_built: false,
     brand_funding_proven: false,
+    settlement_batches: settlementBatchStatus,
+    settlement_items: settlementItemStatus,
     required_future_infrastructure: [
       'Stripe Customer per brand',
       'SetupIntent saved payment method',
@@ -1149,6 +1160,114 @@ async function printRouteRiskReport() {
   printRows('Routes', routeRows, (row) => row);
   printRows('Default/Convenience Creator Resolver References', defaultResolverRows, (row) => row);
   printRows('Payout/Stripe Guard References', payoutModeRows, (row) => row);
+}
+
+async function printIdempotencyReport() {
+  printHeader('Financial Idempotency Report');
+
+  const conversions = await getRecentTableRows('conversions', 500);
+  const creatorNetwork = await getRecentTableRows('creator_network_earnings', 500);
+  const brandNetwork = await getRecentTableRows('brand_network_earnings', 500);
+  const attributionEvents = await getRecentTableRows('shopify_attribution_events', 500);
+  const reversalEvents = await getRecentTableRows('financial_reversal_events', 500);
+  const settlementItems = await getRecentTableRows('settlement_items', 500);
+  const claims = await getRecentTableRows('creator_earning_claims', 500);
+
+  const duplicateConversions = duplicateGroups(conversions.rows, (row) => row.order_id).filter((group) => group.key && group.key !== 'null');
+  const duplicateCreatorNetwork = findDuplicateEarningRows(creatorNetwork.rows, ['earning_creator_id', 'source_creator_id', 'conversion_id', 'level']);
+  const duplicateBrandNetwork = findDuplicateEarningRows(brandNetwork.rows, ['earning_brand_id', 'source_creator_id', 'conversion_id', 'level']);
+  const duplicateReversals = duplicateGroups(reversalEvents.rows, (row) => row.idempotency_key).filter((group) => group.key && group.key !== 'null');
+  const duplicateSettlementItems = duplicateGroups(settlementItems.rows, (row) => row.idempotency_key).filter((group) => group.key && group.key !== 'null');
+  const duplicateClaimTransfers = duplicateGroups(
+    claims.rows.filter((row) => row.stripe_transfer_id),
+    (row) => row.stripe_transfer_id
+  );
+  const duplicateClaimBatches = duplicateGroups(claims.rows, (row) => row.id).filter((group) => group.key && group.key !== 'null');
+  const duplicateWebhookDiagnostics = attributionEvents.rows.filter((row) => row.duplicate_order || row.decision === 'duplicate_skipped');
+  const duplicateConversionClassifications = classifyDuplicateConversionGroups({
+    duplicateConversions,
+    conversions: conversions.rows,
+    creatorNetwork: creatorNetwork.rows,
+    brandNetwork: brandNetwork.rows,
+    reversalEvents: reversalEvents.rows,
+    settlementItems: settlementItems.rows,
+    claims: claims.rows,
+    attributionEvents: attributionEvents.rows
+  });
+  const duplicateShopifyConversions = duplicateConversionClassifications.filter((row) => row.namespace === 'shopify');
+  const riskyManualDuplicateConversions = duplicateConversionClassifications.filter((row) => (
+    row.namespace !== 'shopify'
+    && row.status === 'FAIL'
+  ));
+
+  printRows('Idempotency Checks', [
+    {
+      check: 'no duplicate Shopify conversion order ids',
+      status: duplicateShopifyConversions.length ? 'FAIL' : 'PASS',
+      count: duplicateShopifyConversions.length,
+      launch_blocker: duplicateShopifyConversions.length > 0
+    },
+    {
+      check: 'manual/test duplicate conversion order ids are isolated hygiene findings',
+      status: riskyManualDuplicateConversions.length ? 'FAIL' : (duplicateConversionClassifications.some((row) => row.namespace !== 'shopify') ? 'CHECK' : 'PASS'),
+      count: duplicateConversionClassifications.filter((row) => row.namespace !== 'shopify').length,
+      escalated_count: riskyManualDuplicateConversions.length
+    },
+    {
+      check: 'no duplicate creator network earning keys',
+      status: duplicateCreatorNetwork.length ? 'FAIL' : 'PASS',
+      count: duplicateCreatorNetwork.length
+    },
+    {
+      check: 'no duplicate brand network earning keys',
+      status: duplicateBrandNetwork.length ? 'FAIL' : 'PASS',
+      count: duplicateBrandNetwork.length
+    },
+    {
+      check: 'no duplicate reversal idempotency keys',
+      status: reversalEvents.exists ? (duplicateReversals.length ? 'FAIL' : 'PASS') : 'CHECK',
+      count: duplicateReversals.length,
+      table_available: reversalEvents.exists
+    },
+    {
+      check: 'no duplicate settlement item idempotency keys',
+      status: settlementItems.exists ? (duplicateSettlementItems.length ? 'FAIL' : 'PASS') : 'CHECK',
+      count: duplicateSettlementItems.length,
+      table_available: settlementItems.exists
+    },
+    {
+      check: 'no duplicate Stripe transfer ids in claim ledger',
+      status: duplicateClaimTransfers.length ? 'FAIL' : 'PASS',
+      count: duplicateClaimTransfers.length
+    },
+    {
+      check: 'no duplicate claim ledger primary ids',
+      status: duplicateClaimBatches.length ? 'FAIL' : 'PASS',
+      count: duplicateClaimBatches.length
+    },
+    {
+      check: 'duplicate webhook replay diagnostics visible when present',
+      status: duplicateWebhookDiagnostics.length ? 'PASS' : 'CHECK',
+      count: duplicateWebhookDiagnostics.length
+    }
+  ], (row) => row);
+
+  printRows('Duplicate Conversion Groups', duplicateConversionClassifications, (row) => row);
+  printRows('Duplicate Creator Network Groups', duplicateCreatorNetwork, (row) => row);
+  printRows('Duplicate Brand Network Groups', duplicateBrandNetwork, (row) => row);
+  printRows('Duplicate Reversal Event Groups', duplicateReversals, (row) => row);
+  printRows('Duplicate Settlement Item Groups', duplicateSettlementItems, (row) => row);
+  printRows('Duplicate Claim Transfer Groups', duplicateClaimTransfers, (row) => row);
+  printRows('Duplicate Webhook Diagnostics', duplicateWebhookDiagnostics, (row) => ({
+    id: row.id,
+    order_id: row.order_id,
+    shopify_order_id: row.shopify_order_id,
+    shop_domain: row.shop_domain,
+    decision: row.decision,
+    duplicate_order: row.duplicate_order,
+    conversion_id: row.conversion_id,
+    created_at: row.created_at
+  }));
 }
 
 async function getShopifyStore(shopDomain) {
@@ -1584,6 +1703,31 @@ async function tableStatus(table) {
   };
 }
 
+async function getRecentTableRows(table, limit = 100) {
+  const { data, error } = await supabase
+    .from(table)
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error && ['42P01', 'PGRST205', 'PGRST204'].includes(error.code)) {
+    return {
+      table,
+      exists: false,
+      rows: [],
+      error: `${error.code || ''} ${error.message}`.trim()
+    };
+  }
+
+  if (error) throw error;
+  return {
+    table,
+    exists: true,
+    rows: data || [],
+    error: null
+  };
+}
+
 async function checkColumnReadable(table, column) {
   const { error } = await supabase
     .from(table)
@@ -1762,6 +1906,7 @@ function buildVelocityFindings(conversions) {
 function classifyRoute({ method, route, line }) {
   let category = 'read-only';
   if (/webhooks\/shopify\/orders-paid/.test(route)) category = 'conversion/economics';
+  else if (/webhooks\/shopify\/refunds-create/.test(route)) category = 'refund/reversal diagnostic';
   else if (/^\/r\//.test(route)) category = 'creates attribution/click/session';
   else if (/^\/join/.test(route) || /auth|signup/.test(route)) category = 'creates auth/lineage';
   else if (/earnings\/claim/.test(route)) category = 'mutates payout/claim';
@@ -1786,6 +1931,7 @@ function routeRiskNote(route) {
   if (/earnings\/claim/.test(route)) return 'must remain explicit creator-scoped and payout-mode gated';
   if (/stripe\/connect\/debug/.test(route)) return 'must remain explicit creator-scoped, ownership-checked, and read-only';
   if (/stripe\/connect/.test(route)) return 'must remain explicit creator-scoped and ownership-checked';
+  if (/webhooks\/shopify\/refunds-create/.test(route)) return 'must verify HMAC, write reversal ledger only, and never mutate payout_status or Stripe';
   if (/webhooks\/shopify/.test(route)) return 'must verify HMAC and remain idempotent';
   if (/api\/shopify/.test(route)) return 'must preserve OAuth state validation and least-privilege token handling';
   if (/brand\/setup/.test(route)) return 'must remain brand-scoped and avoid hidden default brand assumptions';
@@ -1900,6 +2046,80 @@ function findDuplicateEarningRows(rows, keys) {
   return [...groups.entries()]
     .filter(([, groupRows]) => groupRows.length > 1)
     .map(([key, groupRows]) => ({ key, count: groupRows.length, ids: groupRows.map((row) => row.id) }));
+}
+
+function classifyDuplicateConversionGroups({
+  duplicateConversions,
+  conversions,
+  creatorNetwork,
+  brandNetwork,
+  reversalEvents,
+  settlementItems,
+  claims,
+  attributionEvents
+}) {
+  const conversionById = new Map((conversions || []).map((row) => [row.id, row]));
+  return (duplicateConversions || []).map((group) => {
+    const groupRows = (group.ids || []).map((id) => conversionById.get(id)).filter(Boolean);
+    const namespace = String(group.key || '').startsWith('shopify:') ? 'shopify' : 'manual_or_test';
+    const conversionIds = new Set(groupRows.map((row) => row.id));
+    const creatorIds = new Set(groupRows.map((row) => row.creator_id).filter(Boolean));
+
+    const linkedCreatorNetworkIds = (creatorNetwork || [])
+      .filter((row) => conversionIds.has(row.conversion_id))
+      .map((row) => row.id);
+    const linkedBrandNetworkIds = (brandNetwork || [])
+      .filter((row) => conversionIds.has(row.conversion_id))
+      .map((row) => row.id);
+    const linkedReversalEventIds = (reversalEvents || [])
+      .filter((row) => row.order_id === group.key || conversionIds.has(row.conversion_id))
+      .map((row) => row.id);
+    const linkedSettlementItemIds = (settlementItems || [])
+      .filter((row) => conversionIds.has(row.conversion_id))
+      .map((row) => row.id);
+    const linkedAttributionEventIds = (attributionEvents || [])
+      .filter((row) => row.order_id === group.key || conversionIds.has(row.conversion_id))
+      .map((row) => row.id);
+    const linkedClaimIds = (claims || [])
+      .filter((row) => creatorIds.has(row.creator_id) && groupRows.some((conversion) => conversion.claim_batch_id && conversion.claim_batch_id === row.id))
+      .map((row) => row.id);
+    const claimedOrReservedConversionIds = groupRows
+      .filter((row) => row.claim_batch_id || row.claimed_at || row.payout_status === 'claimed')
+      .map((row) => row.id);
+
+    const hasFinancialSideEffects = Boolean(
+      linkedCreatorNetworkIds.length
+      || linkedBrandNetworkIds.length
+      || linkedReversalEventIds.length
+      || linkedSettlementItemIds.length
+      || linkedClaimIds.length
+      || claimedOrReservedConversionIds.length
+    );
+    const status = namespace === 'shopify'
+      ? 'FAIL'
+      : (hasFinancialSideEffects ? 'FAIL' : 'CHECK');
+    const classification = namespace === 'shopify'
+      ? 'launch_blocker_duplicate_shopify_order'
+      : (hasFinancialSideEffects ? 'manual_duplicate_with_financial_side_effects' : 'historical_manual_test_data_hygiene');
+
+    return {
+      key: group.key,
+      namespace,
+      status,
+      classification,
+      count: group.count,
+      ids: group.ids,
+      sources: [...new Set(groupRows.map((row) => row.source || 'unknown'))],
+      notes: [...new Set(groupRows.map((row) => row.notes).filter(Boolean))],
+      linked_creator_network_earning_ids: linkedCreatorNetworkIds,
+      linked_brand_network_earning_ids: linkedBrandNetworkIds,
+      linked_reversal_event_ids: linkedReversalEventIds,
+      linked_settlement_item_ids: linkedSettlementItemIds,
+      linked_attribution_event_ids: linkedAttributionEventIds,
+      linked_claim_ids: linkedClaimIds,
+      claimed_or_reserved_conversion_ids: claimedOrReservedConversionIds
+    };
+  });
 }
 
 function sumClaimedRowsByBatch({ conversions, networkEarnings }) {

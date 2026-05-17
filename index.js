@@ -37,7 +37,8 @@ const {
 } = require("./services/shopifyService");
 const {
   verifyShopifyWebhookHmac,
-  ingestShopifyOrdersPaidWebhook
+  ingestShopifyOrdersPaidWebhook,
+  ingestShopifyRefundWebhook
 } = require("./services/shopifyWebhookService");
 const { generateCanonicalSlug, generateSlug, normalizeCode } = require("./utils/slug");
 
@@ -342,6 +343,38 @@ app.post('/webhooks/shopify/orders-paid', express.raw({ type: '*/*' }), async (r
       stack: error.stack || null
     });
     res.status(500).json({ ok: false, error: 'Unable to process Shopify webhook.' });
+  }
+});
+
+app.post('/webhooks/shopify/refunds-create', express.raw({ type: '*/*' }), async (req, res) => {
+  const shopDomain = String(req.get('X-Shopify-Shop-Domain') || '').trim().toLowerCase();
+  const webhookId = req.get('X-Shopify-Webhook-Id') || null;
+
+  try {
+    const hmac = req.get('X-Shopify-Hmac-Sha256');
+    if (!verifyShopifyWebhookHmac(req.body, hmac)) {
+      log('Shopify refund webhook rejected: invalid HMAC', {
+        shopDomain,
+        webhookId
+      });
+      return res.status(401).send('Invalid Shopify webhook signature.');
+    }
+
+    const result = await ingestShopifyRefundWebhook({
+      rawBody: req.body,
+      shopDomain,
+      webhookId
+    });
+
+    res.status(200).json({ ok: true, ...result });
+  } catch (error) {
+    log('Shopify refund webhook error:', {
+      shopDomain,
+      webhookId,
+      message: error.message,
+      stack: error.stack || null
+    });
+    res.status(500).json({ ok: false, error: 'Unable to process Shopify refund webhook.' });
   }
 });
 

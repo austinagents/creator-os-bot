@@ -199,6 +199,29 @@ Architecture decisions are binding design direction, not automatic runtime enfor
   - Refunds after payout must create offset/negative-balance records, not deletion.
   - Duplicate webhooks must not create duplicate settlement items.
 
+### ADR-009 - Refund Capture Before Refund Enforcement
+
+- Status: `ACCEPTED`
+- Date: 2026-05-17
+- Classification:
+  - diagnostic capture: `RUNTIME-ENFORCED`
+  - reversal enforcement: `PLANNED / NOT IMPLEMENTED`
+- Context:
+  - PartnerLinks needs refund/chargeback observability before it is safe to enforce reversals, clawbacks, negative balances, or settlement release rules.
+- Decision:
+  - Add Shopify refund webhook capture as diagnostic-only ledgering first.
+  - Capture refund events into `financial_reversal_events`.
+  - Capture `financial_reversal_items` only when affected conversion/earning rows are safely matchable.
+  - Do not mutate payout status, claimability, dashboard totals, Stripe transfers, or settlement state during refund capture.
+- Rationale:
+  - Mirrors proven reconciliation-first payment infrastructure.
+  - Gives operators visibility without accidentally changing money state.
+  - Keeps reversal enforcement as a later explicit, tested state-machine patch.
+- Consequences:
+  - Operators can see refund exposure before enforcement exists.
+  - Refund ingestion alone must never be described as refund enforcement.
+  - Future reversal enforcement must be idempotent and settlement-aware.
+
 ## ADR Template
 
 ```markdown

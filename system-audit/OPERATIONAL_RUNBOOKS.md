@@ -744,6 +744,86 @@ Do not:
 - Run Stripe live transfers.
 - Assume refunds are enforced until refund webhook ingestion and reversal application exist.
 
+## Runbook: Diagnostic-Only Shopify Refund Capture
+
+Use when:
+
+- Capturing Shopify refund events for observability while payouts remain disabled/fail-closed.
+
+Classification:
+
+- `RUNTIME-ENFORCED` for HMAC verification and diagnostic ledger capture.
+- `READ-ONLY DIAGNOSTIC` for operator review.
+- `PLANNED / NOT IMPLEMENTED` for reversal enforcement.
+
+Requirements:
+
+- `SHOPIFY_WEBHOOK_SECRET` configured.
+- `financial_reversal_events` and `financial_reversal_items` exist from migration 016.
+- Production `PAYOUT_MODE=claims_disabled`.
+- No live Stripe transfers.
+
+Steps:
+
+1. Register Shopify refund webhook to `POST /webhooks/shopify/refunds-create` only after operator approval.
+2. Trigger or receive a refund event.
+3. Verify a `financial_reversal_events` row exists.
+4. Verify `financial_reversal_items` only if the source conversion was safely matched.
+5. Run:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --refund-report --idempotency-report
+```
+
+Expected:
+
+- Refund event is captured idempotently.
+- No payout, claimability, dashboard total, settlement, or Stripe state changes.
+
+Do not:
+
+- Apply reversal offsets.
+- Change `payout_status`.
+- Claw back payouts.
+- Create Stripe reversals.
+- Treat diagnostic capture as refund enforcement.
+
+## Runbook: Manual First-Order / First-Payout Reconciliation
+
+Use when:
+
+- Reviewing a controlled-beta order before any payout approval or future settlement release.
+
+Classification:
+
+- `MANUAL OPERATOR TASK`
+- `READ-ONLY DIAGNOSTIC`
+
+Checklist:
+
+1. Identify Shopify order id and shop domain.
+2. Run:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --order-report --order-id shopify:{shop_domain}:{order_id}
+```
+
+3. Confirm attribution source/confidence.
+4. Confirm matched creator/product/brand.
+5. Confirm direct commission amount.
+6. Confirm `platform_fee_amount`.
+7. Confirm Level 1/2/3 network rows and no Level 4+.
+8. Confirm duplicate/skipped diagnostics if replay occurred.
+9. Confirm reversal rows, if any.
+10. Confirm settlement/funding state is not assumed from accounted earnings.
+11. Confirm payout mode remains fail-closed before any live creator payout discussion.
+
+Do not:
+
+- Approve live payout from conversion existence alone.
+- Treat `claimable_at` as funding proof.
+- Skip refund/reversal review.
+
 ## Runbook Template
 
 ```markdown

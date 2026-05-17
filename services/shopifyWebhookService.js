@@ -235,6 +235,168 @@ async function ingestShopifyOrdersPaidWebhook({
   };
 }
 
+async function ingestShopifyRefundWebhook({
+  rawBody,
+  shopDomain,
+  webhookId
+}) {
+  const refund = JSON.parse(rawBody.toString('utf8'));
+  const normalizedShopDomain = normalizeShopDomain(shopDomain || refund.shop_domain || refund.myshopify_domain);
+  const refundId = String(refund.id || refund.admin_graphql_api_id || webhookId || '').trim();
+  const shopifyOrderId = String(refund.order_id || refund.order && refund.order.id || '').trim();
+  const bodyHash = crypto.createHash('sha256').update(rawBody).digest('hex');
+  const idempotencyKey = `shopify:refund:${normalizedShopDomain}:${refundId || webhookId || bodyHash}`;
+
+  log('Shopify refund webhook received:', {
+    webhookId: webhookId || null,
+    shopDomain: normalizedShopDomain,
+    refundId: refundId || null,
+    shopifyOrderId: shopifyOrderId || null
+  });
+
+  const store = await getShopifyStoreByDomain(normalizedShopDomain);
+  const brandId = store && store.brand_id ? store.brand_id : null;
+  const orderId = shopifyOrderId ? `shopify:${normalizedShopDomain}:${shopifyOrderId}` : null;
+  const conversion = orderId ? await findConversionByOrderId({ brandId, orderId }) : null;
+  const reversedOrderAmount = getRefundTotal(refund);
+  const originalOrderAmount = conversion ? Number(conversion.order_value || 0) : null;
+  const reversalRatio = originalOrderAmount && reversedOrderAmount
+    ? Math.min(1, roundRatio(reversedOrderAmount / originalOrderAmount))
+    : null;
+  const reversalType = originalOrderAmount && reversedOrderAmount && reversedOrderAmount < originalOrderAmount
+    ? 'partial_refund'
+    : 'refund';
+
+  const eventPayload = {
+    idempotency_key: idempotencyKey,
+    source_system: 'shopify',
+    source_event_id: refundId || webhookId || null,
+    brand_id: brandId,
+    shop_domain: normalizedShopDomain,
+    order_id: orderId,
+    shopify_order_id: shopifyOrderId || null,
+    conversion_id: conversion ? conversion.id : null,
+    reversal_type: reversalType,
+    reversal_reason: 'shopify_refund_webhook',
+    reversal_status: conversion ? 'detected' : 'pending_review',
+    currency: String(refund.currency || conversion && conversion.currency || 'USD').toUpperCase(),
+    original_order_amount: originalOrderAmount,
+    reversed_order_amount: reversedOrderAmount,
+    reversal_ratio: reversalRatio,
+    evidence: buildRefundEvidence({
+      refund,
+      webhookId,
+      conversionFound: Boolean(conversion)
+    }),
+    notes: [
+      'Diagnostic-only Shopify refund capture.',
+      'No payout_status, claimability, dashboard total, Stripe transfer, settlement state, or earnings row was changed.'
+    ].join(' ')
+  };
+
+  log('Financial reversal event insert attempt:', {
+    idempotencyKey,
+    shopDomain: normalizedShopDomain,
+    refundId: refundId || null,
+    orderId,
+    brandId,
+    conversionId: conversion ? conversion.id : null,
+    reversedOrderAmount,
+    reversalType
+  });
+
+  const { data: eventRow, error: eventError } = await supabase
+    .from('financial_reversal_events')
+    .insert(eventPayload)
+    .select()
+    .single();
+
+  if (eventError) {
+    if (eventError.code === '23505') {
+      log('Financial reversal event duplicate skipped:', {
+        idempotencyKey,
+        shopDomain: normalizedShopDomain,
+        refundId: refundId || null,
+        orderId
+      });
+      return {
+        status: 'duplicate_skipped',
+        idempotencyKey,
+        orderId,
+        conversionId: conversion ? conversion.id : null
+      };
+    }
+
+    if (['42P01', 'PGRST205', 'PGRST204'].includes(eventError.code)) {
+      log('Financial reversal ledger unavailable; refund capture skipped safely:', {
+        idempotencyKey,
+        shopDomain: normalizedShopDomain,
+        refundId: refundId || null,
+        code: eventError.code || null,
+        message: eventError.message
+      });
+      return {
+        status: 'skipped',
+        reason: 'reversal_ledger_unavailable',
+        idempotencyKey
+      };
+    }
+
+    throw eventError;
+  }
+
+  const itemRows = conversion
+    ? await buildFinancialReversalItems({
+      reversalEventId: eventRow.id,
+      conversion,
+      reversalRatio,
+      reversedOrderAmount,
+      currency: eventPayload.currency
+    })
+    : [];
+
+  if (itemRows.length) {
+    const { error: itemError } = await supabase
+      .from('financial_reversal_items')
+      .insert(itemRows);
+    if (itemError) {
+      log('Financial reversal item insert failed; event retained for manual review:', {
+        reversalEventId: eventRow.id,
+        idempotencyKey,
+        code: itemError.code || null,
+        message: itemError.message
+      });
+      return {
+        status: 'captured_pending_item_review',
+        reversalEventId: eventRow.id,
+        idempotencyKey,
+        orderId,
+        conversionId: conversion.id,
+        itemRowsCreated: 0
+      };
+    }
+  }
+
+  log('Financial reversal event captured:', {
+    reversalEventId: eventRow.id,
+    idempotencyKey,
+    shopDomain: normalizedShopDomain,
+    refundId: refundId || null,
+    orderId,
+    conversionId: conversion ? conversion.id : null,
+    itemRowsCreated: itemRows.length
+  });
+
+  return {
+    status: 'captured',
+    reversalEventId: eventRow.id,
+    idempotencyKey,
+    orderId,
+    conversionId: conversion ? conversion.id : null,
+    itemRowsCreated: itemRows.length
+  };
+}
+
 function extractShopifyAttribution(order) {
   const candidates = [];
   const checkedSources = [];
@@ -850,6 +1012,127 @@ async function conversionExists(brandId, orderId) {
   return Boolean(data && data[0]);
 }
 
+async function findConversionByOrderId({ brandId, orderId }) {
+  let query = supabase
+    .from('conversions')
+    .select('*')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (brandId) query = query.eq('brand_id', brandId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ? data[0] : null;
+}
+
+async function buildFinancialReversalItems({
+  reversalEventId,
+  conversion,
+  reversalRatio,
+  reversedOrderAmount,
+  currency
+}) {
+  const ratio = Number(reversalRatio || 0);
+  const effectiveRatio = ratio > 0 ? ratio : 1;
+  const rows = [];
+
+  rows.push({
+    reversal_event_id: reversalEventId,
+    item_type: 'direct_commission',
+    conversion_id: conversion.id,
+    affected_creator_id: conversion.creator_id || null,
+    original_amount: Number(conversion.commission_amount || 0),
+    reversed_amount: roundCurrency(Number(conversion.commission_amount || 0) * effectiveRatio),
+    currency,
+    payout_status_at_reversal: conversion.payout_status || null,
+    offset_required: isOffsetRequired(conversion),
+    offset_status: isOffsetRequired(conversion) ? 'required' : 'none',
+    notes: 'Diagnostic-only direct commission reversal item. No earning row was mutated.'
+  });
+
+  if (Number(conversion.platform_fee_amount || 0) > 0) {
+    rows.push({
+      reversal_event_id: reversalEventId,
+      item_type: 'platform_fee',
+      conversion_id: conversion.id,
+      affected_brand_id: conversion.brand_id || null,
+      original_amount: Number(conversion.platform_fee_amount || 0),
+      reversed_amount: roundCurrency(Number(conversion.platform_fee_amount || 0) * effectiveRatio),
+      currency,
+      payout_status_at_reversal: conversion.payout_status || null,
+      offset_required: false,
+      offset_status: 'none',
+      notes: 'Diagnostic-only PartnerLinks platform fee reversal item. No settlement or payout row was mutated.'
+    });
+  }
+
+  const creatorNetworkRows = await getCreatorNetworkEarningsByConversionId(conversion.id);
+  for (const earning of creatorNetworkRows) {
+    rows.push({
+      reversal_event_id: reversalEventId,
+      item_type: 'creator_network_override',
+      conversion_id: conversion.id,
+      creator_network_earning_id: earning.id,
+      affected_creator_id: earning.earning_creator_id || null,
+      original_amount: Number(earning.commission_amount || 0),
+      reversed_amount: roundCurrency(Number(earning.commission_amount || 0) * effectiveRatio),
+      currency: String(earning.currency || currency || 'USD').toUpperCase(),
+      payout_status_at_reversal: earning.payout_status || null,
+      offset_required: isOffsetRequired(earning),
+      offset_status: isOffsetRequired(earning) ? 'required' : 'none',
+      notes: 'Diagnostic-only creator network override reversal item. No earning row was mutated.'
+    });
+  }
+
+  const brandNetworkRows = await getBrandNetworkEarningsByConversionId(conversion.id);
+  for (const earning of brandNetworkRows) {
+    rows.push({
+      reversal_event_id: reversalEventId,
+      item_type: 'brand_network_override',
+      conversion_id: conversion.id,
+      brand_network_earning_id: earning.id,
+      affected_brand_id: earning.earning_brand_id || null,
+      original_amount: Number(earning.commission_amount || 0),
+      reversed_amount: roundCurrency(Number(earning.commission_amount || 0) * effectiveRatio),
+      currency: String(earning.currency || currency || 'USD').toUpperCase(),
+      payout_status_at_reversal: earning.payout_status || null,
+      offset_required: isOffsetRequired(earning),
+      offset_status: isOffsetRequired(earning) ? 'required' : 'none',
+      notes: 'Diagnostic-only brand network override reversal item. No earning row was mutated.'
+    });
+  }
+
+  log('Financial reversal items prepared:', {
+    reversalEventId,
+    conversionId: conversion.id,
+    reversedOrderAmount,
+    reversalRatio: ratio || null,
+    itemCount: rows.length
+  });
+
+  return rows;
+}
+
+async function getCreatorNetworkEarningsByConversionId(conversionId) {
+  const { data, error } = await supabase
+    .from('creator_network_earnings')
+    .select('*')
+    .eq('conversion_id', conversionId);
+  if (error) throw error;
+  return data || [];
+}
+
+async function getBrandNetworkEarningsByConversionId(conversionId) {
+  const { data, error } = await supabase
+    .from('brand_network_earnings')
+    .select('*')
+    .eq('conversion_id', conversionId);
+  if (error) throw error;
+  return data || [];
+}
+
 async function getShopifyStoreByDomain(shopDomain) {
   const { data, error } = await supabase
     .from('shopify_stores')
@@ -873,6 +1156,50 @@ async function getBrandById(brandId) {
 
 function getOrderTotal(order) {
   return Number(order.total_price || order.current_total_price || order.subtotal_price || 0);
+}
+
+function getRefundTotal(refund) {
+  const transactionTotal = (refund.transactions || []).reduce((total, transaction) => {
+    const kind = String(transaction.kind || '').toLowerCase();
+    const status = String(transaction.status || '').toLowerCase();
+    if (kind && kind !== 'refund') return total;
+    if (status && !['success', 'succeeded'].includes(status)) return total;
+    return total + Number(transaction.amount || 0);
+  }, 0);
+  if (transactionTotal > 0) return roundCurrency(transactionTotal);
+
+  const lineItemTotal = (refund.refund_line_items || []).reduce((total, item) => {
+    return total + Number(item.subtotal || item.total || item.line_item && item.line_item.price || 0);
+  }, 0);
+  const adjustmentTotal = (refund.order_adjustments || []).reduce((total, adjustment) => {
+    return total + Math.abs(Number(adjustment.amount || 0));
+  }, 0);
+
+  return roundCurrency(lineItemTotal + adjustmentTotal);
+}
+
+function buildRefundEvidence({
+  refund,
+  webhookId,
+  conversionFound
+}) {
+  return {
+    webhook_id: webhookId || null,
+    refund_id: refund.id || null,
+    admin_graphql_api_id: refund.admin_graphql_api_id || null,
+    order_id: refund.order_id || (refund.order && refund.order.id) || null,
+    created_at: refund.created_at || null,
+    processed_at: refund.processed_at || null,
+    currency: refund.currency || null,
+    transaction_count: Array.isArray(refund.transactions) ? refund.transactions.length : 0,
+    refund_line_item_count: Array.isArray(refund.refund_line_items) ? refund.refund_line_items.length : 0,
+    order_adjustment_count: Array.isArray(refund.order_adjustments) ? refund.order_adjustments.length : 0,
+    conversion_found: Boolean(conversionFound)
+  };
+}
+
+function isOffsetRequired(row) {
+  return row && (row.payout_status === 'claimed' || Boolean(row.claim_batch_id));
 }
 
 function getOrderTimestamp(order) {
@@ -1072,7 +1399,12 @@ function roundCurrency(value) {
   return Math.round(Number(value || 0) * 100) / 100;
 }
 
+function roundRatio(value) {
+  return Math.round(Number(value || 0) * 1000000) / 1000000;
+}
+
 module.exports = {
   verifyShopifyWebhookHmac,
-  ingestShopifyOrdersPaidWebhook
+  ingestShopifyOrdersPaidWebhook,
+  ingestShopifyRefundWebhook
 };
