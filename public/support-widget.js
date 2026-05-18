@@ -229,11 +229,13 @@
 
   function renderMessages(root, state) {
     const container = root.querySelector(`#${SELECTORS.messages}`);
-    container.innerHTML = state.messages.map((message) => `
-      <div class="pl-support-message pl-support-message-${message.role === 'user' ? 'user' : 'agent'}">
-        ${escapeHtml(message.text)}
-      </div>
-    `).join('');
+    container.innerHTML = '';
+    for (const message of state.messages) {
+      const bubble = document.createElement('div');
+      bubble.className = `pl-support-message pl-support-message-${message.role === 'user' ? 'user' : 'agent'}`;
+      bubble.textContent = cleanMessageText(message.text);
+      container.appendChild(bubble);
+    }
     container.scrollTop = container.scrollHeight;
   }
 
@@ -284,6 +286,10 @@
 
   function normalize(value) {
     return String(value || '').toLowerCase().replace(/[^a-z0-9./:_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function cleanMessageText(value) {
+    return String(value || '').replace(/\s+\n/g, '\n').replace(/\n\s+/g, '\n').trim();
   }
 
   function escapeHtml(value) {
