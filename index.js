@@ -3048,7 +3048,8 @@ function authReturnCookieOptions() {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     maxAge: 10 * 60 * 1000,
-    path: '/'
+    path: '/',
+    ...partnerlinksCookieDomainOption()
   };
 }
 
@@ -3057,7 +3058,8 @@ function authReturnClearCookieOptions() {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    path: '/'
+    path: '/',
+    ...partnerlinksCookieDomainOption()
   };
 }
 
@@ -3066,6 +3068,17 @@ function getSafeAuthReturnPath(value) {
   if (!returnPath) return null;
   if (!/^\/brand\/setup\/\d+\/reconnect-shopify$/.test(returnPath)) return null;
   return returnPath;
+}
+
+function partnerlinksCookieDomainOption() {
+  try {
+    const hostname = new URL(PUBLIC_BASE_URL).hostname;
+    if (process.env.NODE_ENV === 'production' && (hostname === 'partnerlinks.app' || hostname === 'www.partnerlinks.app')) {
+      return { domain: '.partnerlinks.app' };
+    }
+  } catch (error) {}
+
+  return {};
 }
 
 function formatMoney(value, currency = 'USD') {
