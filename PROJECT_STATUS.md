@@ -2557,3 +2557,1055 @@ NO-GO remains:
 - Live creator payouts.
 - Claim release.
 - Refund/offset enforcement.
+
+# Settlement Reconciliation Verification
+
+Status: READ-ONLY DIAGNOSTIC
+
+- Extended `scripts/settlementBatchOperator.js` with `--verify-reconciliation`.
+- Verification recomputes deterministic settlement items from immutable accounting rows and compares them against existing `settlement_batches`, `settlement_items`, and `settlement_audit_events`.
+- The verifier does not mutate rows.
+- The verifier confirms:
+  - deterministic settlement item generation.
+  - stable settlement item idempotency keys.
+  - duplicate settlement item/audit keys are absent.
+  - missing expected items are detected.
+  - unexpected batch items are detected.
+  - item amounts/source references match recomputation.
+  - orphan settlement items are detected.
+  - source rows assigned to multiple batches are detected.
+  - Level 4+ settlement behavior is blocked by invariant checks.
+  - self-generated creator override settlement items are detected.
+  - batch gross funding total equals direct creator commissions plus platform fee.
+  - network override items remain allocation visibility only and do not increase brand funding obligation.
+
+Validated command:
+
+- `node scripts/settlementBatchOperator.js --dry-run --report --verify-reconciliation --brand-id 9`
+
+Current result:
+
+- Existing deterministic batch found: `9d07ec69-2959-433c-b9a3-46f3aebc23a8`
+- Expected settlement items: `35`
+- Existing batch settlement items: `35`
+- Brand settlement items total for brand: `35`
+- Brand settlement audit events total for brand: `36`
+- Reconciliation checks: `12 PASS`
+- Direct commission total: `$29.70`
+- Platform fee total: `$9.90`
+- Network override total: `$2.30`
+- Brand funding obligation: `$39.60`
+- Batch gross amount: `$39.60`
+- No mismatches, duplicate keys, orphan items, multi-batch source assignments, Level 4+ rows, or self-generated creator override settlement items found.
+
+Design-only future note:
+
+- A future canonical payout eligibility resolver should derive eligibility from conversions, creator network earnings, brand network earnings, settlement state, reserve coverage, reversal state, claim state, manual review state, risk holds, and payout mode.
+- This resolver is NOT implemented yet.
+- Next approved mutation layer should remain operator-controlled and likely follow `draft -> manually_reviewed -> manually_marked_collected`, but that transition is NOT implemented.
+
+# Financial Infrastructure Standards Audit
+
+Status: READ-ONLY DIAGNOSTIC / ONE LOW-RISK REPORTING PATCH
+
+Audit lens:
+
+- PartnerLinks financial, attribution, settlement, payout, refund, reserve, claimability, and audit behavior should follow conservative Shopify/Stripe/affiliate-accounting infrastructure patterns.
+- Clever or implicit shortcuts are not acceptable for money-state decisions.
+- Runtime safety claims should be trusted only when marked `RUNTIME-ENFORCED`.
+
+Current runtime-aligned findings:
+
+- Claim actions are creator-scoped and owner-verified.
+- Stripe Connect routes are creator-scoped and owner-verified.
+- `PAYOUT_MODE` remains the primary fail-closed claim guard.
+- `claims_disabled` blocks claims.
+- `sandbox_time_based` requires a Stripe test key.
+- `manual_approval` and `settlement_gated` require a Stripe test key and row-level eligibility; live payouts remain NO-GO.
+- Settlement draft creation is explicit, idempotent, and limited to `settlement_batches`, `settlement_items`, and `settlement_audit_events`.
+- Settlement reconciliation recomputes from immutable accounting rows and confirms brand funding obligation is direct creator commissions plus platform fee.
+- Network override settlement items are allocation visibility only and do not increase brand funding obligation.
+- Duplicate Shopify order ids remain hard failures; historical non-Shopify manual duplicate test rows are classified as hygiene findings unless linked to financial side effects.
+
+Low-risk fix applied:
+
+- `scripts/productionSafetyTest.js --route-risk-report` now explicitly labels `/brand/setup/:brandId` routes as:
+  - `BLOCKED_FOR_PUBLIC_BRAND_ONBOARDING_UNTIL_BRAND_OWNERSHIP_AUTH_EXISTS`
+- This is diagnostic/reporting only.
+- No runtime route behavior changed.
+
+Open infrastructure-standard blocker:
+
+- Brand setup and brand dashboard ownership are not yet launch-grade.
+- `/brand/setup/:brandId` can mutate brand setup by route id and must not be used as public self-serve brand onboarding until signed-in brand ownership/auth scoping exists.
+- This is not a payout bug and does not affect the currently verified creator payout scoping, Shopify webhook attribution, or settlement reconciliation invariants.
+- It is a public brand-onboarding blocker because a Shopify/Stripe-grade system would require explicit resource ownership checks for brand setup mutations.
+
+Validation commands:
+
+- `node scripts/productionSafetyTest.js --dry-run --route-risk-report --settlement-report --idempotency-report`
+- `node scripts/settlementBatchOperator.js --dry-run --report --verify-reconciliation --brand-id 9`
+- `node scripts/productionSafetyTest.js --dry-run --report --matrix-report`
+
+NO-GO remains:
+
+- Live creator payouts.
+- Brand charging.
+- Stripe PaymentIntent collection.
+- Automatic settlement transitions.
+- Manual mark-collected transition.
+- Reserve deduction/enforcement.
+- Refund offset enforcement.
+- Public self-serve brand onboarding without brand ownership controls.
+
+# Brand Setup/Admin Ownership Protection
+
+Status: RUNTIME-ENFORCED AFTER MIGRATION `019` / FAIL-CLOSED BEFORE MIGRATION
+
+What changed:
+
+- Added migration `database/migrations/019_brand_owner_auth.sql`.
+- Added `services/brandOwnershipService.js`.
+- Added explicit brand owner/admin checks for:
+  - `GET /brand/setup/:brandId`
+  - `POST /brand/setup/:brandId`
+  - `GET /brand-dashboard/:brandSlug`
+- Added signed-in owner requirement to:
+  - `GET /api/shopify/start`
+  - `GET /api/shopify/callback`
+- Shopify OAuth callback now binds the signed-in Supabase auth user to the exact Shopify-connected brand through `brand_owners`.
+- Brand dashboard now resolves the brand first, verifies signed-in ownership, and only then loads dashboard data.
+- Brand setup POST verifies signed-in ownership server-side before mutating brand setup fields.
+- Route-risk diagnostics now classify protected brand routes as:
+  - `REQUIRES_SIGNED_IN_BRAND_OWNER_AND_EXACT_BRAND_SCOPE`
+
+Runtime behavior:
+
+- URL params alone are no longer enough to view or mutate brand setup/admin state.
+- Latest/default brand assumptions are not used for brand admin access.
+- Unauthorized users see a blocked/sign-in page.
+- Missing `brand_owners` table fails closed and blocks brand admin access.
+- No payout, settlement, Stripe transfer, PaymentIntent, reserve, claim, conversion, or earnings behavior changed.
+
+New migration:
+
+- `database/migrations/019_brand_owner_auth.sql`
+  - creates `brand_owners`.
+  - stores `brand_id`, `auth_user_id`, `email`, `role`, `source_system`, `shop_domain`, timestamps, revocation timestamp, and metadata.
+  - unique key: `(brand_id, auth_user_id)`.
+  - active-owner index for scoped access checks.
+
+Transitional limitation:
+
+- The current brand owner sign-in uses the existing Supabase Google auth flow.
+- Until a dedicated brand auth UX exists, Shopify brand setup may require signing in through the existing Google auth entry path before starting Shopify OAuth.
+- Existing brands created before migration `019` need an owner binding through a safe OAuth reinstall/reconnect or future manual operator binding workflow.
+
+Validation:
+
+- `node --check index.js`
+- `node --check services/brandOwnershipService.js`
+- `node --check services/brandDashboardService.js`
+- `node --check scripts/productionSafetyTest.js`
+
+Still NO-GO:
+
+- Public brand onboarding until migration `019` is applied and at least one owner is bound for each brand.
+- Brand billing/charging.
+- Stripe PaymentIntent collection.
+- Settlement collection.
+- Automatic settlement transitions.
+- Live creator payouts.
+
+Migration `019` manual verification:
+
+- Austin manually ran `database/migrations/019_brand_owner_auth.sql` in Supabase SQL Editor.
+- Read-only app verification confirms:
+  - `brand_owners` exists.
+  - `brand_owners` is readable.
+  - current row count is `0`.
+  - expected columns are visible:
+    - `id`
+    - `brand_id`
+    - `auth_user_id`
+    - `email`
+    - `role`
+    - `source_system`
+    - `shop_domain`
+    - `created_at`
+    - `updated_at`
+    - `revoked_at`
+    - `metadata`
+  - Route-risk report sees `brand_owners`.
+  - Route-risk report classifies:
+    - `/brand/setup/:brandId` as `REQUIRES_SIGNED_IN_BRAND_OWNER_AND_EXACT_BRAND_SCOPE`
+    - `/brand-dashboard/:brandSlug` as `REQUIRES_SIGNED_IN_BRAND_OWNER_AND_EXACT_BRAND_SCOPE`
+- Supabase REST/PostgREST does not expose `pg_indexes` or `information_schema` to this app client, so index/check/FK metadata should be verified manually in Supabase SQL Editor if needed.
+
+Existing brand owner coverage:
+
+- `brand_id=9`, `partnerlinks-test.myshopify.com`: no active `brand_owners` row currently exists.
+- `brand_id=8`, `AGEN`: no active `brand_owners` row currently exists.
+- Result:
+  - brand setup/dashboard routes fail closed for existing brands until owner rows are inserted or Shopify OAuth is re-run while signed in as the intended owner.
+
+Manual owner binding is required before testing owner access:
+
+- Do not insert owner rows automatically from Codex.
+- Austin should add owner rows manually in Supabase SQL Editor or re-run Shopify OAuth while signed in as the intended owner.
+- After an owner row exists, expected behavior:
+  - matching signed-in owner can access exact brand setup/dashboard.
+  - non-owner remains blocked.
+  - missing owner row remains fail-closed.
+
+Final brand owner binding verification:
+
+- Austin manually inserted an owner row for `brand_id=9`.
+- Read-only verification confirms:
+  - `brand_id=9` exists as `partnerlinks-test.myshopify.com`.
+  - Shopify store for brand `9` exists with `shop_domain=partnerlinks-test.myshopify.com`.
+  - `brand_owners` has one active owner row for brand `9`.
+  - owner `auth_user_id=d66e565d-8e21-4896-badd-00f552ea8ad1`.
+  - owner email: `austindtaylor7@gmail.com`.
+  - role: `owner`.
+  - source: `manual_operator`.
+  - `revoked_at` is null.
+- Guard checks:
+  - `userOwnsBrand({ brandId: 9, authUserId: owner })` returns true.
+  - active owner lookup returns a row.
+  - fake non-owner auth UUID is blocked for brand `9`.
+  - the brand `9` owner is blocked for brand `8`, which has no owner row.
+- Route-risk report confirms:
+  - `brand_owners` is visible.
+  - `/brand-dashboard/:brandSlug` is `REQUIRES_SIGNED_IN_BRAND_OWNER_AND_EXACT_BRAND_SCOPE`.
+  - `/brand/setup/:brandId` is `REQUIRES_SIGNED_IN_BRAND_OWNER_AND_EXACT_BRAND_SCOPE`.
+
+Current runtime guarantees:
+
+- Brand setup/dashboard routes require signed-in brand ownership.
+- URL params alone do not grant brand access.
+- Missing owner row fails closed.
+- Non-owner access fails closed.
+- Shopify OAuth callback can bind future connected brands to the signed-in owner.
+
+Remaining limitation:
+
+- Browser click-through for `/brand-dashboard/:brandSlug` and `/brand/setup/:brandId` as the owner still depends on signing in locally as `austindtaylor7@gmail.com`; Codex verified the server-side guard path and database binding read-only, not a live browser session with Austin's owner cookie.
+
+Current GO / NO-GO:
+
+- Brand owner table and brand `9` owner binding: GO.
+- Server-side brand ownership guard: GO.
+- Route-risk classification: GO.
+- Public brand onboarding: CONTROLLED GO for owner-bound brands only.
+- Existing brand `8` admin access: NO-GO until owner row exists.
+- Live creator payouts: NO-GO.
+- Brand charging / Stripe PaymentIntent collection: NO-GO.
+- Settlement collection / automatic settlement transitions: NO-GO.
+- Claim release / reserve deduction / refund offset enforcement: NO-GO.
+
+# Pre-Live Financial Hardening Pass
+
+Status: READ-ONLY DIAGNOSTIC / PHASE 6 BLOCKED
+
+Scope:
+
+- Advanced Phases 1, 2, 4, 5, 7, 8, 9, and 10 through read-only reports, diagnostics, and documentation.
+- Did not start Phase 6 Stripe money movement.
+- Did not create live Stripe transfers, PaymentIntents, brand charges, settlement collection, claim release, reserve deductions, payout clawbacks, or negative-balance collection.
+
+Phase 1 - Financial State Integrity:
+
+- Settlement reconciliation remains `12 PASS`.
+- Existing deterministic batch: `9d07ec69-2959-433c-b9a3-46f3aebc23a8`.
+- Expected settlement items: `35`.
+- Existing batch settlement items: `35`.
+- Brand funding obligation remains `$39.60`.
+- Direct commission total: `$29.70`.
+- Platform fee total: `$9.90`.
+- Network override allocation total: `$2.30`.
+- Network overrides remain allocation visibility only and do not increase brand funding obligation.
+- Economic report confirms:
+  - no Level 4+.
+  - no self-generated creator network overrides.
+  - no duplicate conversion order ids in scope.
+  - no duplicate creator network earning keys.
+  - no duplicate brand network earning keys.
+
+Phase 2 - Canonical Payout Eligibility Resolver:
+
+- Added `services/payoutEligibilityResolver.js`.
+- Added `scripts/productionSafetyTest.js --eligibility-report`.
+- Status: READ-ONLY DIAGNOSTIC.
+- Resolver inputs:
+  - conversions.
+  - creator network earnings.
+  - brand network earnings.
+  - settlement items.
+  - reversal items.
+  - payout mode.
+  - payout status / claim state.
+  - settlement/manual/reserve evidence.
+  - reversal/risk state.
+- Resolver outputs:
+  - `eligibility_state`.
+  - blocker reasons.
+  - warning reasons.
+  - linked settlement item ids.
+  - linked reversal item ids.
+  - `eligible_for_live_payout=false` always in this phase.
+- Current brand `9` report:
+  - 24 scoped source rows evaluated.
+  - all 24 are blocked.
+  - blocker: missing `settlement_collected`, `manual_approved`, or `reserve_covered` evidence.
+  - blocker: Phase 6 live payout release disabled.
+- The resolver does not mutate `payout_status`, settlement state, claim rows, reserve rows, or Stripe state.
+
+Phase 3 - Settlement Lifecycle:
+
+- No operator transition mutation implemented in this pass.
+- `draft -> manually_reviewed -> manually_marked_collected` remains DOCUMENTED ARCHITECTURE ONLY.
+- Reason:
+  - reconciliation truth should remain stable before introducing audited transition mutations.
+  - manually-marked-collected requires explicit approval because it changes funding responsibility semantics even if it does not call Stripe.
+
+Phase 4 - Refund / Reversal:
+
+- `financial_reversal_events` and `financial_reversal_items` exist and are readable.
+- Current reversal rows: `0` events and `0` items.
+- Refund/reversal ingestion remains diagnostic-only.
+- Eligibility resolver can block rows with reversal/offset evidence once reversal items exist.
+- No clawbacks, payout offsets, negative-balance collection, dashboard total changes, or payable balance mutation were added.
+
+Phase 5 - Reserve Architecture:
+
+- Reserve remains DOCUMENTED ARCHITECTURE ONLY.
+- `reserve_covered` is treated as a future eligibility input.
+- No reserve balance table, reserve ledger, top-up, deduction, or reserve-based claim release was implemented.
+- Required future model:
+  - brand reserve balance ledger.
+  - reserve application per settlement item.
+  - reserve shortfall diagnostics.
+  - low-reserve operator alerts.
+  - explicit no-double-use idempotency.
+
+Phase 7 - Operational/Admin Hardening:
+
+- Route-risk report confirms:
+  - brand owner table visible.
+  - brand setup/dashboard routes require signed-in brand owner and exact brand scope.
+  - payout/Stripe routes remain scoped and payout-mode gated.
+  - Shopify webhooks remain signed/idempotent event handlers.
+- No new dangerous admin mutation paths were added.
+- Existing operator draft settlement tooling remains explicit and idempotent.
+
+Phase 8 - Browser/User Beta Hardening:
+
+- Dashboard money language remains separated:
+  - Accounted earnings.
+  - Pending settlement.
+  - Claimable earnings.
+  - Claimed earnings.
+- Claim availability remains payout-mode and row-evidence gated.
+- Brand setup/dashboard access is now brand-owner scoped.
+- Remaining beta gaps:
+  - rate limiting.
+  - referral spam controls.
+  - dedicated brand owner UX.
+  - more polished blocked-state copy after browser testing.
+
+Phase 9 - Accounting Export / Human Reconciliation:
+
+- Read-only tools now cover:
+  - route risk.
+  - settlement readiness.
+  - settlement reconciliation.
+  - idempotency.
+  - refund/reversal readiness.
+  - economic invariants.
+  - lineage.
+  - risk signals.
+  - payout eligibility blockers.
+- `--eligibility-report` is the new operator answer for:
+  - why an earning is blocked.
+  - what settlement/reversal/risk condition is missing.
+  - which settlement/reversal rows are linked.
+
+Phase 10 - Live Rollout Strategy:
+
+- Phase 6 remains last.
+- Current staged rollout stance:
+  - Stage 1 internal operator-only testing: GO.
+  - Stage 2 single trusted owner-bound test brand: GO for attribution/accounting only.
+  - Stage 3 manual settlement collection: NO-GO until explicit audited transition flow is approved.
+  - Stage 4 manual creator payout approval: NO-GO.
+  - Stage 5 limited creator beta with payouts: NO-GO.
+  - Stage 6 partial automation: NO-GO.
+  - Stage 7 broader rollout: NO-GO.
+
+Validation commands run:
+
+- `node --check services/payoutEligibilityResolver.js`
+- `node --check scripts/productionSafetyTest.js`
+- `node scripts/productionSafetyTest.js --dry-run --eligibility-report --brand-id 9`
+- `node scripts/settlementBatchOperator.js --dry-run --report --verify-reconciliation --brand-id 9`
+- `node scripts/productionSafetyTest.js --dry-run --settlement-report --refund-report --idempotency-report`
+- `node scripts/productionSafetyTest.js --dry-run --route-risk-report --risk-report`
+- `node scripts/productionSafetyTest.js --dry-run --economic-report --lineage-report`
+- `node scripts/productionSafetyTest.js --dry-run --report --matrix-report`
+
+Current GO / NO-GO:
+
+- Real Shopify attribution/accounting beta: GO for controlled owner-bound brand `9`.
+- Settlement reconciliation verification: GO.
+- Payout eligibility explanation: GO as read-only diagnostic.
+- Live creator payouts: NO-GO.
+- Brand charging / Stripe PaymentIntent collection: NO-GO.
+- Settlement collection / automatic transitions: NO-GO.
+- Manual mark-collected transition: NO-GO until explicitly approved.
+- Reserve deduction / reserve-based claim release: NO-GO.
+- Refund offset enforcement / clawbacks / negative-balance collection: NO-GO.
+- Phase 6 Stripe money movement hardening: intentionally last and NOT STARTED.
+
+# Operator Reviewed Settlement Transition
+
+Status: RUNTIME-ENFORCED OPERATOR-ONLY SCRIPT / NO MONEY MOVEMENT
+
+Implemented:
+
+- `scripts/settlementBatchOperator.js` now supports an explicit operator review transition:
+  - `--review-draft`
+  - `--batch-id <uuid>` or `--batch-key <key>`
+  - `--operator <name>`
+  - `--notes <text>`
+  - `--dry-run`
+- Because the current database state machine does not include a safe `manually_reviewed` settlement status, the runtime transition preserves:
+  - `settlement_batches.settlement_status = settlement_pending`
+  - `settlement_items.settlement_status = settlement_pending`
+  - `collected_amount = 0`
+  - `settlement_collected_at = null`
+  - `manual_approved_at = null`
+  - `reserve_covered_at = null`
+- The reviewed state is stored as operator review metadata:
+  - `settlement_batches.metadata.review_status = manually_reviewed`
+  - `reviewed_at`
+  - `reviewed_by`
+  - `review_notes`
+  - deterministic `review_audit_event_key`
+- The transition writes one deterministic `settlement_audit_events` row using:
+  - `event_type = batch_status_transition`
+  - `from_status = settlement_pending`
+  - `to_status = settlement_pending`
+  - evidence showing `before_review_status -> manually_reviewed`
+  - no-money-movement flags.
+
+Command syntax:
+
+```bash
+node scripts/settlementBatchOperator.js --dry-run --review-draft --batch-id 9d07ec69-2959-433c-b9a3-46f3aebc23a8 --operator Austin --notes "Manual review dry run. No money movement."
+```
+
+Approved write command shape, only when explicitly intended:
+
+```bash
+node scripts/settlementBatchOperator.js --review-draft --batch-id <settlement_batch_id> --operator <operator_name> --notes "<review notes>"
+```
+
+What this mutates in write mode:
+
+- `settlement_batches.metadata`
+- `settlement_batches.audit_notes`
+- `settlement_batches.updated_at`
+- one idempotent `settlement_audit_events` row.
+
+What this does NOT mutate:
+
+- conversions.
+- creator network earnings.
+- brand network earnings.
+- creator earning claims.
+- payout rows.
+- payout status.
+- claimability.
+- Stripe state.
+- settlement collection state.
+- reserve state.
+- dashboard totals.
+
+Validation:
+
+- `node --check scripts/settlementBatchOperator.js`: PASS.
+- `node --check scripts/productionSafetyTest.js`: PASS.
+- `node --check services/payoutEligibilityResolver.js`: PASS.
+- Dry-run review of batch `9d07ec69-2959-433c-b9a3-46f3aebc23a8`: PASS, would create audit key `settlement_audit:9d07ec69-2959-433c-b9a3-46f3aebc23a8:manually_reviewed`.
+- Settlement reconciliation for brand `9`: PASS, 12 PASS checks.
+- `productionSafetyTest.js --settlement-report --idempotency-report`: PASS, no duplicate Shopify orders, settlement/audit idempotency clean.
+- Eligibility report for brand `9`: PASS, all rows remain `eligible_for_live_payout=false`.
+
+Current GO / NO-GO:
+
+- `draft -> manually_reviewed` operator review: GO as explicit operator-only script.
+- `manually_reviewed -> manually_marked_collected`: NO-GO / NOT IMPLEMENTED.
+- Live creator payouts: NO-GO.
+- Brand charging / Stripe PaymentIntent collection: NO-GO.
+- Settlement collection: NO-GO.
+- Automatic claim release: NO-GO.
+
+## Sandbox Stripe Money-Movement Readiness
+
+Status: READ-ONLY DIAGNOSTIC / SANDBOX ONLY / LIVE PAYOUTS NO-GO
+
+What changed:
+
+- `scripts/productionSafetyTest.js` now supports:
+  - `--sandbox-payout-readiness`
+  - `--creator-code <creator_code>`
+- The report previews sandbox claim readiness without reserving rows, creating claim ledger rows, calling Stripe, marking rows claimed, or changing `payout_status`.
+- The report safely shows:
+  - Stripe key mode as `test`, `live`, `missing`, or `unknown` without exposing secrets.
+  - `PAYOUT_MODE` and payout gate reason.
+  - whether sandbox payout testing is allowed.
+  - whether live payout testing remains blocked.
+  - creator auth binding, Stripe account presence, onboarding status, and payouts-enabled state.
+  - rows that would be reserved in a sandbox claim.
+  - rows blocked from reservation and why.
+  - existing claim batches, duplicate transfer risks, stuck reservations, and live eligibility blockers.
+
+Current verified actor:
+
+- `test-creator-04`
+- Creator id: `13`
+- Email: `andycoinsolana@gmail.com`
+- Auth binding: present.
+- Stripe connected account: present.
+- Stripe onboarding status: `payouts_enabled`.
+- Local Stripe key mode: `test`.
+- Local `PAYOUT_MODE`: `sandbox_time_based`.
+
+Current readiness result:
+
+- Sandbox environment/actor guardrails: PASS.
+- Immediate sandbox transfer readiness for `test-creator-04`: BLOCKED.
+- Blocker: no reservable sandbox claim amount exists.
+- Existing claim ledger already contains the prior successful sandbox test transfer for direct commission amount `$2.70`.
+- Existing claimed conversion is not reservable again because it is already claimed and linked to claim batch `b165c948-b74d-474c-b042-c8b75f6eb037`.
+- Duplicate transfer risks: 0.
+- Stuck reservations: 0.
+- `eligible_for_live_payout`: false.
+
+Exact readiness command:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --sandbox-payout-readiness --creator-code test-creator-04
+```
+
+Supporting verification commands:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --eligibility-report --creator-code test-creator-04
+node scripts/productionSafetyTest.js --dry-run --idempotency-report --route-risk-report
+node scripts/settlementBatchOperator.js --dry-run --report --verify-reconciliation --brand-id 9
+```
+
+Next sandbox-only test path:
+
+- Create or prepare a new deterministic, attributed Shopify test conversion for `test-creator-04`.
+- Wait for the row to become sandbox-claimable under `PAYOUT_MODE=sandbox_time_based`, or use an explicitly approved sandbox-only preparation path.
+- Re-run the sandbox payout readiness report.
+- Only execute the real claim route after the readiness report says GO and the operator explicitly approves the sandbox test action.
+
+No SQL is required for this diagnostic.
+
+No Stripe action was executed in this pass.
+
+No money movement occurred in this pass.
+
+Live payout status remains NO-GO:
+
+- Production must remain `PAYOUT_MODE=claims_disabled`.
+- Live Stripe transfers remain blocked.
+- Brand charging, settlement collection, reserve deduction, refund offset enforcement, and automatic claim release remain blocked.
+
+## Sandbox Claim Operator Wrapper
+
+Status: RUNTIME-AVAILABLE SANDBOX-ONLY OPERATOR SCRIPT / DRY-RUN DEFAULT / LIVE PAYOUTS NO-GO
+
+What changed:
+
+- Added `scripts/sandboxClaimOperator.js`.
+- The script is a sandbox-only wrapper around the existing `claimCreatorEarnings()` service path.
+- It does not duplicate payout math or Stripe transfer logic.
+- It exists only to run one controlled Stripe test-mode transfer when browser dashboard money states remain settlement-aware/fail-closed.
+
+Required dry-run command:
+
+```bash
+node scripts/sandboxClaimOperator.js --dry-run --creator-code test-creator-04 --conversion-id 26
+```
+
+Approved execute command shape, only after explicit operator approval:
+
+```bash
+node scripts/sandboxClaimOperator.js --execute --confirm-sandbox-stripe-transfer --creator-code test-creator-04 --conversion-id 26
+```
+
+Hard safety gates:
+
+- `STRIPE_SECRET_KEY` must be `sk_test_...`.
+- `PAYOUT_MODE` must be `sandbox_time_based`.
+- `--creator-code` must be exactly `test-creator-04`.
+- `--conversion-id` must be exactly the requested conversion.
+- `--execute` requires `--confirm-sandbox-stripe-transfer`.
+- conversion must belong to `test-creator-04`.
+- conversion must be unclaimed with `claim_batch_id = null`.
+- duplicate Stripe transfer risk must be `0`.
+- stuck reservations must be `0`.
+- the requested conversion must be the only reservable row for the creator.
+
+Dry-run result for conversion `26`:
+
+- Status: GO.
+- Would call Stripe now: false.
+- Would create Stripe test transfer on execute: true.
+- Creator id: `13`.
+- Destination Stripe account: `acct_1TXlmIBcYxOEFHEX`.
+- Reservable row:
+  - table: `conversions`
+  - id: `26`
+  - order_id: `shopify:partnerlinks-test.myshopify.com:6550995533998`
+  - amount: `$2.70`
+  - payout_status: `pending`
+  - claim_batch_id: null.
+- Duplicate transfer risks: `0`.
+- Stuck reservations: `0`.
+- `eligible_for_live_payout`: false.
+
+What execute mode may mutate on success:
+
+- `conversions` row `26`:
+  - `payout_status`
+  - `claim_batch_id`
+  - `claimed_at`
+- `creator_earning_claims`:
+  - one new immutable claim ledger row.
+- Stripe test mode:
+  - one test transfer using the generated claim batch id as idempotency key.
+
+What execute mode must not mutate:
+
+- `settlement_batches`.
+- `settlement_items`.
+- `settlement_audit_events`.
+- `financial_reversal_events`.
+- `financial_reversal_items`.
+- brand billing/charging tables.
+- brand reserve tables.
+- settlement collection state.
+- live payout eligibility state.
+
+Browser dashboard behavior:
+
+- The browser dashboard remains settlement-aware/fail-closed.
+- It may show fresh accounted earnings as `Pending settlement` and `$0.00` claimable when the deployed runtime is not in local sandbox payout mode.
+- Do not use the browser dashboard for this sandbox transfer test.
+
+Post-execute verification commands:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --sandbox-payout-readiness --creator-code test-creator-04
+node scripts/productionSafetyTest.js --dry-run --eligibility-report --creator-code test-creator-04
+node scripts/productionSafetyTest.js --dry-run --idempotency-report --route-risk-report
+node scripts/productionSafetyTest.js --dry-run --order-report --order-id shopify:partnerlinks-test.myshopify.com:6550995533998
+```
+
+No Supabase SQL is required for this operator wrapper.
+
+No Stripe action was executed in the implementation pass.
+
+## Shopify Public Distribution Install Readiness
+
+Status: MANUAL OPERATOR TASK / SHOPIFY REVIEW BLOCKER / NO PAYOUT OR SETTLEMENT CHANGE
+
+Current diagnosis:
+
+- PartnerLinks selected Shopify Public distribution.
+- Public distribution is the correct long-term path for installing across many independent merchant stores.
+- Public distribution does not by itself mean the app is approved.
+- External production stores cannot install a not-yet-approved public app.
+- Brand B and Brand C external installs are blocked by Shopify app review/distribution status, not by PartnerLinks payout/settlement code.
+
+Current app URL assumptions:
+
+- `SHOPIFY_APP_URL` controls Shopify OAuth redirect construction.
+- `PUBLIC_BASE_URL` controls public PartnerLinks links and can be used as fallback for `SHOPIFY_APP_URL`.
+- Production values should both be:
+  - `https://partnerlinks.app`
+
+Required Shopify Partner / Dev Dashboard URLs:
+
+- App URL:
+  - `https://partnerlinks.app/register-business`
+  - Alternative acceptable if Shopify expects the install entrypoint to start OAuth directly:
+    - `https://partnerlinks.app/api/shopify/start`
+- Allowed redirection URLs:
+  - `https://partnerlinks.app/api/shopify/callback`
+- Webhook endpoints:
+  - `https://partnerlinks.app/webhooks/shopify/orders-paid`
+  - `https://partnerlinks.app/webhooks/shopify/refunds-create`
+- App homepage:
+  - `https://partnerlinks.app/`
+- Brand setup / internal install start:
+  - `https://partnerlinks.app/register-business`
+
+Current OAuth route behavior:
+
+- `GET /api/shopify/start`
+  - requires signed-in Supabase auth user.
+  - validates `shop`.
+  - creates Shopify OAuth `state`.
+  - redirects to Shopify OAuth authorize URL.
+- `GET /api/shopify/callback`
+  - validates OAuth state.
+  - requires signed-in Supabase auth user.
+  - validates Shopify callback HMAC.
+  - exchanges code for access token.
+  - upserts `shopify_stores`.
+  - creates/reuses a brand.
+  - binds `brand_owners` for the signed-in auth user.
+  - redirects to `/brand/setup/:brandId`.
+
+Current scopes:
+
+- `SHOPIFY_SCOPES=read_orders,read_customers` in `.env.example`.
+- `read_orders` is needed for order/webhook conversion attribution.
+- `read_customers` should be treated as a review risk unless specifically needed for current functionality.
+- Do not add broad scopes.
+- Before review, prefer least privilege and remove `read_customers` if the app does not need customer records.
+
+External install status:
+
+- Brand B:
+  - display name: `novo-loom`
+  - Shopify domain: `1ncc1j-yw.myshopify.com`
+  - intended owner email: `fredcointron@gmail.com`
+  - product: Nova Focus Gummies, `$30`
+  - production external install before Shopify approval: BLOCKED.
+- Brand C:
+  - display name: `solace-market`
+  - Shopify domain: `euz1e0-sf.myshopify.com`
+  - intended owner email: `macicoinsol@gmail.com`
+  - product: Solace Recovery Mix, `$45`
+  - production external install before Shopify approval: BLOCKED.
+
+Testing before review:
+
+- Use development stores that are installable from the Shopify Dev Dashboard app overview/install flow.
+- If Brand B/C are normal independent production stores, they likely cannot install until app approval.
+- If Brand B/C can be recreated as development stores in the same Dev Dashboard context, they can be used for pre-review sandbox testing.
+- Do not switch to custom distribution because PartnerLinks needs independent multi-merchant SaaS distribution long term.
+- Do not submit app review until compliance URLs, scopes, privacy webhooks, and onboarding flow are ready.
+
+Required compliance/listing items before review:
+
+- privacy policy URL.
+- terms of service URL.
+- support URL or support email.
+- app homepage.
+- app listing content and install/testing instructions.
+- compliance/privacy webhooks such as customer data request/redact and shop redact if required by Shopify app review.
+
+Runtime/schema impact:
+
+- Multi-store install does not require a new database schema today.
+- `shopify_stores.shop_domain` is unique and linked to `brand_id`.
+- `brand_owners` binds the signed-in PartnerLinks user to the exact connected brand.
+- Each external install should start from a signed-in PartnerLinks brand owner so ownership remains deterministic.
+
+NO-GO boundaries:
+
+- no payout logic changes.
+- no settlement logic changes.
+- no Stripe money movement.
+- no broad Shopify scopes.
+- no public review submission without explicit approval.
+- no deploy/push without explicit approval.
+
+## Multi-Brand Install / Isolation Verification - Current Brand B/C Topology
+
+Status: READ-ONLY DIAGNOSTIC / PARTIALLY VERIFIED / NO PAYOUT OR SETTLEMENT CHANGE
+
+Important stale-data note:
+
+- Earlier Brand B/C domains and products are historical only.
+- Do not rely on `1ncc1j-yw.myshopify.com` or `euz1e0-sf.myshopify.com` for current Brand B/C testing.
+- No stale shopify_stores rows currently exist for those old domains.
+
+Read-only verification results:
+
+- Brand A:
+  - brand_id `9`
+  - name `partnerlinks-test.myshopify.com`
+  - shop_domain `partnerlinks-test.myshopify.com`
+  - dashboard slugs `partnerlinks-test-my` and `partnerlinks-test-myshopify-com`
+  - creator commission `15%`
+  - active owner `austindtaylor7@gmail.com`
+  - owner binding remains runtime-enforced.
+- Brand B:
+  - brand_id `11`
+  - name `novo-loom.myshopify.com`
+  - shop_domain `novo-loom.myshopify.com`
+  - dashboard slugs `novo-loom-myshopify-` and `novo-loom-myshopify-com`
+  - destination URL `https://novo-loom.myshopify.com`
+  - expected product URL `https://novo-loom.myshopify.com/products/novo-gummies`
+  - creator commission `25%`
+  - owner row for `fredcointron@gmail.com`: MISSING / MANUAL OPERATOR TASK.
+- Brand C:
+  - brand_id `10`
+  - name `solace-market-588vpz0h.myshopify.com`
+  - shop_domain `solace-market-588vpz0h.myshopify.com`
+  - dashboard slugs `solace-market-588vpz` and `solace-market-588vpz0h-myshopify-com`
+  - destination URL `https://solace-market-588vpz0h.myshopify.com`
+  - expected product URL `https://solace-market-588vpz0h.myshopify.com/products/solace-recovery-kit`
+  - creator commission `20%`
+  - owner row for `macicoinsol@gmail.com`: MISSING / MANUAL OPERATOR TASK.
+
+Current isolation guarantees:
+
+- `shopify_stores.shop_domain` has no duplicate rows for the active domains.
+- Brand B and Brand C each map to a distinct `brand_id`.
+- Webhook attribution can distinguish Brand A/B/C by exact `X-Shopify-Shop-Domain` when Shopify webhooks arrive from those domains.
+- Brand dashboard and setup routes require exact signed-in brand owner scope.
+- Missing owner rows fail closed, so Brand B/C dashboards are protected but not yet accessible to their intended owners.
+
+Current product-route limitation:
+
+- Product-specific `/r/:brandSlug/:creatorCode/:productSlug` routing is still driven by the in-app mock featured brand catalog.
+- Runtime product metadata currently only has a real Shopify-backed cart permalink path for Aria Wellness / `test-product`.
+- Brand B/C Shopify products are present as expected URLs, but product-specific PartnerLinks referral routes for `novo-gummies` and `solace-recovery-kit` are not yet verified as active runtime product routes.
+- Generic brand referral routes can resolve the brand rows, but active product-specific testing needs explicit product metadata or a product catalog source before checkout validation.
+
+Manual operator tasks:
+
+- Add active `brand_owners` rows for:
+  - brand_id `11` -> `fredcointron@gmail.com`
+  - brand_id `10` -> `macicoinsol@gmail.com`
+- Use confirmed Supabase Auth user ids from the signed-in app context before inserting owner rows.
+- After owner rows exist, browser-test signed-in access:
+  - Brand B owner can access only `/brand-dashboard/novo-loom-myshopify-`.
+  - Brand C owner can access only `/brand-dashboard/solace-market-588vpz`.
+  - Brand A owner isolation remains intact.
+
+NO-GO boundaries:
+
+- no deletion of stale rows until explicitly approved.
+- no payout logic changes.
+- no settlement logic changes.
+- no Stripe money movement.
+- no brand charging.
+- no deploy/push without explicit approval.
+
+## Brand B/C Owner Binding Verification
+
+Status: RUNTIME-ENFORCED / READ-ONLY VERIFIED / NO PAYOUT OR SETTLEMENT CHANGE
+
+Austin manually inserted `brand_owners` rows for Brand B and Brand C.
+
+Read-only verification confirms:
+
+- Brand A:
+  - brand_id `9`
+  - shop_domain `partnerlinks-test.myshopify.com`
+  - owner `austindtaylor7@gmail.com`
+  - auth_user_id `d66e565d-8e21-4896-badd-00f552ea8ad1`
+  - owner access to Brand A: PASS
+- Brand B:
+  - brand_id `11`
+  - shop_domain `novo-loom.myshopify.com`
+  - owner `fredcointron@gmail.com`
+  - auth_user_id `2b51e557-bfff-4346-83d7-eca0124eee96`
+  - owner access to Brand B: PASS
+- Brand C:
+  - brand_id `10`
+  - shop_domain `solace-market-588vpz0h.myshopify.com`
+  - owner `macicoinsol@gmail.com`
+  - auth_user_id `8c50f151-51af-4f51-9c5a-062675e096a2`
+  - owner access to Brand C: PASS
+
+Cross-brand isolation checks:
+
+- Brand B owner blocked from Brand C: PASS.
+- Brand B owner blocked from Brand A: PASS.
+- Brand C owner blocked from Brand B: PASS.
+- Brand C owner blocked from Brand A: PASS.
+- Brand A owner blocked from Brand B: PASS.
+- Brand A owner blocked from Brand C: PASS.
+- Fake non-owner blocked from Brand B: PASS.
+- Fake non-owner blocked from Brand C: PASS.
+
+Route-risk report:
+
+- `brand_owners` table visible with count `3`.
+- `/brand-dashboard/:brandSlug` remains classified as `REQUIRES_SIGNED_IN_BRAND_OWNER_AND_EXACT_BRAND_SCOPE`.
+- `GET /brand/setup/:brandId` remains classified as `REQUIRES_SIGNED_IN_BRAND_OWNER_AND_EXACT_BRAND_SCOPE`.
+- `POST /brand/setup/:brandId` remains classified as `REQUIRES_SIGNED_IN_BRAND_OWNER_AND_EXACT_BRAND_SCOPE`.
+
+Validation:
+
+- `node --check index.js`
+- `node --check services/brandOwnershipService.js`
+- `node --check scripts/productionSafetyTest.js`
+- `node scripts/productionSafetyTest.js --dry-run --route-risk-report`
+
+Remaining limitation:
+
+- Browser click-through still needs to be tested while signed in as each brand owner:
+  - Brand B: `/brand-dashboard/novo-loom-myshopify-`
+  - Brand C: `/brand-dashboard/solace-market-588vpz`
+- Brand B/C product-specific referral routes still need explicit product metadata/link verification before checkout attribution testing.
+
+NO-GO boundaries:
+
+- no payout logic changes.
+- no settlement logic changes.
+- no Stripe money movement.
+- no brand charging.
+- no claim release.
+- no deploy/push without explicit approval.
+
+## Brand B Creator Chain Verification
+
+Status: READ-ONLY VERIFIED / PRODUCT CHECKOUT ROUTE NOT READY / NO PAYOUT OR SETTLEMENT CHANGE
+
+Brand B:
+
+- brand_id `11`
+- runtime brand name `novo-loom.myshopify.com`
+- shop_domain `novo-loom.myshopify.com`
+- owner `fredcointron@gmail.com`
+- creator commission `25%`
+
+Verified Brand B origin and creator chain:
+
+- Brand B -> `epep`
+  - creator_id `32`
+  - email `epepcoinsol@gmail.com`
+  - auth_user_id `75a955d9-ed6b-4b7e-99fc-3f6ac8b268a3`
+  - `invited_by_brand_id=11`
+  - `parent_creator_id=null`
+  - brand invite session bound: PASS
+- `epep` -> `ctofnf`
+  - creator_id `33`
+  - email `ctofnf@gmail.com`
+  - auth_user_id `4e0608ee-4d69-401a-93e6-2edd2b3e7471`
+  - `parent_creator_id=32`
+- `ctofnf` -> `gibby`
+  - creator_id `34`
+  - email `gibbysolana@gmail.com`
+  - auth_user_id `e96d82f0-ac27-4404-93dc-40ab8f5241b9`
+  - `parent_creator_id=33`
+- `gibby` -> `goatse`
+  - creator_id `35`
+  - email `goatse550@gmail.com`
+  - auth_user_id `813b80b7-eca8-4b8e-8623-4334fa379b17`
+  - `parent_creator_id=34`
+- `goatse` -> `solrocks`
+  - creator_id `36`
+  - email `solrocksnft@gmail.com`
+  - auth_user_id `f35a5d07-360c-48c3-b446-9d3ff40071ad`
+  - `parent_creator_id=35`
+
+Lineage integrity:
+
+- All five creator accounts exist.
+- No duplicate creator rows by target email.
+- No duplicate creator rows by target auth_user_id.
+- No creator in this chain is attached to Brand A or Brand C through `brand_id`.
+- No creator has accidental dual brand-origin and creator-origin lineage.
+- No conversions or network earnings currently exist for this Brand B chain.
+
+Expected economics for a future `solrocks` Brand B sale:
+
+- Direct commission recipient: `solrocks`.
+- Brand B creator commission rate: `25%`.
+- For a `$25.00` order:
+  - direct creator commission: `$6.25`.
+  - expected PartnerLinks platform fee at current default `5%`: `$1.25`.
+  - Level 1 creator override: `goatse`, 30% of platform fee = `$0.38`.
+  - Level 2 creator override: `gibby`, 3% of platform fee = `$0.04`.
+  - Level 3 creator override: `ctofnf`, 2% of platform fee = `$0.03`.
+  - Level 4+ creator override: blocked by runtime cap.
+  - `epep` would be depth 4 from `solrocks` and should not receive a creator override for this sale.
+  - Brand B origin reward is not expected for this deepest sale because the runtime cap is consumed by three creator levels before reaching the brand-origin creator.
+
+Product checkout readiness:
+
+- Not ready to place a Brand B Shopify Bogus Gateway attribution test order yet.
+- Product-specific `/r/:brandSlug/:creatorCode/:productSlug` routing is still dependent on explicit product metadata/mock catalog entries.
+- `Novo Gummies` / `novo-gummies` is not yet configured as a Shopify-backed PartnerLinks product with cart permalink attributes.
+- Generic `/r/:brandSlug/:creatorCode` currently requires creator rows scoped to the brand through `brand_id`, while these Brand B chain creators are global creator rows with `brand_id=null`.
+- Before checkout testing, add or verify a deterministic Brand B product route that:
+  - resolves `novo-loom-myshopify-` or canonical Brand B slug.
+  - resolves creator code `solrocks`.
+  - redirects to `https://novo-loom.myshopify.com/products/novo-gummies` or a Shopify cart permalink.
+  - preserves `partnerlinks_ref`, `creator_code`, `brand_slug`, and `product_slug` through Shopify cart/order attributes.
+  - sets `shop_domain=novo-loom.myshopify.com` in click/session diagnostics.
+
+NO-GO until product route is configured:
+
+- Do not place a Brand B checkout attribution test expecting deterministic Shopify attribution.
+- Do not use Brand B checkout results to validate economics until product route/cart attribute persistence is proven.
+- Do not alter payout, Stripe, settlement, claim, reserve, refund, or earnings math.
+
+## Brand B Novo Gummies Product Route Wiring
+
+Status: RUNTIME WIRED / FAIL-CLOSED UNTIL `NOVO_LOOM_GUMMIES_VARIANT_ID` IS SET / NO PAYOUT OR SETTLEMENT CHANGE
+
+What changed:
+
+- Added Shopify-backed product metadata for Brand B `Novo Gummies`.
+- Added public Shopify brand slug mappings:
+  - `novo-loom-myshopify-` -> `novo-loom.myshopify.com`
+  - `novo-loom-myshopify-com` -> `novo-loom.myshopify.com`
+- Added environment variable:
+  - `NOVO_LOOM_GUMMIES_VARIANT_ID`
+- Added fail-closed product routing behavior for Brand B:
+  - if `NOVO_LOOM_GUMMIES_VARIANT_ID` is missing, the product route returns a safe not-configured response instead of silently falling back to a non-deterministic product page redirect.
+  - if `NOVO_LOOM_GUMMIES_VARIANT_ID` is present, the product route uses Shopify cart permalink attribution.
+
+Expected Brand B referral URL after deploy and env configuration:
+
+```text
+https://partnerlinks.app/r/novo-loom-myshopify-/solrocks/novo-gummies
+```
+
+Expected Shopify redirect shape:
+
+```text
+https://novo-loom.myshopify.com/cart/{NOVO_LOOM_GUMMIES_VARIANT_ID}:1?attributes[partnerlinks_ref]=...&attributes[creator_code]=solrocks&attributes[brand_slug]=novo-loom-myshopify-&attributes[product_slug]=novo-gummies&attributes[shop_domain]=novo-loom.myshopify.com&ref=...
+```
+
+Attribution fields persisted before Shopify checkout:
+
+- `partnerlinks_ref`
+- `creator_code=solrocks`
+- `brand_slug=novo-loom-myshopify-`
+- `product_slug=novo-gummies`
+- `shop_domain=novo-loom.myshopify.com`
+
+Manual operator tasks before placing Brand B Bogus Gateway order:
+
+- Set `NOVO_LOOM_GUMMIES_VARIANT_ID` in Railway/production env.
+- Deploy the route change.
+- Open `https://partnerlinks.app/r/novo-loom-myshopify-/solrocks/novo-gummies`.
+- Confirm redirect uses `/cart/{variantId}:1` on `novo-loom.myshopify.com`.
+- Then place the Shopify Bogus Gateway order manually.
+
+NO-GO boundaries:
+
+- no payout changes.
+- no Stripe changes.
+- no settlement changes.
+- no claim changes.
+- no reserve changes.
+- no refund changes.
+- no earnings math or network rate changes.

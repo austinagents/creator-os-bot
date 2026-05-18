@@ -3256,3 +3256,182 @@ Status: RUNTIME-ENFORCED MANUAL SCRIPT / NO MONEY MOVEMENT
 - `collected_amount` remains `0`.
 - The script writes `settlement_audit_events` so operators can reconcile what was created and why.
 - It does not prove funding and does not make any earning claimable.
+
+## Settlement Reconciliation Invariant
+
+Status: READ-ONLY DIAGNOSTIC
+
+Core formula:
+
+```text
+brand funding obligation = direct creator commissions + PartnerLinks platform fee
+```
+
+Network override rows are allocation visibility sourced from the platform fee. They must not increase the brand funding obligation beyond the platform fee already owed by the brand.
+
+Verification source:
+
+- `scripts/settlementBatchOperator.js --verify-reconciliation`
+
+Current verified behavior:
+
+- Draft batch gross amount is compared to direct commission settlement items plus platform fee settlement items.
+- Creator/brand network override items are checked separately as allocation rows.
+- Existing source financial rows remain immutable during reconciliation.
+
+## Future Payout Eligibility Resolver
+
+Status: DOCUMENTED ARCHITECTURE ONLY / NOT IMPLEMENTED
+
+A future canonical payout eligibility resolver should derive safe payout eligibility from:
+
+- conversions
+- creator network earnings
+- brand network earnings
+- settlement state
+- reserve coverage
+- reversal state
+- claim state
+- manual review state
+- risk holds
+- payout mode
+
+This resolver must fail closed and must not release claims from settlement diagnostics alone.
+
+## Infrastructure Standard Audit Note
+
+Status: READ-ONLY DIAGNOSTIC / DOCUMENTED BLOCKER
+
+- Current settlement and payout safety behavior follows the conservative infrastructure rule that accounting visibility is not funding proof.
+- Draft settlement batches, settlement items, and settlement audit events do not authorize payouts.
+- The current deterministic reconciliation invariant is:
+  - brand funding obligation = direct creator commissions + platform fee.
+- Network override rows are funded from the eligible platform fee pool and are allocation visibility only during settlement reconciliation.
+- Public self-serve brand setup is not part of the live financial release path yet and remains blocked until explicit brand ownership/auth scoping exists.
+- Future payout eligibility must combine settlement, manual approval, reserve coverage, reversal/offset, risk hold, claim, payout mode, and source accounting state.
+
+## Canonical Payout Eligibility Resolver
+
+Status: READ-ONLY DIAGNOSTIC / ENFORCEMENT DISABLED
+
+The canonical payout eligibility resolver now exists as read-only diagnostic infrastructure. It explains whether a conversion, creator-network earning, or brand-network earning is blocked and why.
+
+It must not:
+
+- mark rows claimable.
+- mutate `payout_status`.
+- release claims.
+- create Stripe transfers.
+- create PaymentIntents.
+- charge brands.
+- deduct reserves.
+- enforce reversals.
+
+Canonical target formula:
+
+```text
+eligible_for_payout =
+  attribution_valid
+  AND duplicate_guard_satisfied
+  AND settlement_safe
+  AND no_refund_block
+  AND no_dispute_block
+  AND no_risk_hold
+  AND payout_mode_allows
+  AND ownership_valid
+  AND claim_state_allows
+```
+
+Current read-only inputs:
+
+- `conversions`
+- `creator_network_earnings`
+- `brand_network_earnings`
+- `settlement_items`
+- `financial_reversal_items`
+- payout mode
+- settlement/manual/reserve evidence
+- reversal/risk state
+- claim state
+
+Current behavior:
+
+- all live payout eligibility remains false.
+- Phase 6 live money movement remains blocked.
+- missing `settlement_collected`, `manual_approved`, or `reserve_covered` is a blocker.
+- reversal/offset evidence is a blocker.
+- risk hold/rejected/pending review is a blocker.
+- claimed or reserved rows are blockers for new claims.
+
+Operator command:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --eligibility-report --brand-id 9
+```
+
+## Reserve / Prepaid Coverage Architecture
+
+Status: DOCUMENTED ARCHITECTURE ONLY / NOT IMPLEMENTED
+
+Reserve coverage should become a payout eligibility input only after ledgered reserve infrastructure exists.
+
+Required future tables/services:
+
+- `brand_reserve_balances`
+- `brand_reserve_ledger`
+- reserve application records linked to settlement items.
+- reserve shortfall diagnostics.
+- low-reserve alerts.
+- idempotent reserve application keys.
+
+Rules:
+
+- Do not treat informal notes or external balances as reserve coverage.
+- Do not deduct reserves automatically before an approved reserve ledger exists.
+- Do not make earnings claimable from reserve coverage until reserve application is item-level, auditable, and idempotent.
+
+## Rollout Sequencing
+
+Status: DOCUMENTED ARCHITECTURE ONLY
+
+Phase 6 Stripe money movement stays last.
+
+Rollout stages:
+
+1. Internal operator-only testing.
+2. Single trusted owner-bound test brand.
+3. Manual settlement collection only.
+4. Manual creator payout approval only.
+5. Limited creator beta.
+6. Partial automation.
+7. Broader rollout.
+
+No stage can advance to live payouts until attribution, settlement, refunds/reversals, reserves, payout eligibility, brand owner auth, operator controls, and reconciliation reporting pass their GO gates.
+
+## Operator Manual Review State
+
+Status: RUNTIME-ENFORCED OPERATOR-ONLY SCRIPT / NO MONEY MOVEMENT
+
+The first runtime settlement lifecycle transition is `draft -> manually_reviewed`.
+
+Important economic distinction:
+
+- `manually_reviewed` is an operator reconciliation state.
+- It is NOT `manual_approved`.
+- It is NOT `settlement_collected`.
+- It is NOT `reserve_covered`.
+- It does NOT make any earning funded or claimable.
+
+Because the current `settlement_batches.settlement_status` state machine does not include `manually_reviewed`, the reviewed marker is stored in batch metadata while financial state remains pending:
+
+- `settlement_status = settlement_pending`
+- `metadata.review_status = manually_reviewed`
+- one idempotent `settlement_audit_events` row
+
+This preserves the canonical invariant:
+
+```text
+accounted/reviewed earnings != funded earnings
+```
+
+The next blocked transition is `manually_reviewed -> manually_marked_collected`, which must not be implemented without explicit approval because it changes funding-responsibility semantics.

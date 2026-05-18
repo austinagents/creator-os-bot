@@ -1245,3 +1245,113 @@ Status: RUNTIME-ENFORCED MANUAL SCRIPT / NO MONEY MOVEMENT
 - Existing financial rows are intentionally not mutated in the first pass, so operators must use `settlement_items` and audit events for reconciliation.
 - `--create-draft` should be run only after dry-run review and explicit approval.
 - Live payout release remains blocked until collected funding, manual approval, or reserve coverage is runtime-verified.
+
+## Settlement Reconciliation Risk Boundary
+
+Status: READ-ONLY DIAGNOSTIC
+
+- Passing reconciliation does not prove brand funding was collected.
+- Reconciliation proves draft settlement rows match current immutable accounting rows.
+- Reconciliation does not authorize creator payouts.
+- Any future `manually_marked_collected` transition must be separately approved, auditable, and idempotent.
+- Any payout eligibility resolver must include reversal, risk, settlement, reserve, manual review, claim, and payout-mode state.
+
+### RISK-067 - Brand Setup Routes Need Launch-Grade Ownership Scoping
+
+- Severity: `SEV1`
+- Category: `AUTHORIZATION_SCOPE_BUGS`, `ADMIN_TOOLING_SAFETY`, `PRODUCT_VERIFICATION`
+- Status: `PARTIALLY MITIGATED / MIGRATION REQUIRED`
+- Description:
+  - `/brand/setup/:brandId` currently belongs to early Shopify OAuth/setup MVP flow and should not be treated as public self-serve brand administration.
+  - A Shopify/Stripe-grade system requires explicit signed-in brand ownership checks for any brand setup mutation.
+- Safe current behavior:
+  - Brand setup and brand dashboard routes now require signed-in `brand_owners` access after migration `019`.
+  - Shopify OAuth callback binds the signed-in auth user to the exact connected brand.
+  - Missing ownership table or missing owner row fails closed.
+  - This route remains separate from creator payout/Stripe claim scoping.
+  - No live settlement, brand charging, payout release, or automatic funding collection depends on this route today.
+- Unsafe assumption:
+  - Do not assume a route `brandId` is sufficient proof of brand ownership.
+  - Do not launch public brand setup/admin flows until migration `019` is applied and owner binding is verified.
+- Recommended mitigation:
+  - Manually apply migration `019`.
+  - Verify owner binding during Shopify OAuth.
+  - Add audit events for brand setup changes before public onboarding.
+  - Keep public brand onboarding controlled until existing brands have explicit owner rows.
+
+### RISK-068 - Payout Eligibility Explanation Exists Before Enforcement
+
+- Severity: `SEV1`
+- Category: `PAYOUT_IDEMPOTENCY`, `SETTLEMENT_FAILURE`, `REFUND_REVERSAL`, `DASHBOARD_MONEY_CLARITY`
+- Status: `PARTIALLY MITIGATED / READ-ONLY ONLY`
+- Description:
+  - A canonical payout eligibility resolver now explains blockers, but it intentionally does not enforce live payout release or mutate claimability.
+- Safe current behavior:
+  - `--eligibility-report` always reports `eligible_for_live_payout=false`.
+  - missing settlement/manual approval/reserve coverage blocks rows.
+  - reversal/offset evidence blocks rows.
+  - risk holds block rows.
+  - Phase 6 remains disabled.
+- Unsafe assumption:
+  - Do not treat eligibility diagnostics as payout authorization.
+  - Do not treat `settlement_items` or `settlement_audit_events` as funding proof.
+- Recommended mitigation:
+  - Keep using the resolver for operator explanation.
+  - Add enforcement only after settlement transitions, reserve ledgering, reversal application, risk holds, and manual approval audit flows are explicitly approved.
+
+### RISK-069 - Reserve Coverage Is Not Yet Ledgered
+
+- Severity: `SEV1`
+- Category: `SETTLEMENT_FAILURE`, `PAYOUT_LEAKAGE`, `ADMIN_TOOLING_SAFETY`
+- Status: `OPEN / DOCUMENTED ARCHITECTURE ONLY`
+- Description:
+  - `reserve_covered` is a future payout eligibility input, but no reserve balance or reserve ledger exists yet.
+- Safe current behavior:
+  - no reserve deduction exists.
+  - no reserve-covered claim release exists.
+  - eligibility diagnostics require reserve evidence but still block live payouts.
+- Unsafe assumption:
+  - Do not use informal brand balances, notes, or external spreadsheets as reserve coverage.
+- Recommended mitigation:
+  - Add item-level reserve ledgering before using reserve coverage for live payout eligibility.
+
+### RISK-070 - Operator Review Could Be Confused With Funding Approval
+
+- Severity: `SEV1`
+- Category: `SETTLEMENT_FAILURE`, `PAYOUT_LEAKAGE`, `DASHBOARD_MONEY_CLARITY`, `ADMIN_TOOLING_SAFETY`
+- Status: `MITIGATED BY METADATA/AUDIT SEPARATION`
+- Description:
+  - The `draft -> manually_reviewed` transition is intentionally only an operator reconciliation review.
+  - A future operator or developer could mistakenly treat review as funding collection or manual payout approval.
+- Safe current behavior:
+  - `manually_reviewed` is stored only in settlement batch metadata.
+  - `settlement_status` remains `settlement_pending`.
+  - settlement items remain `settlement_pending`.
+  - no `settlement_collected_at`, `manual_approved_at`, or `reserve_covered_at` field is set.
+  - payout eligibility reports remain `eligible_for_live_payout=false`.
+- Unsafe assumption:
+  - Do not treat manual review as collected funds, manual approval, reserve coverage, or payout authorization.
+- Recommended mitigation:
+  - Keep `manual_approved` reserved for explicit payout-eligibility approval only.
+  - Require a separate, explicitly approved, audited `manually_marked_collected` design before funding-responsibility transitions.
+
+### RISK-071 - Sandbox Payout Test Requires Fresh Reservable Earnings
+
+- Severity: `SEV2`
+- Category: `PAYOUT_IDEMPOTENCY`, `ADMIN_TOOLING_SAFETY`
+- Status: `CHECK / SANDBOX ONLY`
+- Description:
+  - A sandbox Stripe transfer test can only safely run when a test creator has fresh reservable claim rows.
+  - Reusing an already claimed row would test duplicate-prevention, not a new transfer.
+- Safe current behavior:
+  - `--sandbox-payout-readiness` reports whether rows would be reservable before any Stripe action.
+  - Claimed or reserved rows are listed with blocker reasons.
+  - Duplicate Stripe transfer ids and stuck reservations are reported.
+  - Live payout eligibility remains separate and false.
+- Current state:
+  - `test-creator-04` is properly configured for sandbox payout testing but has no fresh reservable amount.
+  - Existing sandbox claim batch `b165c948-b74d-474c-b042-c8b75f6eb037` already paid the prior `$2.70` direct commission.
+- Recommended mitigation:
+  - Create or prepare a new deterministic attributed Shopify test conversion for `test-creator-04`.
+  - Rerun the readiness report before any sandbox claim.
+  - Keep production live payouts blocked.

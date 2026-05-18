@@ -9,6 +9,11 @@ const {
   STRIPE_SECRET_KEY
 } = require('../config/config/env');
 const { normalizeCode } = require('../utils/slug');
+const { resolvePayoutEligibility } = require('../services/payoutEligibilityResolver');
+const {
+  getPayoutClaimGate,
+  isRowClaimableByPayoutMode
+} = require('../services/payoutModeService');
 
 const TEST_CODES = Array.from({ length: 10 }, (_, index) => `test-creator-${String(index + 1).padStart(2, '0')}`);
 const CHAIN = [
@@ -96,6 +101,14 @@ async function main() {
     await printIdempotencyReport();
   }
 
+  if (args.eligibilityReport) {
+    await printEligibilityReport(args);
+  }
+
+  if (args.sandboxPayoutReadiness) {
+    await printSandboxPayoutReadinessReport(args);
+  }
+
   printHeader('Done');
 }
 
@@ -119,6 +132,8 @@ function parseArgs(argv) {
     riskReport: false,
     routeRiskReport: false,
     idempotencyReport: false,
+    eligibilityReport: false,
+    sandboxPayoutReadiness: false,
     orderId: null,
     creatorCode: null,
     partnerlinksRef: null,
@@ -146,6 +161,8 @@ function parseArgs(argv) {
     else if (arg === '--risk-report') args.riskReport = true;
     else if (arg === '--route-risk-report') args.routeRiskReport = true;
     else if (arg === '--idempotency-report') args.idempotencyReport = true;
+    else if (arg === '--eligibility-report') args.eligibilityReport = true;
+    else if (arg === '--sandbox-payout-readiness') args.sandboxPayoutReadiness = true;
     else if (arg === '--order-id') {
       args.orderId = argv[index + 1] || null;
       index += 1;
@@ -191,6 +208,8 @@ function hasAnyAction(args) {
     args.riskReport ||
     args.routeRiskReport ||
     args.idempotencyReport ||
+    args.eligibilityReport ||
+    args.sandboxPayoutReadiness ||
     args.orderId ||
     args.creatorCode ||
     args.partnerlinksRef ||
@@ -1098,6 +1117,7 @@ async function printSettlementReport() {
     settlement_audit_events: settlementAuditStatus,
     state_machine: getSettlementStateMachineSummary(),
     batch_status_summary: summarizeByField(settlementBatches.rows, 'settlement_status'),
+    batch_review_status_summary: summarizeSettlementBatchReviewStatus(settlementBatches.rows),
     item_status_summary: summarizeByField(settlementItems.rows, 'settlement_status'),
     audit_event_type_summary: summarizeByField(settlementAuditEvents.rows, 'event_type'),
     required_future_infrastructure: [
@@ -1118,6 +1138,7 @@ async function printSettlementReport() {
     brand_id: row.brand_id,
     shop_domain: row.shop_domain,
     settlement_status: row.settlement_status,
+    review_status: getSettlementBatchReviewStatus(row),
     settlement_method: row.settlement_method,
     gross_amount: row.gross_amount,
     collected_amount: row.collected_amount,
@@ -1153,8 +1174,205 @@ async function printSettlementReport() {
     brand_id: row.brand_id,
     from_status: row.from_status,
     to_status: row.to_status,
+    review_status: row.evidence && row.evidence.after_review_status ? row.evidence.after_review_status : null,
     transition_allowed: row.transition_allowed,
     created_at: row.created_at
+  }));
+}
+
+async function printEligibilityReport(args) {
+  printHeader('Canonical Payout Eligibility Report');
+  const conversions = await getEligibilityConversions(args);
+  const conversionIds = conversions.map((row) => row.id);
+  const creatorNetworkEarnings = conversionIds.length
+    ? await getCreatorNetworkEarningsByConversions(conversionIds)
+    : [];
+  const brandNetworkEarnings = conversionIds.length
+    ? await getBrandNetworkEarnings({ conversionIds })
+    : [];
+  const results = await resolvePayoutEligibility({
+    conversions,
+    creatorNetworkEarnings,
+    brandNetworkEarnings
+  });
+  const statusCounts = results.reduce((counts, row) => {
+    counts[row.eligibility_state] = (counts[row.eligibility_state] || 0) + 1;
+    return counts;
+  }, {});
+  const blockerCounts = results.reduce((counts, row) => {
+    for (const blocker of row.blockers) counts[blocker] = (counts[blocker] || 0) + 1;
+    return counts;
+  }, {});
+
+  console.log(JSON.stringify({
+    mode: 'READ ONLY / DIAGNOSTIC',
+    scope: {
+      order_id: args.orderId || null,
+      creator_code: args.creatorCode || null,
+      brand_id: args.brandId || null,
+      shop_domain: args.shopDomain || null
+    },
+    source_counts: {
+      conversions: conversions.length,
+      creator_network_earnings: creatorNetworkEarnings.length,
+      brand_network_earnings: brandNetworkEarnings.length
+    },
+    status_counts: statusCounts,
+    blocker_counts: blockerCounts,
+    live_payout_release: 'NO-GO',
+    runtime_effect: 'none; this report does not mutate payout_status, settlement_status, claim rows, reserve rows, or Stripe state'
+  }, null, 2));
+
+  printRows('Payout Eligibility Rows', results, (row) => ({
+    source_type: row.source_type,
+    source_table: row.source_table,
+    source_id: row.source_id,
+    conversion_id: row.conversion_id,
+    order_id: row.order_id,
+    recipient_type: row.recipient_type,
+    recipient_id: row.recipient_id,
+    amount: row.amount,
+    payout_status: row.payout_status,
+    settlement_status: row.settlement_status,
+    reversal_status: row.reversal_status,
+    risk_status: row.risk_status,
+    risk_review_status: row.risk_review_status,
+    claim_batch_id: row.claim_batch_id,
+    eligibility_state: row.eligibility_state,
+    eligible_for_live_payout: row.eligible_for_live_payout,
+    eligible_for_current_mode: row.eligible_for_current_mode,
+    blockers: row.blockers,
+    warnings: row.warnings,
+    linked_settlement_item_ids: row.linked_settlement_item_ids,
+    linked_reversal_item_ids: row.linked_reversal_item_ids
+  }));
+}
+
+async function printSandboxPayoutReadinessReport(args) {
+  printHeader('Sandbox Stripe Payout Readiness Report');
+  const creatorCode = normalizeCode(args.creatorCode || 'test-creator-04');
+  const creators = await getCreatorsByCode(creatorCode);
+  const creator = creators.find((row) => normalizeCode(row.creator_code) === creatorCode) || creators[0] || null;
+  const payoutGate = getPayoutClaimGate();
+  const stripeKeyMode = getStripeKeyMode();
+
+  if (!creator) {
+    console.log(JSON.stringify({
+      mode: 'READ ONLY / DRY RUN',
+      status: 'BLOCKED',
+      reason: `No creator found for ${creatorCode}.`,
+      requested_creator_code: creatorCode,
+      stripe_key_mode: stripeKeyMode,
+      payout_mode: payoutGateSummary(payoutGate),
+      live_payouts: 'NO-GO'
+    }, null, 2));
+    return;
+  }
+
+  const [directRows, networkRows, existingClaims] = await Promise.all([
+    getCreatorDirectClaimRows(creator.id),
+    getCreatorNetworkClaimRows(creator.id),
+    getCreatorClaims({ creatorIds: [creator.id] })
+  ]);
+  const existingReservedBatchIds = unique(directRows.concat(networkRows)
+    .map((row) => row.claim_batch_id)
+    .filter(Boolean));
+  const claimRows = buildSandboxClaimPreviewRows({ directRows, networkRows, payoutGate });
+  const reservableRows = claimRows.filter((row) => row.would_reserve);
+  const directCommissionAmount = roundMoney(sumField(reservableRows.filter((row) => row.source_type === 'direct_commission'), 'amount'));
+  const networkEarningAmount = roundMoney(sumField(reservableRows.filter((row) => row.source_type === 'creator_network_override'), 'amount'));
+  const totalAmount = roundMoney(directCommissionAmount + networkEarningAmount);
+  const transferDuplicateRisks = duplicateGroups(
+    existingClaims.filter((row) => row.stripe_transfer_id),
+    (row) => row.stripe_transfer_id
+  );
+  const stuckReservations = findStuckReservations({ directRows, networkRows, existingClaims });
+  const eligibilityResults = await resolvePayoutEligibility({
+    conversions: directRows,
+    creatorNetworkEarnings: networkRows
+  });
+  const readinessBlockers = buildSandboxPayoutReadinessBlockers({
+    creator,
+    payoutGate,
+    stripeKeyMode,
+    totalAmount,
+    stuckReservations,
+    transferDuplicateRisks
+  });
+
+  console.log(JSON.stringify({
+    mode: 'READ ONLY / DRY RUN',
+    runtime_effect: 'none; no rows reserved, no claim ledger rows created, no Stripe call made, no payout_status changed',
+    creator: {
+      creator_code: creator.creator_code,
+      id: creator.id,
+      email: creator.email || null,
+      auth_user_id_present: Boolean(creator.auth_user_id),
+      auth_user_id: creator.auth_user_id || null,
+      stripe_account_id_present: Boolean(creator.stripe_account_id),
+      stripe_account_id: creator.stripe_account_id || null,
+      stripe_onboarding_status: creator.stripe_onboarding_status || 'not_connected'
+    },
+    stripe: {
+      key_mode: stripeKeyMode,
+      sandbox_transfer_allowed_by_key: stripeKeyMode === 'test',
+      live_transfer_allowed: false
+    },
+    payout_mode: payoutGateSummary(payoutGate),
+    sandbox_payout_testing: {
+      status: readinessBlockers.length ? 'BLOCKED' : 'GO',
+      blockers: readinessBlockers,
+      allowed_only_when: [
+        'STRIPE_SECRET_KEY starts with sk_test_',
+        'PAYOUT_MODE=sandbox_time_based',
+        'creator has payouts_enabled Stripe onboarding status',
+        'creator has reservable sandbox claim rows',
+        'operator explicitly submits the existing claim route or approved command'
+      ]
+    },
+    dry_run_claim_preview: {
+      would_create_stripe_test_transfer: readinessBlockers.length === 0,
+      would_call_stripe_now: false,
+      claim_batch_idempotency_key: existingReservedBatchIds[0] || 'new random UUID generated by claim service at execution',
+      existing_reserved_batch_ids: existingReservedBatchIds,
+      destination_stripe_account_id: creator.stripe_account_id || null,
+      direct_commission_amount: directCommissionAmount,
+      network_earning_amount: networkEarningAmount,
+      total_amount: totalAmount,
+      currency: 'USD',
+      reservable_row_count: reservableRows.length
+    },
+    duplicate_transfer_risk_count: transferDuplicateRisks.length,
+    stuck_reservation_count: stuckReservations.length,
+    existing_claim_count: existingClaims.length,
+    live_payouts_go_no_go: 'NO-GO',
+    eligible_for_live_payout: false
+  }, null, 2));
+
+  printRows('Rows That Would Be Reserved In Sandbox Claim', reservableRows, (row) => row);
+  printRows('Rows Not Reservable And Why', claimRows.filter((row) => !row.would_reserve), (row) => row);
+  printRows('Existing Creator Claim Ledger Rows', existingClaims, (row) => ({
+    id: row.id,
+    creator_id: row.creator_id,
+    total_claimed_amount: row.total_claimed_amount,
+    direct_commission_amount: row.direct_commission_amount,
+    network_earning_amount: row.network_earning_amount,
+    status: row.status,
+    stripe_transfer_id: row.stripe_transfer_id,
+    stripe_transfer_status: row.stripe_transfer_status,
+    created_at: row.created_at
+  }));
+  printRows('Stuck Reservations', stuckReservations, (row) => row);
+  printRows('Duplicate Transfer Risks', transferDuplicateRisks, duplicateSummary);
+  printRows('Eligibility Rows For Same Creator', eligibilityResults, (row) => ({
+    source_type: row.source_type,
+    source_id: row.source_id,
+    amount: row.amount,
+    payout_status: row.payout_status,
+    claim_batch_id: row.claim_batch_id,
+    eligibility_state: row.eligibility_state,
+    eligible_for_live_payout: row.eligible_for_live_payout,
+    blockers: row.blockers
   }));
 }
 
@@ -1202,6 +1420,7 @@ async function printRiskReport(args) {
 
 async function printRouteRiskReport() {
   printHeader('Route Risk Report');
+  const brandOwnersStatus = await tableStatus('brand_owners');
   const indexPath = path.join(__dirname, '..', 'index.js');
   const source = fs.readFileSync(indexPath, 'utf8');
   const lines = source.split('\n');
@@ -1217,10 +1436,25 @@ async function printRouteRiskReport() {
 
   const defaultResolverRows = findSourceMatches(lines, /getSignedInCreator\(/);
   const payoutModeRows = findSourceMatches(lines, /getPayoutClaimGate|claimCreatorEarnings|stripe\/connect|earnings\/claim/);
+  const brandOwnershipRows = findSourceMatches(lines, /getScopedSignedInBrandOwner|ensureBrandOwner|userOwnsBrand|brand_owners/);
 
+  printHeader('Brand Ownership Auth Status');
+  console.log(JSON.stringify({
+    table: brandOwnersStatus,
+    protected_routes: [
+      '/brand/setup/:brandId',
+      '/brand-dashboard/:brandSlug',
+      '/api/shopify/start',
+      '/api/shopify/callback'
+    ],
+    runtime_expectation: brandOwnersStatus.ok
+      ? 'Brand admin routes require signed-in brand owner rows.'
+      : 'Brand admin routes fail closed until migration 019 creates brand_owners.'
+  }, null, 2));
   printRows('Routes', routeRows, (row) => row);
   printRows('Default/Convenience Creator Resolver References', defaultResolverRows, (row) => row);
   printRows('Payout/Stripe Guard References', payoutModeRows, (row) => row);
+  printRows('Brand Ownership Guard References', brandOwnershipRows, (row) => row);
 }
 
 async function printIdempotencyReport() {
@@ -1573,6 +1807,30 @@ async function getCreatorClaims({ creatorIds }) {
   return data || [];
 }
 
+async function getCreatorDirectClaimRows(creatorId) {
+  const { data, error } = await supabase
+    .from('conversions')
+    .select('*')
+    .eq('creator_id', creatorId)
+    .in('payout_status', ['pending', 'claimable', 'claimed'])
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return data || [];
+}
+
+async function getCreatorNetworkClaimRows(creatorId) {
+  const { data, error } = await supabase
+    .from('creator_network_earnings')
+    .select('*')
+    .eq('earning_creator_id', creatorId)
+    .in('payout_status', ['pending', 'claimable', 'claimed'])
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return data || [];
+}
+
 async function getCreatorsByCode(creatorCode) {
   if (!creatorCode) return [];
   const { data, error } = await supabase
@@ -1670,6 +1928,27 @@ async function getConversionsForLookup({ orderIds = [], conversionIds = [], crea
   }
 
   return uniqueById(rows);
+}
+
+async function getEligibilityConversions(args) {
+  if (args.orderId || args.creatorCode) {
+    return getConversionsForLookup({
+      orderIds: args.orderId ? [args.orderId] : [],
+      creatorCode: args.creatorCode || null
+    });
+  }
+
+  let query = supabase
+    .from('conversions')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (args.brandId) query = query.eq('brand_id', args.brandId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
 }
 
 async function getCreatorNetworkEarningsByConversions(conversionIds) {
@@ -1871,6 +2150,137 @@ function summarizeByField(rows, field) {
   }, {});
 }
 
+function buildSandboxClaimPreviewRows({ directRows, networkRows, payoutGate }) {
+  return [
+    ...directRows.map((row) => buildSandboxClaimPreviewRow({
+      row,
+      payoutGate,
+      sourceType: 'direct_commission',
+      amount: row.commission_amount
+    })),
+    ...networkRows.map((row) => buildSandboxClaimPreviewRow({
+      row,
+      payoutGate,
+      sourceType: 'creator_network_override',
+      amount: row.commission_amount
+    }))
+  ];
+}
+
+function buildSandboxClaimPreviewRow({ row, payoutGate, sourceType, amount }) {
+  const reasons = [];
+  const status = row.payout_status || 'pending';
+  const claimableAt = row.claimable_at ? new Date(row.claimable_at) : null;
+  const timeBasedReady = claimableAt && claimableAt <= new Date();
+  const rowAllowedByMode = isRowClaimableByPayoutMode(row, payoutGate);
+
+  if (!payoutGate.allowed) reasons.push(`payout mode blocks claims: ${payoutGate.reason}`);
+  if (status === 'claimed') reasons.push('row is already claimed');
+  if (row.claim_batch_id) reasons.push('row already has claim_batch_id reservation');
+  if (status !== 'claimable' && !(status === 'pending' && timeBasedReady)) {
+    reasons.push('row is not claimable or promotable by time window');
+  }
+  if (!rowAllowedByMode) reasons.push('row is not claimable under current payout mode');
+
+  return {
+    source_type: sourceType,
+    source_id: row.id,
+    conversion_id: row.conversion_id || row.id,
+    order_id: row.order_id || null,
+    amount: roundMoney(amount),
+    payout_status: status,
+    claimable_at: row.claimable_at || null,
+    claim_batch_id: row.claim_batch_id || null,
+    settlement_status: row.settlement_status || null,
+    manual_approved_at: row.manual_approved_at || null,
+    settlement_collected_at: row.settlement_collected_at || null,
+    reserve_covered_at: row.reserve_covered_at || null,
+    would_promote_from_pending: status === 'pending' && timeBasedReady && payoutGate.claimabilityRule === 'time_based',
+    would_reserve: reasons.length === 0,
+    blocker_reasons: reasons
+  };
+}
+
+function buildSandboxPayoutReadinessBlockers({
+  creator,
+  payoutGate,
+  stripeKeyMode,
+  totalAmount,
+  stuckReservations,
+  transferDuplicateRisks
+}) {
+  const blockers = [];
+  if (stripeKeyMode !== 'test') blockers.push('STRIPE_SECRET_KEY is not test mode.');
+  if (!payoutGate.allowed) blockers.push(`Payout mode blocks claims: ${payoutGate.reason}`);
+  if (payoutGate.mode !== 'sandbox_time_based') blockers.push('PAYOUT_MODE is not sandbox_time_based.');
+  if (!creator.auth_user_id) blockers.push('Creator has no auth_user_id binding for route-based claim ownership.');
+  if (!creator.stripe_account_id) blockers.push('Creator has no Stripe connected account id.');
+  if (creator.stripe_onboarding_status !== 'payouts_enabled') blockers.push(`Creator Stripe onboarding status is ${creator.stripe_onboarding_status || 'not_connected'}, not payouts_enabled.`);
+  if (totalAmount <= 0) blockers.push('No reservable sandbox claim amount found.');
+  if (stuckReservations.length) blockers.push('Existing stuck claim reservations require manual review before a new claim.');
+  if (transferDuplicateRisks.length) blockers.push('Duplicate Stripe transfer ids exist in claim ledger.');
+  return blockers;
+}
+
+function findStuckReservations({ directRows, networkRows, existingClaims }) {
+  const claimIds = new Set((existingClaims || []).map((row) => row.id));
+  return directRows.concat(networkRows)
+    .filter((row) => row.claim_batch_id && row.payout_status !== 'claimed' && !claimIds.has(row.claim_batch_id))
+    .map((row) => ({
+      source_table: row.order_id ? 'conversions' : 'creator_network_earnings',
+      source_id: row.id,
+      claim_batch_id: row.claim_batch_id,
+      payout_status: row.payout_status
+    }));
+}
+
+function payoutGateSummary(payoutGate) {
+  return {
+    mode: payoutGate.mode,
+    recognized: payoutGate.recognized,
+    allowed: payoutGate.allowed,
+    claimability_rule: payoutGate.claimabilityRule,
+    stripe_key_is_test: payoutGate.stripeKeyIsTest,
+    reason: payoutGate.reason
+  };
+}
+
+function getStripeKeyMode() {
+  const key = String(STRIPE_SECRET_KEY || '');
+  if (!key) return 'missing';
+  if (/^sk_test_/.test(key)) return 'test';
+  if (/^sk_live_/.test(key)) return 'live';
+  return 'unknown';
+}
+
+function sumField(rows, field) {
+  return (rows || []).reduce((sum, row) => sum + Number(row[field] || 0), 0);
+}
+
+function roundMoney(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function duplicateSummary(row) {
+  return {
+    key: row.key,
+    count: row.count,
+    ids: row.ids
+  };
+}
+
+function summarizeSettlementBatchReviewStatus(rows) {
+  return rows.reduce((summary, row) => {
+    const key = getSettlementBatchReviewStatus(row);
+    summary[key] = (summary[key] || 0) + 1;
+    return summary;
+  }, {});
+}
+
+function getSettlementBatchReviewStatus(row) {
+  return (row && row.metadata && row.metadata.review_status) || 'draft';
+}
+
 function getSettlementStateMachineSummary() {
   return {
     runtime_behavior: 'READ-ONLY DIAGNOSTIC; settlement state transitions are not automatically enforced by this script.',
@@ -1927,14 +2337,6 @@ function getLocalPayoutGateSummary() {
     production_recommendation: 'claims_disabled',
     live_payouts_go_no_go: 'NO-GO'
   };
-}
-
-function getStripeKeyMode() {
-  const key = String(STRIPE_SECRET_KEY || '');
-  if (!key) return 'missing';
-  if (/^sk_test_/.test(key)) return 'test';
-  if (/^sk_live_/.test(key)) return 'live';
-  return 'unknown';
 }
 
 function getActorRole(creatorCode) {
@@ -2043,9 +2445,29 @@ function classifyRoute({ method, route, line }) {
     method,
     route,
     category,
-    requires_attention: /earnings\/claim|stripe\/connect|webhooks\/shopify|api\/shopify|brand\/setup/.test(route),
+    requires_attention: /earnings\/claim|stripe\/connect|webhooks\/shopify|api\/shopify|brand\/setup|brand-dashboard\/:brandSlug/.test(route),
+    launch_status: routeLaunchStatus({ method, route }),
     note: routeRiskNote(route)
   };
+}
+
+function routeLaunchStatus({ method, route }) {
+  if (/brand\/setup/.test(route)) {
+    return 'REQUIRES_SIGNED_IN_BRAND_OWNER_AND_EXACT_BRAND_SCOPE';
+  }
+  if (/brand-dashboard\/:brandSlug/.test(route)) {
+    return 'REQUIRES_SIGNED_IN_BRAND_OWNER_AND_EXACT_BRAND_SCOPE';
+  }
+  if (/earnings\/claim|stripe\/connect/.test(route)) {
+    return 'CONTROLLED_BY_SCOPED_AUTH_AND_PAYOUT_MODE_GATES';
+  }
+  if (/webhooks\/shopify/.test(route)) {
+    return 'REQUIRES_SIGNED_WEBHOOK_IDEMPOTENCY';
+  }
+  if (method !== 'GET') {
+    return 'REVIEW_BEFORE_PUBLIC_LAUNCH';
+  }
+  return 'OK_OR_INFORMATIONAL';
 }
 
 function routeRiskNote(route) {
@@ -2054,8 +2476,9 @@ function routeRiskNote(route) {
   if (/stripe\/connect/.test(route)) return 'must remain explicit creator-scoped and ownership-checked';
   if (/webhooks\/shopify\/refunds-create/.test(route)) return 'must verify HMAC, write reversal ledger only, and never mutate payout_status or Stripe';
   if (/webhooks\/shopify/.test(route)) return 'must verify HMAC and remain idempotent';
-  if (/api\/shopify/.test(route)) return 'must preserve OAuth state validation and least-privilege token handling';
-  if (/brand\/setup/.test(route)) return 'must remain brand-scoped and avoid hidden default brand assumptions';
+  if (/api\/shopify/.test(route)) return 'must preserve OAuth state validation, signed-in owner binding, and least-privilege token handling';
+  if (/brand\/setup/.test(route)) return 'requires signed-in brand owner and exact brand ownership verification';
+  if (/brand-dashboard\/:brandSlug/.test(route)) return 'requires signed-in brand owner before loading brand dashboard data';
   if (/debug/.test(route)) return 'must remain read-only/protected';
   if (/^\/r\//.test(route)) return 'creates click/session attribution but must not create payout';
   if (/^\/join/.test(route)) return 'creates onboarding lineage but must not create product attribution';

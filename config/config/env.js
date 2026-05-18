@@ -17,6 +17,7 @@ module.exports = {
   SHOPIFY_SCOPES: process.env.SHOPIFY_SCOPES || 'read_orders,read_customers',
   SHOPIFY_APP_URL: process.env.SHOPIFY_APP_URL || process.env.PUBLIC_BASE_URL || 'http://localhost:3000',
   ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID: process.env.ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID,
+  NOVO_LOOM_GUMMIES_VARIANT_ID: process.env.NOVO_LOOM_GUMMIES_VARIANT_ID,
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
   STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
   PAYOUT_MODE: process.env.PAYOUT_MODE || 'claims_disabled',

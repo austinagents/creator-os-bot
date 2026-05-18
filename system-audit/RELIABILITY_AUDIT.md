@@ -1070,3 +1070,160 @@ Regression coverage:
 - REG-SETTLEMENT-010: Draft settlement batch creation must not mutate existing financial rows.
 - REG-SETTLEMENT-011: Draft settlement items must be idempotent by source financial row and item type.
 - REG-SETTLEMENT-012: Draft settlement batch creation must not imply funding collection or payout eligibility.
+
+## Deterministic Settlement Reconciliation Verification
+
+Status: READ-ONLY DIAGNOSTIC
+
+- `scripts/settlementBatchOperator.js --verify-reconciliation` recomputes expected settlement items from source accounting rows and compares them to draft settlement rows.
+- Current brand `9` verification produced 12 PASS checks.
+- Verified invariant: brand funding obligation equals direct creator commissions plus platform fee.
+- Verified invariant: network override settlement items are allocation visibility only and do not increase brand funding obligation.
+- Verified invariant: settlement items reference source rows and do not require mutating those source rows.
+
+Regression coverage:
+
+- REG-SETTLEMENT-013: Settlement reconciliation must be deterministic from immutable accounting rows.
+- REG-SETTLEMENT-014: Network override settlement items must not increase brand funding obligation.
+- REG-SETTLEMENT-015: Settlement items must not be orphaned from source accounting rows.
+- REG-SETTLEMENT-016: One source financial obligation must not be silently assigned to multiple settlement batches.
+
+## Shopify/Stripe-Grade Infrastructure Standards Audit
+
+Status: READ-ONLY DIAGNOSTIC / BLOCKER DOCUMENTED
+
+- Audit standard:
+  - deterministic accounting.
+  - explicit resource ownership.
+  - idempotent financial mutations.
+  - no hidden funding assumptions.
+  - no payout before funding/approval/reserve evidence.
+  - no ambiguous creator or brand context in sensitive routes.
+- Current pass findings:
+  - creator payout and Stripe routes are explicitly creator-scoped.
+  - payout mode and row-level claimability gates fail closed for live money.
+  - settlement draft creation is operator-only and idempotent.
+  - settlement reconciliation is deterministic from immutable accounting rows.
+  - network override settlement items are allocation visibility only.
+- Open blocker:
+  - brand setup routes are not yet launch-grade brand-owned resources.
+  - `/brand/setup/:brandId` must require signed-in brand ownership verification before public brand onboarding.
+  - Route-risk diagnostics now label these routes `BLOCKED_FOR_PUBLIC_BRAND_ONBOARDING_UNTIL_BRAND_OWNERSHIP_AUTH_EXISTS`.
+
+Regression coverage:
+
+- REG-AUTH-004: Brand setup mutations must require explicit signed-in brand ownership before public self-serve launch.
+- REG-SETTLEMENT-017: Draft/audit/reconciliation records must not be treated as funding proof or payout authorization.
+
+## Brand Setup/Admin Ownership Hardening
+
+Status: RUNTIME-ENFORCED AFTER MIGRATION `019` / FAIL-CLOSED BEFORE MIGRATION
+
+- Added explicit `brand_owners` ownership model.
+- Protected brand admin/setup routes:
+  - `GET /brand/setup/:brandId`
+  - `POST /brand/setup/:brandId`
+  - `GET /brand-dashboard/:brandSlug`
+- Shopify OAuth start/callback now requires a signed-in Supabase auth user so brand ownership can be bound deterministically.
+- Shopify OAuth callback binds the signed-in user to the exact connected brand.
+- Brand dashboard data is loaded only after ownership verification.
+- Brand setup mutation verifies ownership before updating brand setup fields.
+- Missing ownership table or missing owner row fails closed.
+
+Regression coverage:
+
+- REG-AUTH-004: Brand setup mutations must require explicit signed-in brand ownership before public self-serve launch.
+- REG-AUTH-005: Brand dashboard data must not load for unauthorized users.
+- REG-AUTH-006: Shopify OAuth brand setup must bind the connected brand to the signed-in owner/admin.
+
+## Pre-Live Financial Hardening Audit
+
+Status: READ-ONLY DIAGNOSTIC / PHASE 6 BLOCKED
+
+- Phase 1 integrity reports remain clean:
+  - settlement reconciliation: 12 PASS.
+  - no Level 4+.
+  - no self-generated creator network overrides.
+  - no duplicate financial idempotency keys.
+- Phase 2 added read-only canonical payout eligibility diagnostics.
+- Phase 3 settlement transition mutation remains not implemented.
+- Phase 4 refund/reversal remains ledger/diagnostic-only.
+- Phase 5 reserve architecture remains documented only.
+- Phase 7 route/admin hardening confirms brand owner scoped routes.
+- Phase 8 dashboard language distinguishes accounted, pending settlement, claimable, and claimed.
+- Phase 9 reconciliation commands can explain order, economics, settlement, reversal, risk, and eligibility blockers.
+- Phase 10 rollout strategy keeps Phase 6 Stripe money movement last.
+
+Regression coverage:
+
+- REG-PAYOUT-003: Payout eligibility diagnostics must not release claims, mutate payout status, call Stripe, or imply live payout authorization.
+- REG-SETTLEMENT-018: Missing settlement, manual approval, or reserve coverage must remain a payout eligibility blocker.
+- REG-REVERSAL-002: Reversal/offset evidence must block payout eligibility in diagnostics before enforcement is enabled.
+- REG-RESERVE-001: Reserve coverage must not be treated as valid until item-level reserve ledgering exists.
+
+## Operator Reviewed Settlement Transition Audit
+
+Status: RUNTIME-ENFORCED OPERATOR-ONLY SCRIPT / NO MONEY MOVEMENT
+
+- `scripts/settlementBatchOperator.js --review-draft` implements the first settlement lifecycle transition.
+- This transition is limited to draft/pending settlement batches and does not represent funding collection.
+- The current schema has no safe `manually_reviewed` settlement status; using `manual_approved` would be payout-adjacent and unsafe.
+- Therefore the runtime-enforced reviewed state is stored as:
+  - `settlement_batches.metadata.review_status = manually_reviewed`.
+  - `settlement_batches.metadata.reviewed_at`.
+  - `settlement_batches.metadata.reviewed_by`.
+  - `settlement_batches.metadata.review_notes`.
+  - one deterministic `settlement_audit_events` row.
+- The batch and item funding states remain `settlement_pending`.
+- Re-running the transition uses the deterministic audit key and is replay-safe.
+- Missing batches, non-pending batches, and already-reviewed batches fail safely or report no-op.
+
+Regression coverage:
+
+- REG-SETTLEMENT-019: Operator review must not be represented as funding collection.
+- REG-SETTLEMENT-020: `draft -> manually_reviewed` must be audited and idempotent.
+- REG-SETTLEMENT-021: Manual review must not mutate source financial rows, payout status, claimability, Stripe state, or reserve state.
+- REG-SETTLEMENT-022: `manual_approved` must not be used as a generic review marker because it is payout-eligibility evidence.
+
+## 2026-05-17 - Sandbox Stripe Payout Readiness Diagnostics
+
+Status: READ-ONLY DIAGNOSTIC / SANDBOX ONLY / LIVE PAYOUTS NO-GO
+
+What changed:
+
+- Added `--sandbox-payout-readiness` to `scripts/productionSafetyTest.js`.
+- The report previews sandbox claim readiness without mutating financial state or calling Stripe.
+- The report distinguishes:
+  - sandbox payout test readiness.
+  - live payout eligibility.
+  - Stripe key mode.
+  - payout mode guard status.
+  - creator payout rail readiness.
+  - claim ledger/idempotency risks.
+
+Current result:
+
+- `test-creator-04` remains the primary sandbox payout actor.
+- Auth binding is present.
+- Stripe connected account exists.
+- Stripe onboarding status is `payouts_enabled`.
+- Local Stripe key mode reports `test`.
+- Local `PAYOUT_MODE` reports `sandbox_time_based`.
+- Immediate sandbox transfer readiness is BLOCKED because no fresh reservable claim amount exists.
+- Existing sandbox claim batch `b165c948-b74d-474c-b042-c8b75f6eb037` already paid the prior `$2.70` direct commission.
+- Duplicate transfer risks: 0.
+- Stuck reservations: 0.
+- `eligible_for_live_payout=false`.
+
+Reliability classification:
+
+- Sandbox readiness report: READ-ONLY DIAGNOSTIC.
+- Existing Stripe claim route: RUNTIME-ENFORCED sandbox/test path only when payout mode and Stripe test key allow it.
+- Live payouts: BLOCKED / NO-GO.
+- No settlement, reserve, manual collection, brand charge, or live payout behavior changed.
+
+Regression coverage:
+
+- REG-PAYOUT-004: Sandbox payout readiness diagnostics must not reserve rows, create claim ledger rows, call Stripe, or mutate payout status.
+- REG-PAYOUT-005: Sandbox payout readiness must require test Stripe key mode, `PAYOUT_MODE=sandbox_time_based`, creator payouts enabled, and reservable rows before reporting GO.
+- REG-PAYOUT-006: A claimed or reserved row must not be previewed as reservable for a second sandbox claim.

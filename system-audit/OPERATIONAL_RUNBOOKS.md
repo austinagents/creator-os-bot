@@ -912,3 +912,444 @@ Operator checks:
 10. Confirm production `PAYOUT_MODE=claims_disabled` before any deployment.
 
 Never treat a draft settlement batch as funding proof.
+
+## Settlement Reconciliation Verification Runbook
+
+Status: READ-ONLY DIAGNOSTIC
+
+Run:
+
+```bash
+node scripts/settlementBatchOperator.js --dry-run --report --verify-reconciliation --brand-id 9
+```
+
+Operator must confirm:
+
+1. Existing deterministic batch is present when expected.
+2. Expected settlement item count equals existing batch item count.
+3. Missing expected item count is zero.
+4. Unexpected batch item count is zero.
+5. Duplicate settlement item idempotency keys are zero.
+6. Duplicate settlement audit idempotency keys are zero.
+7. Orphan settlement item count is zero.
+8. Multi-batch source assignment count is zero.
+9. Level 4+ settlement behavior count is zero.
+10. Self-generated creator override count is zero.
+11. Batch gross equals direct commission total plus platform fee total.
+12. Network overrides are treated as allocation visibility only.
+
+If any check fails, do not proceed to funding collection or payout release.
+
+## Brand Setup Ownership Gate Runbook
+
+Status: RUNTIME-ENFORCED AFTER MIGRATION `019` / FAIL-CLOSED BEFORE MIGRATION
+
+Purpose:
+
+- Prevent early-MVP brand setup routes from being mistaken for launch-grade brand administration.
+
+Current operator rule:
+
+1. Manually apply `database/migrations/019_brand_owner_auth.sql`.
+2. Confirm `brand_owners` exists.
+3. Start Shopify OAuth only while signed in as the intended brand owner/admin.
+4. Confirm OAuth callback creates a `brand_owners` row for the connected brand.
+5. Confirm `/brand/setup/:brandId` blocks signed-out and non-owner users.
+6. Confirm `/brand-dashboard/:brandSlug` blocks signed-out and non-owner users.
+7. Do not connect brand setup completion to settlement collection, payout release, or reserve approval.
+
+Required future launch checks:
+
+- Brand owner account exists.
+- Brand owner is signed in.
+- Brand owner is explicitly linked to the brand through `brand_owners`.
+- Brand setup mutation verifies owner-to-brand relationship.
+- Setup mutation writes an operator/admin audit event.
+- Route-risk report labels brand setup and brand dashboard as requiring signed-in brand owner scope.
+
+## Payout Eligibility Diagnostic Runbook
+
+Status: READ-ONLY DIAGNOSTIC / NO CLAIM RELEASE
+
+Run:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --eligibility-report --brand-id 9
+```
+
+Optional scoped runs:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --eligibility-report --order-id shopify:partnerlinks-test.myshopify.com:ORDER_ID
+node scripts/productionSafetyTest.js --dry-run --eligibility-report --creator-code test-creator-04
+```
+
+Operator must confirm:
+
+1. `eligible_for_live_payout` is false before Phase 6.
+2. Missing settlement/manual/reserve evidence appears as a blocker.
+3. Reversal or offset rows appear as blockers when present.
+4. Risk holds appear as blockers when present.
+5. Claimed/reserved rows are blocked from new claims.
+6. No Stripe transfer, PaymentIntent, brand charge, payout release, reserve deduction, or settlement transition occurs.
+
+## Controlled Rollout Runbook
+
+Status: DOCUMENTED ARCHITECTURE ONLY
+
+Stages:
+
+1. Internal operator-only testing.
+2. Single trusted owner-bound test brand.
+3. Manual settlement collection only.
+4. Manual creator payout approval only.
+5. Limited creator beta.
+6. Partial automation.
+7. Broader rollout.
+
+Hard stop conditions:
+
+- any duplicate Shopify order id creates duplicate financial rows.
+- settlement reconciliation fails.
+- eligibility report shows unexpected eligibility.
+- refund/reversal evidence does not block payout eligibility.
+- brand owner auth fails.
+- route-risk report shows unscoped sensitive routes.
+- Phase 6 money movement is requested before accounting/settlement/reversal/reserve/operator controls are proven.
+
+## Operator Settlement Manual Review Runbook
+
+Status: RUNTIME-ENFORCED OPERATOR-ONLY SCRIPT / NO MONEY MOVEMENT
+
+Purpose:
+
+- Mark a draft settlement batch as operator-reviewed without claiming that funds were collected.
+- Preserve auditability before any future manual collection or payout release step.
+
+Dry-run first:
+
+```bash
+node scripts/settlementBatchOperator.js --dry-run --review-draft --batch-id <settlement_batch_id> --operator <operator_name> --notes "<review notes>"
+```
+
+Only after confirming the dry-run output, the explicit write command shape is:
+
+```bash
+node scripts/settlementBatchOperator.js --review-draft --batch-id <settlement_batch_id> --operator <operator_name> --notes "<review notes>"
+```
+
+Operator checks before write:
+
+1. Reconciliation report passes.
+2. Batch status is still `settlement_pending`.
+3. Batch review status is `pending_review` or draft.
+4. Direct commission and platform fee totals are expected.
+5. Network override allocation is not added to brand funding obligation.
+6. No refund/reversal rows contradict the batch scope.
+7. `PAYOUT_MODE` remains production-safe.
+
+Operator checks after write:
+
+1. `settlement_batches.metadata.review_status = manually_reviewed`.
+2. One `settlement_audit_events` row exists for the deterministic review key.
+3. `settlement_batches.settlement_status` is still `settlement_pending`.
+4. `settlement_items.settlement_status` is still `settlement_pending`.
+5. `collected_amount` remains `0`.
+6. `settlement_collected_at`, `manual_approved_at`, and `reserve_covered_at` remain null.
+7. Eligibility report still shows `eligible_for_live_payout=false`.
+
+Never treat manual review as:
+
+- settlement collection.
+- manual approval for payout eligibility.
+- reserve coverage.
+- brand payment confirmation.
+- creator payout authorization.
+
+Remaining blocked transition:
+
+- `manually_reviewed -> manually_marked_collected` is NOT IMPLEMENTED and requires explicit approval.
+
+## Sandbox Stripe Payout Readiness Runbook
+
+Status: READ-ONLY DIAGNOSTIC / SANDBOX ONLY / LIVE PAYOUTS NO-GO
+
+Purpose:
+
+- Confirm that a test creator is ready for a Stripe test-mode claim before an operator runs the real claim route.
+- Preview exactly what would be reserved and transferred in sandbox without mutating rows or calling Stripe.
+- Keep live payout eligibility visibly blocked.
+
+Readiness command:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --sandbox-payout-readiness --creator-code test-creator-04
+```
+
+Supporting checks:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --eligibility-report --creator-code test-creator-04
+node scripts/productionSafetyTest.js --dry-run --idempotency-report --route-risk-report
+node scripts/settlementBatchOperator.js --dry-run --report --verify-reconciliation --brand-id 9
+```
+
+The readiness report must show:
+
+1. Stripe key mode is `test`.
+2. `PAYOUT_MODE=sandbox_time_based`.
+3. Live payout testing is blocked.
+4. Creator auth binding is present.
+5. Stripe account id is present.
+6. Stripe onboarding status is `payouts_enabled`.
+7. No stuck reservations exist.
+8. No duplicate Stripe transfer risks exist.
+9. Reservable row count and total amount are greater than zero before an actual sandbox claim.
+10. `eligible_for_live_payout=false`.
+
+Current sandbox actor:
+
+- `test-creator-04`
+- Email: `andycoinsolana@gmail.com`
+- Stripe onboarding status: `payouts_enabled`
+- Existing successful sandbox claim batch: `b165c948-b74d-474c-b042-c8b75f6eb037`
+
+Current blocker:
+
+- `test-creator-04` has no fresh reservable sandbox claim rows.
+- The existing `$2.70` direct commission is already claimed and must not be claimed again.
+
+Never use this runbook to:
+
+- enable live payouts.
+- change production `PAYOUT_MODE`.
+- create live Stripe transfers.
+- charge brands.
+- mark settlement collected.
+- release claimability.
+- manually edit claimed rows.
+
+## Sandbox Claim Operator Runbook
+
+Status: RUNTIME-AVAILABLE SANDBOX-ONLY OPERATOR SCRIPT / DRY-RUN DEFAULT
+
+Purpose:
+
+- Execute one controlled Stripe test-mode transfer through the existing `claimCreatorEarnings()` service path.
+- Keep browser dashboard money states settlement-aware and fail-closed.
+- Avoid introducing any live payout, brand charging, settlement collection, reserve, or reversal behavior.
+
+Dry-run command:
+
+```bash
+node scripts/sandboxClaimOperator.js --dry-run --creator-code test-creator-04 --conversion-id 26
+```
+
+Execute command, only after explicit approval:
+
+```bash
+node scripts/sandboxClaimOperator.js --execute --confirm-sandbox-stripe-transfer --creator-code test-creator-04 --conversion-id 26
+```
+
+Required preflight gates:
+
+1. `STRIPE_SECRET_KEY` reports test mode.
+2. `PAYOUT_MODE=sandbox_time_based`.
+3. Creator code is exactly `test-creator-04`.
+4. Conversion id is explicitly supplied.
+5. Conversion belongs to `test-creator-04`.
+6. Conversion is unclaimed and has no `claim_batch_id`.
+7. The requested conversion is the only reservable row for the creator.
+8. Duplicate transfer risk is `0`.
+9. Stuck reservations are `0`.
+10. Live eligibility remains false.
+
+Expected dry-run for conversion `26`:
+
+- `would_call_stripe_now=false`.
+- `would_create_stripe_test_transfer=true`.
+- reservable row count is `1`.
+- amount is `$2.70`.
+- destination account is `acct_1TXlmIBcYxOEFHEX`.
+- proposed claim batch behavior is a new UUID generated by `claimCreatorEarnings()` at execution.
+
+Mutations allowed in execute mode:
+
+- `conversions` row `26` may move through claim reservation/finalization:
+  - `payout_status`.
+  - `claim_batch_id`.
+  - `claimed_at`.
+- `creator_earning_claims` may receive one immutable claim ledger row.
+- Stripe test mode may create one transfer using the claim batch id as idempotency key.
+
+Mutations prohibited:
+
+- `settlement_batches`.
+- `settlement_items`.
+- `settlement_audit_events`.
+- `financial_reversal_events`.
+- `financial_reversal_items`.
+- brand billing or charging tables.
+- reserve state.
+- refund offset state.
+- settlement collection state.
+- live payout eligibility state.
+
+Post-execute verification:
+
+```bash
+node scripts/productionSafetyTest.js --dry-run --sandbox-payout-readiness --creator-code test-creator-04
+node scripts/productionSafetyTest.js --dry-run --eligibility-report --creator-code test-creator-04
+node scripts/productionSafetyTest.js --dry-run --idempotency-report --route-risk-report
+node scripts/productionSafetyTest.js --dry-run --order-report --order-id shopify:partnerlinks-test.myshopify.com:6550995533998
+```
+
+Stop immediately if:
+
+- the dry-run shows blockers.
+- the dry-run shows more than one reservable row.
+- Stripe key mode is not `test`.
+- duplicate transfer risk is not `0`.
+- stuck reservation count is not `0`.
+- live eligibility is anything other than false.
+
+## Shopify Public Distribution Install Runbook
+
+Status: MANUAL OPERATOR TASK / SHOPIFY REVIEW BLOCKER
+
+Purpose:
+
+- Prepare PartnerLinks for multi-tenant Shopify SaaS installs without switching to custom distribution.
+- Keep external production installs blocked until Shopify app review/approval is intentionally completed.
+
+Partner Dashboard values to verify:
+
+- App URL:
+  - `https://partnerlinks.app/register-business`
+  - If Shopify requires direct OAuth entry, use `https://partnerlinks.app/api/shopify/start`.
+- Allowed redirection URLs:
+  - `https://partnerlinks.app/api/shopify/callback`
+- App homepage:
+  - `https://partnerlinks.app/`
+- Webhook endpoints:
+  - `https://partnerlinks.app/webhooks/shopify/orders-paid`
+  - `https://partnerlinks.app/webhooks/shopify/refunds-create`
+
+Railway/env values to verify:
+
+- `PUBLIC_BASE_URL=https://partnerlinks.app`
+- `SHOPIFY_APP_URL=https://partnerlinks.app`
+- `SHOPIFY_API_KEY` matches the same public app client id.
+- `SHOPIFY_API_SECRET` matches the same public app secret.
+- `SHOPIFY_WEBHOOK_SECRET` matches Shopify webhook signing secret.
+- `SHOPIFY_SCOPES` stays least-privilege.
+
+Current requested scopes:
+
+- `read_orders`
+- `read_customers`
+
+Scope review:
+
+- Keep `read_orders` for conversion/order attribution.
+- Remove or justify `read_customers` before app review if current runtime does not need customer records.
+- Do not add broad scopes.
+
+Pre-review install limitation:
+
+- Public distribution is the correct long-term path for many independent merchant stores.
+- A not-yet-approved public app cannot be installed on normal external production stores.
+- Development stores available from the Shopify Dev Dashboard can be used for pre-review testing.
+- Do not click custom distribution for PartnerLinks because it is not the desired long-term multi-merchant SaaS distribution model.
+- Do not submit app review until compliance, privacy, onboarding, scopes, and support materials are ready.
+
+Brand B / Brand C status:
+
+- Brand B `1ncc1j-yw.myshopify.com`: blocked from production external install until Shopify approval unless recreated as an eligible development store.
+- Brand C `euz1e0-sf.myshopify.com`: blocked from production external install until Shopify approval unless recreated as an eligible development store.
+
+Compliance/listing checklist before review:
+
+1. Privacy policy URL.
+2. Terms of service URL.
+3. Support URL or support email.
+4. App homepage.
+5. App listing content.
+6. Testing instructions for Shopify review.
+7. Least-privilege scope justification.
+8. Required privacy/compliance webhook plan.
+9. Stable OAuth install flow that redirects into brand setup.
+
+Do not:
+
+- submit for public Shopify review without explicit approval.
+- switch to custom distribution.
+- add broad Shopify scopes.
+- change payout, settlement, Stripe, claim, reserve, refund, or earnings logic for install testing.
+
+## Multi-Brand Isolation Runbook - Current Brand B/C Topology
+
+Status: READ-ONLY DIAGNOSTIC / MANUAL OWNER BINDING REQUIRED
+
+Use this section as the current source of truth for Brand B/C testing. Earlier Brand B/C domains are stale and should be treated as historical data only.
+
+Current active brands:
+
+- Brand A:
+  - brand_id `9`
+  - shop_domain `partnerlinks-test.myshopify.com`
+  - owner `austindtaylor7@gmail.com`
+  - dashboard slugs `partnerlinks-test-my`, `partnerlinks-test-myshopify-com`
+- Brand B:
+  - brand_id `11`
+  - shop_domain `novo-loom.myshopify.com`
+  - intended owner `fredcointron@gmail.com`
+  - dashboard slugs `novo-loom-myshopify-`, `novo-loom-myshopify-com`
+  - product URL `https://novo-loom.myshopify.com/products/novo-gummies`
+  - creator commission `25%`
+- Brand C:
+  - brand_id `10`
+  - shop_domain `solace-market-588vpz0h.myshopify.com`
+  - intended owner `macicoinsol@gmail.com`
+  - dashboard slugs `solace-market-588vpz`, `solace-market-588vpz0h-myshopify-com`
+  - product URL `https://solace-market-588vpz0h.myshopify.com/products/solace-recovery-kit`
+  - creator commission `20%`
+
+Read-only checks to run before any Brand B/C mutation:
+
+```bash
+node --check index.js
+node --check services/shopifyService.js
+node --check services/brandOwnershipService.js
+node --check services/brandDashboardService.js
+node --check scripts/productionSafetyTest.js
+node scripts/productionSafetyTest.js --dry-run --route-risk-report
+```
+
+Expected read-only findings:
+
+- `shopify_stores.shop_domain` has no duplicates for active Brand A/B/C domains.
+- Old domains `1ncc1j-yw.myshopify.com` and `euz1e0-sf.myshopify.com` are not active `shopify_stores` rows.
+- Brand B and Brand C have distinct brand ids and exact shop domains.
+- Brand dashboards resolve using domain-derived slugs, not short display-name slugs.
+- Missing owner rows fail closed.
+
+Manual owner-binding workflow:
+
+1. Confirm the intended owner signs in through PartnerLinks so a Supabase Auth user exists.
+2. Confirm the auth user id from a safe app/session path or Supabase console.
+3. Insert one active `brand_owners` row for the exact brand id and auth user id.
+4. Browser-test the owner can access only their exact brand dashboard/setup route.
+5. Browser-test cross-brand access fails closed.
+
+Current blockers before Brand B/C product-attribution testing:
+
+- Brand B/C owner rows are not present yet.
+- Product-specific PartnerLinks routing for Brand B/C is not runtime-verified because the current product referral path still relies on explicit in-app product metadata/mock catalog entries.
+- Do not run Brand B/C checkout attribution tests until product metadata/link behavior is explicitly configured and verified.
+
+Do not:
+
+- delete stale historical data without explicit approval.
+- insert owner rows without confirmed auth user ids.
+- change payouts, settlement, Stripe, claims, reserves, refunds, or earnings math as part of Brand B/C setup.

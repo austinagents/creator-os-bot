@@ -18,7 +18,8 @@ const {
 } = require("./services/creatorNetworkService");
 const { findOrCreateWebCreator, getCreatorById, getCreatorByAuthUserId, getCreatorByCodeOrReferralCode } = require("./services/creatorService");
 const { getCreatorDashboardByCode } = require("./services/creatorDashboardService");
-const { getBrandDashboardBySlug } = require("./services/brandDashboardService");
+const { getBrandDashboardBySlug, findBrandBySlug } = require("./services/brandDashboardService");
+const { ensureBrandOwner, userOwnsBrand } = require("./services/brandOwnershipService");
 const { getGoogleOAuthUrl, exchangeAuthCodeForUser, getCurrentAuthUser } = require("./services/authService");
 const {
   createStripeOnboardingLinkForCreator,
@@ -47,7 +48,8 @@ const {
   DISCORD_TOKEN,
   BOT_ALERTS_CHANNEL_ID,
   PUBLIC_BASE_URL,
-  ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID
+  ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID,
+  NOVO_LOOM_GUMMIES_VARIANT_ID
 } = require("./config/config/env");
 
 const app = express();
@@ -55,7 +57,31 @@ const PORT = process.env.PORT || 3000;
 const DEFAULT_PLATFORM_FEE_RATE = 5;
 const REFERRAL_LINK_HOST = 'partnerlinks.app';
 const PUBLIC_SHOPIFY_BRAND_MAP = {
-  'aria-wellness': 'partnerlinks-test.myshopify.com'
+  'aria-wellness': 'partnerlinks-test.myshopify.com',
+  'novo-loom-myshopify-': 'novo-loom.myshopify.com',
+  'novo-loom-myshopify-com': 'novo-loom.myshopify.com'
+};
+const SHOPIFY_BACKED_PRODUCTS = {
+  'novo-loom-myshopify-': {
+    'novo-gummies': {
+      name: 'Novo Gummies',
+      slug: 'novo-gummies',
+      shopifyProductUrl: 'https://novo-loom.myshopify.com/products/novo-gummies',
+      shopifyVariantId: NOVO_LOOM_GUMMIES_VARIANT_ID || null,
+      shopDomain: 'novo-loom.myshopify.com',
+      requiresCartPermalink: true
+    }
+  },
+  'novo-loom-myshopify-com': {
+    'novo-gummies': {
+      name: 'Novo Gummies',
+      slug: 'novo-gummies',
+      shopifyProductUrl: 'https://novo-loom.myshopify.com/products/novo-gummies',
+      shopifyVariantId: NOVO_LOOM_GUMMIES_VARIANT_ID || null,
+      shopDomain: 'novo-loom.myshopify.com',
+      requiresCartPermalink: true
+    }
+  }
 };
 const MOCK_FEATURED_BRANDS = [
   {
@@ -566,7 +592,18 @@ app.get('/r/:brandSlug/:creatorCode/:productSlug', async (req, res) => {
     if (!sessionId) {
       sessionId = generateSessionId();
     }
-    const productDestinationUrl = getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode, sessionId);
+    const productDestination = getShopifyProductDestination(brandSlug, productSlug, creatorCode, sessionId);
+    if (productDestination.blockedReason) {
+      log('Product referral blocked by incomplete Shopify product metadata:', {
+        brandSlug,
+        creatorCode,
+        productSlug,
+        reason: productDestination.blockedReason,
+        shopDomain: productDestination.shopDomain || null
+      });
+      return res.status(503).json({ error: 'Product route is not fully configured for Shopify checkout attribution.' });
+    }
+    const productDestinationUrl = productDestination.url;
     const mappedShopDomain = getPublicShopifyBrandDomain(brandSlug);
 
     const brand = await getBrandForProductReferral(brandSlug);
@@ -964,6 +1001,19 @@ app.get('/brand-dashboard', (req, res) => {
 app.get('/brand-dashboard/:brandSlug', async (req, res) => {
   try {
     const brandSlug = String(req.params.brandSlug || '').trim().toLowerCase();
+    const brand = await findBrandBySlug(brandSlug);
+    if (!brand) {
+      return res.redirect('/register-business');
+    }
+
+    const brandAccess = await getScopedSignedInBrandOwner(req, res, {
+      brandId: brand.id,
+      action: 'view_brand_dashboard'
+    });
+    if (!brandAccess.allowed) {
+      return sendBrandAccessBlocked(res, brandAccess);
+    }
+
     const dashboard = await getBrandDashboardBySlug(brandSlug);
     if (!dashboard) {
       return res.redirect('/register-business');
@@ -986,6 +1036,17 @@ app.get('/auth/google', (req, res) => {
 });
 app.get('/api/shopify/start', async (req, res) => {
   try {
+    const authUser = await getCurrentAuthUser(req, res);
+    if (!authUser) {
+      log('Shopify OAuth start blocked: signed-in brand owner required');
+      return res.status(401).send(renderSimpleMessagePage(
+        'Sign in to connect Shopify',
+        'Brand setup requires a signed-in owner so PartnerLinks can scope the Shopify store to the correct brand admin.',
+        '/signup',
+        'Sign in with Google'
+      ));
+    }
+
     const { shop } = req.query;
     const state = generateShopifyState();
     const { installUrl, shopDomain } = buildShopifyInstallUrl(shop, state);
@@ -1017,6 +1078,17 @@ app.get('/api/shopify/callback', async (req, res) => {
       ));
     }
 
+    const authUser = await getCurrentAuthUser(req, res);
+    if (!authUser) {
+      log('Shopify OAuth callback blocked: signed-in brand owner required');
+      return res.status(401).send(renderSimpleMessagePage(
+        'Sign in required',
+        'Please sign in again before completing Shopify setup so this brand can be linked to the correct owner.',
+        '/signup',
+        'Sign in with Google'
+      ));
+    }
+
     if (!code || !shop) {
       return res.status(400).send(renderSimpleMessagePage(
         'Shopify connection error',
@@ -1039,6 +1111,17 @@ app.get('/api/shopify/callback', async (req, res) => {
     const store = await upsertShopifyStore({
       shopDomain: shop,
       accessToken
+    });
+    await ensureBrandOwner({
+      brandId: store.brand_id,
+      authUserId: authUser.id,
+      email: authUser.email || null,
+      sourceSystem: 'shopify_oauth',
+      shopDomain: store.shop_domain,
+      metadata: {
+        oauth_shop: shop,
+        owner_bound_at: new Date().toISOString()
+      }
     });
 
     res.clearCookie('partnerlinks_shopify_state', shopifyStateClearCookieOptions());
@@ -1064,7 +1147,16 @@ app.get('/register-business', (req, res) => {
 });
 app.get('/brand/setup/:brandId', async (req, res) => {
   try {
-    const setup = await getBrandSetupData(normalizeCode(req.params.brandId));
+    const brandId = normalizeCode(req.params.brandId);
+    const brandAccess = await getScopedSignedInBrandOwner(req, res, {
+      brandId,
+      action: 'view_brand_setup'
+    });
+    if (!brandAccess.allowed) {
+      return sendBrandAccessBlocked(res, brandAccess);
+    }
+
+    const setup = await getBrandSetupData(brandId);
     if (!setup) {
       return res.status(404).send(renderSimpleMessagePage(
         'Brand not found',
@@ -1088,6 +1180,14 @@ app.get('/brand/setup/:brandId', async (req, res) => {
 app.post('/brand/setup/:brandId', async (req, res) => {
   try {
     const brandId = normalizeCode(req.params.brandId);
+    const brandAccess = await getScopedSignedInBrandOwner(req, res, {
+      brandId,
+      action: 'update_brand_setup'
+    });
+    if (!brandAccess.allowed) {
+      return sendBrandAccessBlocked(res, brandAccess);
+    }
+
     const name = String(req.body.name || '').trim();
     const destinationUrl = String(req.body.destination_url || '').trim();
     const creatorCommissionRate = Number(req.body.creator_commission_rate);
@@ -1278,6 +1378,75 @@ async function getScopedSignedInCreator(req, res, {
   return creator;
 }
 
+async function getScopedSignedInBrandOwner(req, res, {
+  brandId,
+  action
+} = {}) {
+  const authUser = await getCurrentAuthUser(req, res);
+  const normalizedBrandId = normalizeCode(brandId);
+  if (!authUser) {
+    log('Scoped brand owner resolution blocked: signed-in auth user required', {
+      brandId: normalizedBrandId || null,
+      action: action || null
+    });
+    return {
+      allowed: false,
+      reason: 'signed_in_brand_owner_required',
+      status: 401
+    };
+  }
+
+  if (!normalizedBrandId || !/^\d+$/.test(normalizedBrandId)) {
+    log('Scoped brand owner resolution blocked: invalid brand id', {
+      authUserId: authUser.id,
+      brandId: normalizedBrandId || null,
+      action: action || null
+    });
+    return {
+      allowed: false,
+      reason: 'invalid_brand_id',
+      status: 404
+    };
+  }
+
+  const ownsBrand = await userOwnsBrand({
+    brandId: normalizedBrandId,
+    authUserId: authUser.id
+  });
+
+  if (!ownsBrand) {
+    log('Scoped brand owner resolution blocked: auth user does not own requested brand', {
+      authUserId: authUser.id,
+      brandId: normalizedBrandId,
+      action: action || null
+    });
+    return {
+      allowed: false,
+      reason: 'brand_access_denied',
+      status: 403
+    };
+  }
+
+  return {
+    allowed: true,
+    authUser,
+    brandId: normalizedBrandId
+  };
+}
+
+function sendBrandAccessBlocked(res, brandAccess) {
+  const status = brandAccess && brandAccess.status ? brandAccess.status : 403;
+  const isSignInRequired = status === 401;
+  return res.status(status).send(renderSimpleMessagePage(
+    isSignInRequired ? 'Sign in required' : 'Brand access blocked',
+    isSignInRequired
+      ? 'Please sign in with the Google account that owns this brand workspace.'
+      : 'This brand workspace is only available to its signed-in owner or admin.',
+    isSignInRequired ? '/signup' : '/',
+    isSignInRequired ? 'Sign in with Google' : 'Return home'
+  ));
+}
+
 function renderHomepage(creator) {
   const homepagePath = path.join(__dirname, 'public', 'index.html');
   const template = fs.readFileSync(homepagePath, 'utf8');
@@ -1436,15 +1605,33 @@ function buildDisplayReferralLink(brandSlug, creatorCode, productSlug) {
   return parts.join('/');
 }
 
-function getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode, partnerlinksRef) {
+function getShopifyBackedProduct(brandSlug, productSlug) {
+  const normalizedBrandSlug = normalizeCode(brandSlug);
+  const normalizedProductSlug = normalizeCode(productSlug);
+  return SHOPIFY_BACKED_PRODUCTS[normalizedBrandSlug]
+    ? SHOPIFY_BACKED_PRODUCTS[normalizedBrandSlug][normalizedProductSlug] || null
+    : null;
+}
+
+function getShopifyProductDestination(brandSlug, productSlug, creatorCode, partnerlinksRef) {
   const brand = getMockFeaturedBrand(brandSlug);
-  const product = brand ? brand.products.find((item) => normalizeCode(item.slug) === normalizeCode(productSlug)) : null;
-  if (!product || !product.shopifyProductUrl) return null;
+  const product = getShopifyBackedProduct(brandSlug, productSlug)
+    || (brand ? brand.products.find((item) => normalizeCode(item.slug) === normalizeCode(productSlug)) : null);
+  if (!product || !product.shopifyProductUrl) return { url: null, product: null, blockedReason: null, shopDomain: null };
 
   const normalizedCreatorCode = normalizeCode(creatorCode);
   const normalizedBrandSlug = normalizeCode(brandSlug);
   const normalizedProductSlug = normalizeCode(productSlug);
   const normalizedPartnerlinksRef = partnerlinksRef || normalizedCreatorCode || 'creator';
+
+  if (product.requiresCartPermalink && !product.shopifyVariantId) {
+    return {
+      url: null,
+      product,
+      blockedReason: 'missing_shopify_variant_id',
+      shopDomain: product.shopDomain || null
+    };
+  }
 
   if (product.shopifyVariantId) {
     const productUrl = new URL(product.shopifyProductUrl);
@@ -1453,18 +1640,22 @@ function getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode, pa
     cartUrl.searchParams.set('attributes[creator_code]', normalizedCreatorCode);
     cartUrl.searchParams.set('attributes[brand_slug]', normalizedBrandSlug);
     cartUrl.searchParams.set('attributes[product_slug]', normalizedProductSlug);
+    if (product.shopDomain) {
+      cartUrl.searchParams.set('attributes[shop_domain]', normalizeCode(product.shopDomain));
+    }
     cartUrl.searchParams.set('ref', normalizedPartnerlinksRef);
 
     log('Shopify product referral using cart permalink attribution:', {
       brandSlug: normalizedBrandSlug,
       productSlug: normalizedProductSlug,
       creatorCode: normalizedCreatorCode,
+      shopDomain: product.shopDomain || null,
       shopifyVariantId: String(product.shopifyVariantId),
       destinationUrl: cartUrl.toString(),
       partnerlinksRefPresent: Boolean(normalizedPartnerlinksRef)
     });
 
-    return cartUrl.toString();
+    return { url: cartUrl.toString(), product, blockedReason: null, shopDomain: product.shopDomain || null };
   }
 
   const url = new URL(product.shopifyProductUrl);
@@ -1482,7 +1673,11 @@ function getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode, pa
     destinationUrl: url.toString(),
     partnerlinksRefPresent: Boolean(normalizedPartnerlinksRef)
   });
-  return url.toString();
+  return { url: url.toString(), product, blockedReason: null, shopDomain: product.shopDomain || null };
+}
+
+function getShopifyProductDestinationUrl(brandSlug, productSlug, creatorCode, partnerlinksRef) {
+  return getShopifyProductDestination(brandSlug, productSlug, creatorCode, partnerlinksRef).url;
 }
 
 function getPublicShopifyBrandDomain(brandSlug) {

@@ -97,5 +97,6 @@ async function getRecentConversions(brandId) {
 }
 
 module.exports = {
-  getBrandDashboardBySlug
+  getBrandDashboardBySlug,
+  findBrandBySlug
 };

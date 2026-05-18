@@ -1384,3 +1384,202 @@ Regression IDs:
 - REG-SETTLEMENT-010: Draft settlement batch creation must not mutate existing financial rows.
 - REG-SETTLEMENT-011: Draft settlement items must be idempotent by source financial row and item type.
 - REG-SETTLEMENT-012: Draft settlement batch creation must not imply funding collection or payout eligibility.
+
+## Settlement Reconciliation Verification Tests
+
+Status: READ-ONLY DIAGNOSTIC
+
+Command:
+
+- `node scripts/settlementBatchOperator.js --dry-run --report --verify-reconciliation --brand-id 9`
+
+Checks:
+
+- Expected settlement item count matches existing batch item count.
+- No unexpected settlement items exist in the batch.
+- Item amounts and source references match deterministic recomputation.
+- No duplicate settlement item idempotency keys.
+- No duplicate settlement audit idempotency keys.
+- No orphan settlement items.
+- No source financial row assigned to multiple batches.
+- No Level 4+ creator/brand settlement behavior.
+- No self-generated creator override settlement items.
+- Batch gross amount equals direct commission total plus platform fee total.
+- Network overrides remain allocation visibility only.
+
+Regression IDs:
+
+- REG-SETTLEMENT-013: Settlement reconciliation must be deterministic from immutable accounting rows.
+- REG-SETTLEMENT-014: Network override settlement items must not increase brand funding obligation.
+- REG-SETTLEMENT-015: Settlement items must not be orphaned from source accounting rows.
+- REG-SETTLEMENT-016: One source financial obligation must not be silently assigned to multiple settlement batches.
+
+## Infrastructure Standards / Route Ownership Tests
+
+Status: READ-ONLY DIAGNOSTIC
+
+Command:
+
+- `node scripts/productionSafetyTest.js --dry-run --route-risk-report --settlement-report --idempotency-report`
+
+Expected results:
+
+- `/earnings/claim` remains explicit creator-scoped and payout-mode gated.
+- `/stripe/connect/start`, `/stripe/connect/return`, `/stripe/connect/refresh`, and `/stripe/connect/debug` remain creator-scoped and ownership-checked.
+- Shopify webhooks remain classified as signed/idempotent event handlers.
+- `/brand/setup/:brandId` routes are labeled `BLOCKED_FOR_PUBLIC_BRAND_ONBOARDING_UNTIL_BRAND_OWNERSHIP_AUTH_EXISTS`.
+- No brand setup route should be treated as launch-grade until signed-in brand ownership checks exist.
+
+Regression IDs:
+
+- REG-AUTH-004: Brand setup mutations must require explicit signed-in brand ownership before public self-serve launch.
+- REG-ROUTE-001: Route-risk reports must classify sensitive routes by mutation type and launch safety.
+- REG-SETTLEMENT-017: Draft/audit/reconciliation records must not be treated as funding proof or payout authorization.
+
+## Brand Ownership Route Protection Tests
+
+Status: RUNTIME-ENFORCED AFTER MIGRATION `019`
+
+Protected routes:
+
+- `GET /brand/setup/:brandId`
+- `POST /brand/setup/:brandId`
+- `GET /brand-dashboard/:brandSlug`
+- `GET /api/shopify/start`
+- `GET /api/shopify/callback`
+
+Expected behavior:
+
+- Signed-out users are blocked from brand setup/admin routes.
+- Users without a matching active `brand_owners` row are blocked.
+- URL params alone do not grant brand access.
+- Brand dashboard data is loaded only after ownership verification.
+- Brand setup POST verifies ownership before mutation.
+- Shopify OAuth callback creates or refreshes the owner binding for the exact connected brand.
+- Missing `brand_owners` table fails closed.
+
+Validation commands:
+
+- `node --check index.js`
+- `node --check services/brandOwnershipService.js`
+- `node --check services/brandDashboardService.js`
+- `node --check scripts/productionSafetyTest.js`
+- `node scripts/productionSafetyTest.js --dry-run --route-risk-report`
+
+Regression IDs:
+
+- REG-AUTH-005: Brand dashboard data must not load for unauthorized users.
+- REG-AUTH-006: Shopify OAuth brand setup must bind the connected brand to the signed-in owner/admin.
+
+## Canonical Payout Eligibility Diagnostic Tests
+
+Status: READ-ONLY DIAGNOSTIC
+
+Command:
+
+- `node scripts/productionSafetyTest.js --dry-run --eligibility-report --brand-id 9`
+
+Expected results before Phase 6:
+
+- Every row reports `eligible_for_live_payout=false`.
+- Missing `settlement_collected`, `manual_approved`, or `reserve_covered` is reported as a blocker.
+- Phase 6 disabled/live payout release disabled is reported as a blocker.
+- Reversal or offset evidence is reported as a blocker when present.
+- Risk hold/rejected/pending-review state is reported as a blocker when present.
+- Claimed or reserved rows are reported as blocked for new claims.
+- The report does not mutate financial rows or call Stripe.
+
+Regression IDs:
+
+- REG-PAYOUT-003: Payout eligibility diagnostics must not release claims, mutate payout status, call Stripe, or imply live payout authorization.
+- REG-SETTLEMENT-018: Missing settlement, manual approval, or reserve coverage must remain a payout eligibility blocker.
+- REG-REVERSAL-002: Reversal/offset evidence must block payout eligibility in diagnostics before enforcement is enabled.
+- REG-RESERVE-001: Reserve coverage must not be treated as valid until item-level reserve ledgering exists.
+
+## Rollout Gate Tests
+
+Status: DOCUMENTED ARCHITECTURE ONLY
+
+Required stage gates:
+
+- Stage 1 internal operator-only testing: read-only reports pass.
+- Stage 2 trusted owner-bound test brand: brand owner auth and attribution/accounting pass.
+- Stage 3 manual settlement collection: requires approved audited transition flow.
+- Stage 4 manual creator payout approval: requires explicit approval model and audit events.
+- Stage 5 limited creator beta: requires refund/reversal, reserve, risk, and eligibility enforcement.
+- Stage 6 partial automation: requires settlement/reversal/reserve reconciliation history.
+- Stage 7 broader rollout: requires full operational runbooks and rollback/freeze drills.
+
+## Operator Settlement Review Transition Tests
+
+Status: RUNTIME-ENFORCED OPERATOR-ONLY SCRIPT / NO MONEY MOVEMENT
+
+Dry-run command:
+
+- `node scripts/settlementBatchOperator.js --dry-run --review-draft --batch-id 9d07ec69-2959-433c-b9a3-46f3aebc23a8 --operator Austin --notes "Manual review dry run. No money movement."`
+
+Expected dry-run result:
+
+- Shows `before_review_status`.
+- Shows `after_review_status = manually_reviewed`.
+- Shows deterministic audit key.
+- Shows no changes to settlement collection, payout status, claimability, Stripe state, reserve state, or source financial rows.
+
+Approved write command shape:
+
+- `node scripts/settlementBatchOperator.js --review-draft --batch-id <settlement_batch_id> --operator <operator_name> --notes "<review notes>"`
+
+Expected write result when explicitly run:
+
+- Batch must currently have `settlement_status = settlement_pending`.
+- Batch metadata becomes `review_status = manually_reviewed`.
+- A single idempotent `settlement_audit_events` row is created.
+- Settlement items remain `settlement_pending`.
+- `eligible_for_live_payout` remains false in the eligibility report.
+
+Regression IDs:
+
+- REG-SETTLEMENT-019: Operator review must not be represented as funding collection.
+- REG-SETTLEMENT-020: `draft -> manually_reviewed` must be audited and idempotent.
+- REG-SETTLEMENT-021: Manual review must not mutate source financial rows, payout status, claimability, Stripe state, or reserve state.
+- REG-SETTLEMENT-022: `manual_approved` must not be used as a generic review marker because it is payout-eligibility evidence.
+
+## PAYOUT_SANDBOX-003 - Sandbox Payout Readiness Preview
+
+Status: READ-ONLY DIAGNOSTIC / SANDBOX ONLY
+
+Command:
+
+- `node scripts/productionSafetyTest.js --dry-run --sandbox-payout-readiness --creator-code test-creator-04`
+
+Expected behavior:
+
+- Reports Stripe key mode without exposing the secret.
+- Reports `PAYOUT_MODE` and payout gate reason.
+- Reports whether sandbox payout testing is allowed.
+- Reports whether live payout testing is blocked.
+- Reports creator auth binding, Stripe account id presence, onboarding status, and payouts-enabled status.
+- Lists rows that would be reserved by a sandbox claim.
+- Lists rows blocked from reservation and why.
+- Reports expected direct commission, network earning, and total claim amounts.
+- Reports existing claim batches, duplicate transfer risks, and stuck reservations.
+- Does not reserve rows.
+- Does not create `creator_earning_claims`.
+- Does not call Stripe.
+- Does not mark rows claimed.
+- Does not mutate `payout_status`.
+
+Current result:
+
+- `test-creator-04` is the correct sandbox actor and has Stripe payouts enabled.
+- Current immediate sandbox transfer readiness is BLOCKED because no new reservable sandbox claim amount exists.
+- Existing `$2.70` direct commission was already claimed through sandbox batch `b165c948-b74d-474c-b042-c8b75f6eb037`.
+- Duplicate transfer risks are 0.
+- Stuck reservations are 0.
+- `eligible_for_live_payout=false`.
+
+Regression IDs:
+
+- REG-PAYOUT-004: Sandbox payout readiness diagnostics must not reserve rows, create claim ledger rows, call Stripe, or mutate payout status.
+- REG-PAYOUT-005: Sandbox payout readiness must require test Stripe key mode, `PAYOUT_MODE=sandbox_time_based`, creator payouts enabled, and reservable rows before reporting GO.
+- REG-PAYOUT-006: A claimed or reserved row must not be previewed as reservable for a second sandbox claim.

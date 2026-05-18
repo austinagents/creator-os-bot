@@ -729,3 +729,20 @@ Status: RUNTIME GUARDRAIL / DOCUMENTATION GUARDRAIL
 
 - Read-only settlement reports must clearly label settlement collection as NOT BUILT unless funding collection exists and is explicitly enabled.
 - Live payout release remains NO-GO until `settlement_collected`, `manual_approved`, or `reserve_covered` is runtime-verified.
+
+## REG-SETTLEMENT-019 - Operator Review Is Not Funding Collection
+
+Status: RUNTIME-ENFORCED OPERATOR SCRIPT
+
+- `draft -> manually_reviewed` may only mark operator review metadata and write an idempotent audit event.
+- It must not set `settlement_collected`, `manual_approved`, `reserve_covered`, `claimable`, or any Stripe state.
+- It must leave source financial rows and payout rows untouched.
+
+## REG-SETTLEMENT-020 - Manual Review Must Be Replay-Safe
+
+Status: RUNTIME-ENFORCED OPERATOR SCRIPT
+
+- The manual review audit key is deterministic:
+  - `settlement_audit:<settlement_batch_id>:manually_reviewed`
+- Re-running the same review transition must not create duplicate audit events.
+- Missing batches, non-pending batches, and already-reviewed batches must fail safely or report no-op.
