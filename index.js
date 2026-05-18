@@ -403,6 +403,7 @@ app.post('/webhooks/shopify/refunds-create', express.raw({ type: '*/*' }), async
 
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: false }));
+app.use(injectSupportWidgetMiddleware);
 app.get('/styles.css', (req, res) => {
   res.set('Cache-Control', 'no-store, max-age=0');
   res.sendFile(path.join(__dirname, 'public', 'styles.css'));
@@ -1538,6 +1539,31 @@ function sendBrandAccessBlocked(res, brandAccess) {
     isSignInRequired ? '/signup' : '/',
     isSignInRequired ? 'Sign in with Google' : 'Return home'
   ));
+}
+
+function injectSupportWidgetMiddleware(_req, res, next) {
+  const originalSend = res.send.bind(res);
+  res.send = (body) => {
+    if (typeof body === 'string' && shouldInjectSupportWidget(body, res)) {
+      return originalSend(injectSupportWidgetAssets(body));
+    }
+    return originalSend(body);
+  };
+  next();
+}
+
+function shouldInjectSupportWidget(body, res) {
+  if (!body || !body.includes('</body>') || body.includes('/support-widget.js')) return false;
+  const contentType = String(res.get('Content-Type') || '');
+  return contentType.includes('text/html') || body.trim().startsWith('<!DOCTYPE html') || body.trim().startsWith('<html');
+}
+
+function injectSupportWidgetAssets(html) {
+  const cssTag = '<link rel="stylesheet" href="/support-widget.css?v=1">';
+  const scriptTags = '<script src="/support-knowledge-base.js?v=1" defer></script><script src="/support-widget.js?v=1" defer></script>';
+  return html
+    .replace('</head>', `  ${cssTag}\n</head>`)
+    .replace('</body>', `  ${scriptTags}\n</body>`);
 }
 
 function renderHomepage(creator) {

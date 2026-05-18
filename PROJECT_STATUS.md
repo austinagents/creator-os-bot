@@ -1,8 +1,35 @@
 # PartnerLinks / creator-os-bot Project Status
 
-Last updated: 2026-05-17
+Last updated: 2026-05-18
 
 This file is the current implementation snapshot for starting a new ChatGPT/Codex project chat with minimal context loss. Permanent product philosophy, UX guardrails, terminology, and long-term architecture rules live in `CHAT_HANDOFF.md`.
+
+## Required Infrastructure Decision Rules
+
+Status: REQUIRED OPERATING STANDARD
+
+Root-level rules document:
+
+```text
+INFRASTRUCTURE_DECISION_RULES.md
+```
+
+Required usage:
+
+- Read before every major implementation or debugging pass.
+- Re-read at least every third response during long debugging sessions.
+- Use it to force provider/platform verification before changing app code.
+- Explicitly distinguish runtime-enforced behavior, read-only diagnostics, documentation-only architecture, planned work, manual operator tasks, and blocked/NO-GO items.
+
+The core standard is Shopify/Stripe/affiliate-infrastructure discipline:
+
+- deterministic
+- auditable
+- scoped
+- fail-closed
+- idempotent
+- provider-compliant
+- operationally safe
 
 ## Status Classification Warning
 
@@ -3828,3 +3855,152 @@ Next required Brand B sequence:
 4. Complete Shopify OAuth.
 5. Run the webhook report and verify `write_webhooks_granted=true`.
 6. Register missing webhooks only after the read-only report shows the token is scoped correctly.
+
+## Brand B Shopify Protected Customer Data Gate And Sandbox Replay Tool
+
+Status: READ-ONLY/DIAGNOSTIC TOOLING ADDED / PRODUCTION WEBHOOK REGISTRATION BLOCKED BY SHOPIFY PROTECTED CUSTOMER DATA APPROVAL / NO PAYOUT OR SETTLEMENT CHANGE
+
+Provider/platform finding:
+
+- Shopify Admin API token access for Brand B is usable, and webhook operator mutation mode is functional.
+- Shopify rejects app-created `orders/paid` and `refunds/create` subscriptions for Brand B with protected customer data errors.
+- `orders/paid` and `refunds/create` are protected customer data topics.
+- `write_webhooks` is not the production blocker and must not be treated as an invented standalone fix.
+- Production-grade multi-tenant Shopify ingestion remains blocked until Shopify protected customer data access/app review requirements are satisfied.
+
+Sandbox-only diagnostic tooling:
+
+- Added `scripts/replayBrandBOrdersPaidWebhook.js`.
+- The script constructs a signed Shopify `orders/paid` request for Brand B order `6176193511508`.
+- It sends the request to the real PartnerLinks webhook route:
+  - `POST /webhooks/shopify/orders-paid`
+- It uses `SHOPIFY_WEBHOOK_SECRET` to compute a valid `X-Shopify-Hmac-Sha256`.
+- It includes Shopify headers:
+  - `X-Shopify-Shop-Domain`
+  - `X-Shopify-Topic`
+  - `X-Shopify-Hmac-Sha256`
+  - `X-Shopify-Webhook-Id`
+  - `X-Shopify-Triggered-At`
+- Default mode is dry-run/read-only.
+- Execution requires:
+  - `--execute`
+  - `--confirm-sandbox-webhook-replay`
+
+Expected Brand B replay economics:
+
+- Brand: `brand_id=11`, `novo-loom.myshopify.com`.
+- Order id: `shopify:novo-loom.myshopify.com:6176193511508`.
+- Source creator: `solrocks`.
+- Direct commission: `$6.25`.
+- Platform fee: `$1.25`.
+- Level 1: `goatse`, approximately `$0.38`.
+- Level 2: `gibby`, approximately `$0.04`.
+- Level 3: `ctofnf`, approximately `$0.03`.
+- Level 4+: blocked; `epep` should receive no creator-network row.
+
+Dry-run command:
+
+```bash
+SHOPIFY_APP_URL=https://partnerlinks.app node scripts/replayBrandBOrdersPaidWebhook.js --dry-run
+```
+
+Execution command, only after explicit operator approval:
+
+```bash
+SHOPIFY_APP_URL=https://partnerlinks.app node scripts/replayBrandBOrdersPaidWebhook.js --execute --confirm-sandbox-webhook-replay
+```
+
+Post-replay verification commands:
+
+```bash
+node scripts/replayBrandBOrdersPaidWebhook.js --verify-only
+node scripts/productionSafetyTest.js --dry-run --order-report --economic-report --lineage-report --order-id shopify:novo-loom.myshopify.com:6176193511508
+node scripts/settlementBatchOperator.js --dry-run --report --brand-id 11 --order-id shopify:novo-loom.myshopify.com:6176193511508 --verify-reconciliation
+```
+
+Expected mutation path if executed:
+
+- `shopify_attribution_events`: insert `conversion_created`, or `duplicate_skipped` if rerun.
+- `conversions`: insert one Brand B conversion if missing.
+- `creator_network_earnings`: insert Level 1/2/3 rows if missing.
+- `brand_network_earnings`: no row expected for this deepest-chain sale because the three creator levels consume the cap.
+
+Must not mutate:
+
+- Stripe transfers.
+- Stripe PaymentIntents.
+- brand charging/billing.
+- settlement collection.
+- claim release.
+- reserve deduction.
+- refund offset enforcement.
+- `creator_earning_claims`.
+- settlement/reversal tables.
+
+Important classification:
+
+- This replay validates PartnerLinks internal signed webhook ingestion and deterministic Brand B economics only.
+- This replay does not prove Shopify protected customer data approval.
+- This replay does not prove production live webhook readiness.
+- This replay does not authorize live payouts or settlement automation.
+
+## Onsite Support Agent Foundation
+
+Status: RUNTIME-ENFORCED CLIENT-SIDE WIDGET / LOCAL DETERMINISTIC MVP / NO FINANCIAL LOGIC CHANGE
+
+What changed:
+
+- Added a fixed-position PartnerLinks support widget anchored bottom-right across website/app HTML pages.
+- Added a local deterministic support knowledge base.
+- Added `SUPPORT_AGENT.md` as the support-agent foundation document.
+- Added automatic HTML asset injection for server-rendered pages.
+- Added explicit support assets to static public HTML pages.
+
+Runtime files:
+
+- `public/support-widget.css`
+- `public/support-knowledge-base.js`
+- `public/support-widget.js`
+- `SUPPORT_AGENT.md`
+
+Persistence:
+
+- Chat state persists in browser `localStorage`.
+- Storage key:
+  - `partnerlinks_support_chat_v1`
+- Persisted state includes:
+  - minimized/expanded state.
+  - recent local conversation messages.
+- Chat state is client-side only.
+
+Covered support topics:
+
+- what PartnerLinks is.
+- brand onboarding.
+- creator onboarding.
+- referral link basics.
+- creator invite chain basics.
+- Shopify connection and account/store context.
+- tracking/click attribution basics.
+- pending vs claimable earnings.
+- payout status explanations.
+- sandbox/beta limitations.
+- dashboard access and owner email mismatch issues.
+- support escalation.
+
+Safety boundaries:
+
+- The widget does not call external AI APIs.
+- The widget does not log support messages to the backend.
+- The widget does not mutate database rows.
+- The widget does not touch payouts, Stripe, settlement, claims, reserves, refunds, earnings math, Shopify webhook ingestion, or financial state.
+- The agent must not promise payouts or guaranteed earnings.
+- The agent tells users not to share passwords, private keys, card numbers, API keys, webhook secrets, or recovery codes.
+
+Future planned support architecture:
+
+- server-side support ticket creation.
+- authenticated account context.
+- support inbox/admin workflow.
+- approved-doc RAG.
+- optional AI backend with strict safety and scoping controls.

@@ -1485,3 +1485,152 @@ Do not:
 - place new Brand B economics tests while `orders/paid` registration is unverified.
 - replay webhooks without explicit approval and valid signed payload.
 - alter payout, Stripe, settlement, claim, reserve, refund enforcement, or earnings math as part of webhook registration.
+
+## Runbook: Brand B Sandbox Signed Shopify Orders/Paid Replay
+
+Status: SANDBOX_ACTION / REAL WEBHOOK HANDLER PATH / NOT PRODUCTION SHOPIFY APPROVAL
+
+Provider/platform constraint:
+
+- Shopify blocks app-created `orders/paid` and `refunds/create` subscriptions unless protected customer data access is approved for the app/topic.
+- Do not treat `write_webhooks` as the blocker or as an invented standalone scope fix.
+- This runbook is a sandbox diagnostic path only. It does not prove production protected customer data approval or live webhook readiness.
+
+Use when:
+
+- Brand B referral click attribution exists.
+- Shopify live webhook delivery is blocked by protected customer data approval.
+- An operator needs to test PartnerLinks signed webhook ingestion, deterministic attribution, conversion creation, creator-network propagation, and idempotency against the real webhook route.
+
+Order under test:
+
+```text
+shopify:novo-loom.myshopify.com:6176193511508
+```
+
+Dry-run first:
+
+```bash
+SHOPIFY_APP_URL=https://partnerlinks.app node scripts/replayBrandBOrdersPaidWebhook.js --dry-run
+```
+
+Execution, only after explicit approval:
+
+```bash
+SHOPIFY_APP_URL=https://partnerlinks.app node scripts/replayBrandBOrdersPaidWebhook.js --execute --confirm-sandbox-webhook-replay
+```
+
+Verification:
+
+```bash
+node scripts/replayBrandBOrdersPaidWebhook.js --verify-only
+node scripts/productionSafetyTest.js --dry-run --order-report --economic-report --lineage-report --order-id shopify:novo-loom.myshopify.com:6176193511508
+node scripts/settlementBatchOperator.js --dry-run --report --brand-id 11 --order-id shopify:novo-loom.myshopify.com:6176193511508 --verify-reconciliation
+```
+
+Expected results after first approved execution:
+
+- The request uses `SHOPIFY_WEBHOOK_SECRET` to produce a valid Shopify HMAC.
+- The request hits `POST /webhooks/shopify/orders-paid`.
+- The normal webhook route verifies HMAC before ingestion.
+- Attribution source is exact deterministic PartnerLinks metadata.
+- Brand is `brand_id=11`, `novo-loom.myshopify.com`.
+- Matched creator is `solrocks`.
+- Direct commission is `$6.25`.
+- Platform fee is `$1.25`.
+- Level 1 `goatse` receives approximately `$0.38`.
+- Level 2 `gibby` receives approximately `$0.04`.
+- Level 3 `ctofnf` receives approximately `$0.03`.
+- Level 4+ is blocked; `epep` receives no creator-network row.
+- Rerun produces duplicate/skipped diagnostics without duplicate conversion or earning rows.
+
+Allowed mutation path:
+
+- `shopify_attribution_events`.
+- `conversions`.
+- `creator_network_earnings`.
+- `brand_network_earnings` only if the normal capped runtime logic creates one.
+
+Must not mutate:
+
+- `creator_earning_claims`.
+- `settlement_batches`.
+- `settlement_items`.
+- `settlement_audit_events`.
+- `financial_reversal_events`.
+- `financial_reversal_items`.
+- Stripe transfers.
+- Stripe PaymentIntents.
+- brand charging/billing.
+- payout release, settlement collection, reserve deduction, refund offset enforcement, or claimability release.
+
+Do not:
+
+- Directly insert a conversion into the database as proof of correctness.
+- Bypass Shopify HMAC verification.
+- Use this sandbox replay as proof that Shopify protected customer data access is approved.
+- Use replayed sandbox conversion state to enable live payouts.
+
+## Runbook: Onsite Support Widget
+
+Status: RUNTIME-ENFORCED CLIENT-SIDE UX / LOCAL STORAGE ONLY / NO FINANCIAL MUTATION
+
+Use when:
+
+- Testing the PartnerLinks onsite support widget.
+- Updating deterministic support answers.
+- Preparing future support escalation or AI/RAG architecture.
+
+Runtime assets:
+
+- `public/support-widget.css`
+- `public/support-knowledge-base.js`
+- `public/support-widget.js`
+- `SUPPORT_AGENT.md`
+
+Local test:
+
+```bash
+npm start
+```
+
+Then open:
+
+```text
+http://localhost:3000/
+http://localhost:3000/signup.html
+http://localhost:3000/register-business.html
+```
+
+Expected:
+
+- Support button appears fixed at the bottom-right.
+- Expanded/minimized state persists across page navigation.
+- Conversation messages persist locally.
+- Clear button resets the local conversation.
+- The widget answers common PartnerLinks onboarding, referral-link, Shopify, dashboard, and earnings-state questions.
+
+Reset local support state:
+
+```js
+localStorage.removeItem('partnerlinks_support_chat_v1')
+```
+
+Safety rules:
+
+- Do not collect sensitive information by default.
+- Never ask for passwords, card numbers, private keys, API keys, webhook secrets, or recovery codes.
+- For account ownership help, ask only for account email and Shopify `.myshopify.com` domain.
+- Do not expose internal admin/debug routes.
+- Do not promise payouts or guaranteed earnings.
+- Make clear that pending/accounted earnings are not necessarily funded or claimable.
+- Route sensitive financial, ownership, payout, and account issues to human/admin support.
+
+Future support backend requirements:
+
+- explicit user/account scoping.
+- opt-in logging or ticket creation.
+- no secret capture.
+- rate limiting and abuse controls.
+- approved knowledge sources only.
+- no claims that planned/NO-GO systems are live.

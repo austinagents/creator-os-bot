@@ -2,6 +2,7 @@
 
 Important continuity rule:
 
+- Read `INFRASTRUCTURE_DECISION_RULES.md` before every major implementation or debugging pass. During long debugging sessions, re-read it at least every third response.
 - `PROJECT_STATUS.md` is the source of truth for what currently exists and works.
 - `system-audit/ECONOMIC_ARCHITECTURE.md` and ADRs contain canonical architecture direction, but architecture direction is not automatically runtime-enforced.
 - Treat claims as `RUNTIME-ENFORCED` only when the status docs or code explicitly say they are implemented.

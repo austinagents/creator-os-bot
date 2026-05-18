@@ -1355,3 +1355,26 @@ Status: READ-ONLY DIAGNOSTIC
   - Create or prepare a new deterministic attributed Shopify test conversion for `test-creator-04`.
   - Rerun the readiness report before any sandbox claim.
   - Keep production live payouts blocked.
+
+### RISK-072 - Shopify Protected Customer Data Approval Blocks Live Multi-Store Webhook Ingestion
+
+- Severity: `SEV1`
+- Category: `SHOPIFY_APP_DATA_RISK`, `ATTRIBUTION_HIJACKING`, `WEBHOOK_REPLAY`, `PRODUCT_VERIFICATION`
+- Status: `OPEN / PROVIDER APPROVAL BLOCKER`
+- Description:
+  - Shopify rejects app-created `orders/paid` and `refunds/create` webhook subscriptions for Brand B because these topics contain protected customer data.
+  - PartnerLinks cannot treat local route readiness, token usability, or sandbox signed replay as proof that production protected customer data access is approved.
+- Safe current behavior:
+  - orders-paid webhook route verifies Shopify HMAC.
+  - deterministic attribution and duplicate conversion prevention are runtime-enforced when a valid signed webhook reaches PartnerLinks.
+  - Brand B sandbox replay tooling uses the real webhook route and HMAC verification instead of direct DB conversion insertion.
+  - replay execution is operator-only and requires explicit `--execute --confirm-sandbox-webhook-replay`.
+- Unsafe assumption:
+  - Do not use `write_webhooks` as an invented blocker/fix.
+  - Do not assume development-store or sandbox replay success means production webhooks are approved.
+  - Do not place live reliance on Brand B/C Shopify webhook ingestion until Shopify protected customer data access is approved and webhook registration/delivery are verified.
+- Recommended mitigation:
+  - Complete Shopify protected customer data/app review requirements for order and refund topics.
+  - Keep sandbox replay clearly labeled as diagnostic-only.
+  - Re-verify webhook registration and delivery per shop after provider approval.
+  - Keep live creator payouts and settlement automation blocked until provider-approved webhook ingestion, settlement, refund/reversal, and payout gates are proven.
