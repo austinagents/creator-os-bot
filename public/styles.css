@@ -897,6 +897,17 @@ a {
   line-height: 0.98;
   letter-spacing: 0;
 }
+.legal-sidebar-compact {
+  gap: 12px;
+  padding: 22px;
+}
+.legal-sidebar-compact h1 {
+  font-size: clamp(2rem, 3.2vw, 2.75rem);
+  line-height: 1;
+}
+.legal-sidebar-compact .legal-summary-card {
+  padding: 14px;
+}
 .legal-sidebar p,
 .legal-summary-card span {
   margin: 0;
