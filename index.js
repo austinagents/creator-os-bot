@@ -1095,6 +1095,13 @@ app.get('/brand/setup/:brandId/reconnect-shopify', async (req, res) => {
       action: 'reconnect_shopify'
     });
     if (!brandAccess.allowed) {
+      if (req.query.debug === '1') {
+        return res.status(brandAccess.status || 403).json({
+          ownership_passed: false,
+          brand_id: brandId || null,
+          reason: brandAccess.reason || 'brand_access_blocked'
+        });
+      }
       if (brandAccess.status === 401) {
         const reconnectPath = `/brand/setup/${encodeURIComponent(brandId)}/reconnect-shopify`;
         res.cookie(AUTH_RETURN_COOKIE_NAME, reconnectPath, authReturnCookieOptions());
@@ -1109,6 +1116,15 @@ app.get('/brand/setup/:brandId/reconnect-shopify', async (req, res) => {
 
     const setup = await getBrandSetupData(brandId);
     if (!setup || !setup.store || !setup.store.shop_domain) {
+      if (req.query.debug === '1') {
+        return res.status(404).json({
+          ownership_passed: true,
+          brand_id: brandId,
+          shop_domain: null,
+          would_redirect_to_shopify: false,
+          reason: 'shopify_store_not_found'
+        });
+      }
       return res.status(404).send(renderSimpleMessagePage(
         'Shopify store not found',
         'This brand does not have a Shopify store row to reconnect. Start from brand setup or contact an operator.',
@@ -1120,6 +1136,22 @@ app.get('/brand/setup/:brandId/reconnect-shopify', async (req, res) => {
     const state = generateShopifyState();
     const { installUrl, shopDomain } = buildShopifyInstallUrl(setup.store.shop_domain, state);
     const oauthDebug = getShopifyOAuthDebugInfo(shopDomain, state);
+    if (req.query.debug === '1') {
+      const parsedInstallUrl = new URL(installUrl);
+      return res.json({
+        ownership_passed: true,
+        brand_id: brandId,
+        shop_domain: shopDomain,
+        runtime_shopify_app_url: oauthDebug.shopify_app_url,
+        redirect_uri: oauthDebug.redirect_uri,
+        oauth_host: parsedInstallUrl.host,
+        oauth_path: parsedInstallUrl.pathname,
+        scope_string: oauthDebug.scope_string,
+        would_redirect_to_shopify: true,
+        generated_oauth_url_present: Boolean(installUrl),
+        reason: null
+      });
+    }
     log('Brand-scoped Shopify reconnect redirect prepared', {
       brandId,
       authUserId: brandAccess.authUser.id,
@@ -1136,6 +1168,14 @@ app.get('/brand/setup/:brandId/reconnect-shopify', async (req, res) => {
     res.redirect(installUrl);
   } catch (error) {
     log('Brand-scoped Shopify reconnect error:', error);
+    if (req.query.debug === '1') {
+      return res.status(500).json({
+        ownership_passed: false,
+        brand_id: normalizeCode(req.params.brandId) || null,
+        would_redirect_to_shopify: false,
+        reason: 'shopify_reconnect_debug_error'
+      });
+    }
     res.status(500).send(renderSimpleMessagePage(
       'Shopify reconnect error',
       'Unable to start Shopify reconnect. Please try again.',
