@@ -79,8 +79,12 @@ async function main() {
         shopDomain: activeStore.shop_domain,
         accessToken: tokenResult.accessToken
       });
+    const liveScopeStatus = await getLiveGrantedScopes({
+      shopDomain: activeStore.shop_domain,
+      accessToken: tokenResult.accessToken
+    });
 
-    printStoreStatus(activeStore, status, args, tokenReadiness, tokenResult);
+    printStoreStatus(activeStore, status, args, tokenReadiness, tokenResult, liveScopeStatus);
   }
 }
 
@@ -121,11 +125,12 @@ async function getStores(args) {
   return data || [];
 }
 
-function printStoreStatus(store, status, args, tokenReadiness, tokenResult) {
+function printStoreStatus(store, status, args, tokenReadiness, tokenResult, liveScopeStatus) {
   const required = status.required_webhooks || [];
   const missing = required.filter((webhook) => !webhook.registered).map((webhook) => webhook.topic);
   const registered = required.filter((webhook) => webhook.registered).map((webhook) => webhook.topic);
-  const grantedScopes = parseScopeList(store.granted_scopes);
+  const storedGrantedScopes = parseScopeList(store.granted_scopes);
+  const liveGrantedScopes = liveScopeStatus.scopes || [];
 
   console.log('\n--- Store ---');
   console.log(JSON.stringify({
@@ -137,8 +142,15 @@ function printStoreStatus(store, status, args, tokenReadiness, tokenResult) {
     access_token_expires_at: store.access_token_expires_at || null,
     refresh_token_expires_at: store.refresh_token_expires_at || null,
     token_last_refreshed_at: store.token_last_refreshed_at || null,
-    granted_scopes: grantedScopes,
-    write_webhooks_granted: grantedScopes.includes('write_webhooks'),
+    stored_granted_scopes: storedGrantedScopes,
+    live_granted_scopes: liveGrantedScopes,
+    live_granted_scopes_ok: liveScopeStatus.ok,
+    live_granted_scopes_status: liveScopeStatus.status || null,
+    live_granted_scopes_error: liveScopeStatus.error || null,
+    stored_granted_scopes_include_read_customers: storedGrantedScopes.includes('read_customers'),
+    live_granted_scopes_include_read_customers: liveGrantedScopes.includes('read_customers'),
+    stored_live_granted_scopes_differ: !sameStringList(storedGrantedScopes, liveGrantedScopes),
+    write_webhooks_granted: storedGrantedScopes.includes('write_webhooks'),
     token_needs_refresh: tokenReadiness.needs_refresh,
     token_refresh_available: tokenReadiness.refresh_available,
     token_refresh_attempted: Boolean(tokenResult.refreshed),
@@ -163,6 +175,54 @@ function printStoreStatus(store, status, args, tokenReadiness, tokenResult) {
   }, null, 2));
 }
 
+async function getLiveGrantedScopes({ shopDomain, accessToken }) {
+  if (!accessToken) {
+    return {
+      ok: false,
+      status: null,
+      scopes: [],
+      error: 'missing_access_token'
+    };
+  }
+
+  const normalizedShopDomain = String(shopDomain || '').trim().toLowerCase();
+  try {
+    const response = await fetch(`https://${normalizedShopDomain}/admin/oauth/access_scopes.json`, {
+      headers: {
+        'X-Shopify-Access-Token': accessToken,
+        Accept: 'application/json'
+      }
+    });
+    const body = await response.text();
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        scopes: [],
+        error: compactError(body)
+      };
+    }
+
+    const parsed = JSON.parse(body || '{}');
+    return {
+      ok: true,
+      status: response.status,
+      scopes: (parsed.access_scopes || [])
+        .map((scope) => scope && scope.handle)
+        .filter(Boolean)
+        .sort(),
+      error: null
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: null,
+      scopes: [],
+      error: error.message || String(error)
+    };
+  }
+}
+
 function getTokenReadiness(store) {
   const expiresAt = store.access_token_expires_at ? new Date(store.access_token_expires_at).getTime() : null;
   const needsRefresh = !expiresAt || !Number.isFinite(expiresAt) || expiresAt <= Date.now() + 5 * 60 * 1000;
@@ -178,6 +238,21 @@ function parseScopeList(scopeText) {
     .map((scope) => scope.trim())
     .filter(Boolean)
     .sort();
+}
+
+function sameStringList(left, right) {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function compactError(body) {
+  if (!body) return 'empty_response';
+  try {
+    const parsed = JSON.parse(body);
+    return parsed.errors || parsed.error || JSON.stringify(parsed);
+  } catch (_error) {
+    return body.slice(0, 500);
+  }
 }
 
 main().catch((error) => {
