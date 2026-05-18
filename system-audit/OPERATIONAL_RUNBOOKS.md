@@ -1412,6 +1412,42 @@ node scripts/shopifyWebhookOperator.js --dry-run --report --brand-id 11
 node scripts/shopifyWebhookOperator.js --dry-run --report --shop-domain novo-loom.myshopify.com
 ```
 
+Read-only OAuth scope/debug report:
+
+```bash
+SHOPIFY_APP_URL=https://partnerlinks.app node scripts/shopifyWebhookOperator.js --dry-run --oauth-debug --brand-id 11
+```
+
+This reports:
+
+- runtime `SHOPIFY_SCOPES`.
+- parsed scope list.
+- generated OAuth URL scope parameter.
+- whether `write_webhooks` is present before redirect.
+- redirect URI.
+- Shopify API key/secret presence booleans only.
+- no secret values.
+
+Brand-scoped reconnect route:
+
+```text
+https://partnerlinks.app/brand/setup/11/reconnect-shopify
+```
+
+Use this when:
+
+- the Shopify admin shows the app is uninstalled.
+- PartnerLinks still has a local `shopify_stores` row.
+- the generic `/api/shopify/start?shop=...` path does not reliably enter Shopify OAuth for the signed-in owner.
+
+Reconnect route guarantees:
+
+- requires signed-in Brand B owner.
+- requires exact brand ownership for `brand_id=11`.
+- reads `novo-loom.myshopify.com` from the scoped store row.
+- starts Shopify OAuth with current runtime scopes.
+- preserves brand, store, creator, lineage, product, attribution, payout, settlement, claim, reserve, and refund data.
+
 Explicit registration, only after approval:
 
 ```bash

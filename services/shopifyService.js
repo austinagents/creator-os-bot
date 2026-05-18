@@ -38,6 +38,35 @@ function buildShopifyInstallUrl(shop, state) {
   };
 }
 
+function getShopifyOAuthDebugInfo(shop, state = 'diagnostic-state') {
+  const shopDomain = normalizeShopDomain(shop);
+  const redirectUri = new URL('/api/shopify/callback', SHOPIFY_APP_URL).toString();
+  const scopeString = SHOPIFY_SCOPES || '';
+  const parsedScopes = parseShopifyScopeList(scopeString);
+  let installUrl = null;
+  if (SHOPIFY_API_KEY) {
+    const oauthUrl = new URL(`https://${shopDomain}/admin/oauth/authorize`);
+    oauthUrl.searchParams.set('client_id', SHOPIFY_API_KEY);
+    oauthUrl.searchParams.set('scope', scopeString);
+    oauthUrl.searchParams.set('redirect_uri', redirectUri);
+    oauthUrl.searchParams.set('state', state);
+    installUrl = oauthUrl.toString();
+  }
+
+  return {
+    shopDomain,
+    shopify_app_url: SHOPIFY_APP_URL,
+    shopify_api_key_present: Boolean(SHOPIFY_API_KEY),
+    shopify_api_secret_present: Boolean(SHOPIFY_API_SECRET),
+    scope_string: scopeString,
+    parsed_scopes: parsedScopes,
+    write_webhooks_present: parsedScopes.includes('write_webhooks'),
+    oauth_url_scope_param: scopeString,
+    redirect_uri: redirectUri,
+    generated_oauth_url: installUrl
+  };
+}
+
 function validateShopifyCallback(query) {
   assertShopifyConfig();
   const { hmac } = query;
@@ -401,6 +430,14 @@ function normalizeTokenInput(accessToken, tokenData) {
   };
 }
 
+function parseShopifyScopeList(scopeText) {
+  return String(scopeText || '')
+    .split(',')
+    .map((scope) => scope.trim())
+    .filter(Boolean)
+    .sort();
+}
+
 function normalizeTokenResponse(data) {
   return {
     accessToken: data.access_token,
@@ -572,6 +609,7 @@ function safeCompare(left, right) {
 
 module.exports = {
   buildShopifyInstallUrl,
+  getShopifyOAuthDebugInfo,
   validateShopifyCallback,
   exchangeShopifyCodeForToken,
   refreshShopifyAccessToken,

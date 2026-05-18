@@ -3778,3 +3778,53 @@ NO-GO:
 - Brand B economics remain unverified until a new `orders/paid` webhook is delivered and creates `shopify_attribution_events`.
 - Do not replay or place another Brand B order until webhook registration is confirmed with an expiring offline token accepted by Shopify.
 - No payout, Stripe, settlement, claim, reserve, refund, or earnings math changed.
+
+## Brand-Scoped Shopify Reconnect Route
+
+Status: RUNTIME-ENFORCED OWNER-SCOPED OAUTH START / NO FINANCIAL LOGIC CHANGE
+
+Why added:
+
+- Brand B Shopify admin showed PartnerLinks uninstalled while PartnerLinks still had a local `shopify_stores` row.
+- Generic `/api/shopify/start?shop=novo-loom.myshopify.com` was not reliably moving the signed-in Brand B owner into Shopify OAuth in browser testing.
+- Brand B needed an exact owner-scoped reconnect path that preserves brand/store/creator/lineage/product data.
+
+Runtime behavior:
+
+- New route:
+  - `/brand/setup/:brandId/reconnect-shopify`
+- Requires signed-in Supabase auth user.
+- Requires active exact `brand_owners` ownership for the requested `brandId`.
+- Reads the scoped `shop_domain` from the existing `shopify_stores` row.
+- Starts Shopify OAuth for that exact shop.
+- Logs the runtime `SHOPIFY_SCOPES`, parsed scopes, `write_webhooks` presence, redirect URI, brand id, and shop domain.
+- Does not delete or mutate brand/store/creator/lineage/product data before OAuth.
+- Does not touch payouts, Stripe, settlement, claims, reserves, refunds, or earnings math.
+
+Brand B reconnect URL:
+
+```text
+https://partnerlinks.app/brand/setup/11/reconnect-shopify
+```
+
+Read-only OAuth scope diagnostic:
+
+```bash
+SHOPIFY_APP_URL=https://partnerlinks.app node scripts/shopifyWebhookOperator.js --dry-run --oauth-debug --brand-id 11
+```
+
+Validation:
+
+- `node --check index.js`
+- `node --check services/shopifyService.js`
+- `node --check scripts/shopifyWebhookOperator.js`
+- `git diff --check`
+
+Next required Brand B sequence:
+
+1. Deploy this route.
+2. Sign in as `fredcointron@gmail.com`.
+3. Open `https://partnerlinks.app/brand/setup/11/reconnect-shopify`.
+4. Complete Shopify OAuth.
+5. Run the webhook report and verify `write_webhooks_granted=true`.
+6. Register missing webhooks only after the read-only report shows the token is scoped correctly.

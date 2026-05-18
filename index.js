@@ -29,6 +29,7 @@ const {
 const { claimCreatorEarnings } = require("./services/earningsLifecycleService");
 const {
   buildShopifyInstallUrl,
+  getShopifyOAuthDebugInfo,
   validateShopifyCallback,
   exchangeShopifyCodeForToken,
   upsertShopifyStore,
@@ -49,6 +50,7 @@ const {
   DISCORD_TOKEN,
   BOT_ALERTS_CHANNEL_ID,
   PUBLIC_BASE_URL,
+  SHOPIFY_SCOPES,
   ARIA_WELLNESS_TEST_PRODUCT_VARIANT_ID,
   NOVO_LOOM_GUMMIES_VARIANT_ID
 } = require("./config/config/env");
@@ -1051,6 +1053,15 @@ app.get('/api/shopify/start', async (req, res) => {
     const { shop } = req.query;
     const state = generateShopifyState();
     const { installUrl, shopDomain } = buildShopifyInstallUrl(shop, state);
+    const oauthDebug = getShopifyOAuthDebugInfo(shopDomain, state);
+    log('Shopify OAuth start redirect prepared', {
+      authUserId: authUser.id,
+      shopDomain,
+      scopeString: SHOPIFY_SCOPES,
+      parsedScopes: oauthDebug.parsed_scopes,
+      writeWebhooksPresent: oauthDebug.write_webhooks_present,
+      redirectUri: oauthDebug.redirect_uri
+    });
 
     res.cookie('partnerlinks_shopify_state', state, shopifyStateCookieOptions());
     res.cookie('partnerlinks_shopify_shop', shopDomain, shopifyStateCookieOptions());
@@ -1062,6 +1073,54 @@ app.get('/api/shopify/start', async (req, res) => {
       error.message || 'Unable to start Shopify install.',
       '/register-business',
       'Try again'
+    ));
+  }
+});
+app.get('/brand/setup/:brandId/reconnect-shopify', async (req, res) => {
+  try {
+    const brandId = normalizeCode(req.params.brandId);
+    const brandAccess = await getScopedSignedInBrandOwner(req, res, {
+      brandId,
+      action: 'reconnect_shopify'
+    });
+    if (!brandAccess.allowed) {
+      return sendBrandAccessBlocked(res, brandAccess);
+    }
+
+    const setup = await getBrandSetupData(brandId);
+    if (!setup || !setup.store || !setup.store.shop_domain) {
+      return res.status(404).send(renderSimpleMessagePage(
+        'Shopify store not found',
+        'This brand does not have a Shopify store row to reconnect. Start from brand setup or contact an operator.',
+        `/brand/setup/${encodeURIComponent(brandId)}`,
+        'Back to setup'
+      ));
+    }
+
+    const state = generateShopifyState();
+    const { installUrl, shopDomain } = buildShopifyInstallUrl(setup.store.shop_domain, state);
+    const oauthDebug = getShopifyOAuthDebugInfo(shopDomain, state);
+    log('Brand-scoped Shopify reconnect redirect prepared', {
+      brandId,
+      authUserId: brandAccess.authUser.id,
+      shopDomain,
+      scopeString: SHOPIFY_SCOPES,
+      parsedScopes: oauthDebug.parsed_scopes,
+      writeWebhooksPresent: oauthDebug.write_webhooks_present,
+      redirectUri: oauthDebug.redirect_uri,
+      existingStoreId: setup.store.id || null
+    });
+
+    res.cookie('partnerlinks_shopify_state', state, shopifyStateCookieOptions());
+    res.cookie('partnerlinks_shopify_shop', shopDomain, shopifyStateCookieOptions());
+    res.redirect(installUrl);
+  } catch (error) {
+    log('Brand-scoped Shopify reconnect error:', error);
+    res.status(500).send(renderSimpleMessagePage(
+      'Shopify reconnect error',
+      'Unable to start Shopify reconnect. Please try again.',
+      `/brand/setup/${encodeURIComponent(req.params.brandId)}`,
+      'Back to setup'
     ));
   }
 });

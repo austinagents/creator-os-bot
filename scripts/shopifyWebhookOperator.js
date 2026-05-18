@@ -3,6 +3,7 @@
 const supabase = require('../database/database/supabase');
 const {
   ensureRequiredWebhooks,
+  getShopifyOAuthDebugInfo,
   getWebhookRegistrationStatus,
   refreshStoredShopifyTokenIfNeeded
 } = require('../services/shopifyService');
@@ -11,6 +12,7 @@ function parseArgs(argv) {
   const args = {
     dryRun: true,
     report: false,
+    oauthDebug: false,
     register: false,
     brandId: null,
     shopDomain: null
@@ -20,6 +22,7 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === '--dry-run') args.dryRun = true;
     else if (arg === '--report') args.report = true;
+    else if (arg === '--oauth-debug') args.oauthDebug = true;
     else if (arg === '--register') args.register = true;
     else if (arg === '--brand-id') {
       args.brandId = argv[index + 1] ? Number(argv[index + 1]) : null;
@@ -50,6 +53,11 @@ async function main() {
   }
 
   for (const store of stores) {
+    if (args.oauthDebug) {
+      printOAuthDebug(store);
+      if (!args.report && !args.register) continue;
+    }
+
     const tokenReadiness = getTokenReadiness(store);
     const tokenResult = args.register && !args.dryRun
       ? await refreshStoredShopifyTokenIfNeeded(store)
@@ -71,6 +79,29 @@ async function main() {
 
     printStoreStatus(activeStore, status, args, tokenReadiness, tokenResult);
   }
+}
+
+function printOAuthDebug(store) {
+  const debug = getShopifyOAuthDebugInfo(store.shop_domain, 'diagnostic-state');
+  const parsedUrl = debug.generated_oauth_url ? new URL(debug.generated_oauth_url) : null;
+  console.log('\n--- OAuth Debug ---');
+  console.log(JSON.stringify({
+    brand_id: store.brand_id,
+    shop_domain: store.shop_domain,
+    runtime_shopify_app_url: debug.shopify_app_url,
+    shopify_api_key_present: debug.shopify_api_key_present,
+    shopify_api_secret_present: debug.shopify_api_secret_present,
+    runtime_shopify_scopes: debug.scope_string,
+    parsed_scope_list: debug.parsed_scopes,
+    oauth_url_scope_param: debug.oauth_url_scope_param,
+    write_webhooks_present_before_redirect: debug.write_webhooks_present,
+    redirect_uri: debug.redirect_uri,
+    oauth_host: parsedUrl ? parsedUrl.host : null,
+    oauth_path: parsedUrl ? parsedUrl.pathname : null,
+    generated_oauth_url: debug.generated_oauth_url,
+    secrets_printed: false,
+    mutated_anything: false
+  }, null, 2));
 }
 
 async function getStores(args) {
