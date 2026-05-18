@@ -59,6 +59,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DEFAULT_PLATFORM_FEE_RATE = 5;
 const REFERRAL_LINK_HOST = 'partnerlinks.app';
+const AUTH_RETURN_COOKIE_NAME = 'partnerlinks_auth_return';
 const PUBLIC_SHOPIFY_BRAND_MAP = {
   'aria-wellness': 'partnerlinks-test.myshopify.com',
   'novo-loom-myshopify-': 'novo-loom.myshopify.com',
@@ -763,6 +764,15 @@ app.get('/auth/callback', async (req, res) => {
     res.clearCookie('partnerlinks_invite_sid');
     res.clearCookie('partnerlinks_brand_invite_sid');
     res.clearCookie('partnerlinks_brand_invite_id');
+    const safeReturnPath = getSafeAuthReturnPath(req.cookies[AUTH_RETURN_COOKIE_NAME]);
+    if (safeReturnPath) {
+      res.clearCookie(AUTH_RETURN_COOKIE_NAME, authReturnClearCookieOptions());
+      log('Auth callback returning to safe internal path', {
+        authUserId: authUser.id,
+        returnPath: safeReturnPath
+      });
+      return res.redirect(safeReturnPath);
+    }
     res.redirect(`/creator/welcome?creator_id=${encodeURIComponent(creator.id)}`);
   } catch (error) {
     log('Auth callback error:', error);
@@ -1084,6 +1094,15 @@ app.get('/brand/setup/:brandId/reconnect-shopify', async (req, res) => {
       action: 'reconnect_shopify'
     });
     if (!brandAccess.allowed) {
+      if (brandAccess.status === 401) {
+        const reconnectPath = `/brand/setup/${encodeURIComponent(brandId)}/reconnect-shopify`;
+        res.cookie(AUTH_RETURN_COOKIE_NAME, reconnectPath, authReturnCookieOptions());
+        log('Brand-scoped Shopify reconnect stored auth return target', {
+          brandId,
+          returnPath: reconnectPath
+        });
+        return res.redirect('/auth/google/start');
+      }
       return sendBrandAccessBlocked(res, brandAccess);
     }
 
@@ -3021,6 +3040,32 @@ function brandStateCookieOptions() {
     maxAge: 365 * 24 * 60 * 60 * 1000,
     path: '/'
   };
+}
+
+function authReturnCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 10 * 60 * 1000,
+    path: '/'
+  };
+}
+
+function authReturnClearCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/'
+  };
+}
+
+function getSafeAuthReturnPath(value) {
+  const returnPath = String(value || '').trim();
+  if (!returnPath) return null;
+  if (!/^\/brand\/setup\/\d+\/reconnect-shopify$/.test(returnPath)) return null;
+  return returnPath;
 }
 
 function formatMoney(value, currency = 'USD') {
