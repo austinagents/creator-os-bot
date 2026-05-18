@@ -3609,3 +3609,172 @@ NO-GO boundaries:
 - no reserve changes.
 - no refund changes.
 - no earnings math or network rate changes.
+
+## Brand B Bogus Gateway Order Verification
+
+Status: CHECK / REFERRAL CLICK VERIFIED / SHOPIFY WEBHOOK INGESTION NOT VERIFIED
+
+Order under test:
+
+- Shopify order id `6176193511508`
+- Expected PartnerLinks order id `shopify:novo-loom.myshopify.com:6176193511508`
+- Brand B `brand_id=11`
+- shop_domain `novo-loom.myshopify.com`
+- creator code `solrocks`
+- product slug `novo-gummies`
+
+Read-only verification results:
+
+- Brand B referral clicks exist:
+  - click ids `74`, `75`, `76`
+  - `brand_id=11`
+  - `creator_id=36`
+  - `product_slug=novo-gummies`
+  - `shop_domain=novo-loom.myshopify.com`
+  - latest `partnerlinks_ref=2a802b26-f101-41d0-9b28-e13f42d254d5`
+- No `shopify_attribution_events` rows currently exist for:
+  - `shopify_order_id=6176193511508`
+  - `order_id=shopify:novo-loom.myshopify.com:6176193511508`
+  - `shop_domain=novo-loom.myshopify.com`
+- No `conversions` row exists for this order.
+- No `creator_network_earnings` rows exist for this order.
+- No `brand_network_earnings` rows exist for this order.
+- No settlement items/draft obligation currently exist for Brand B because there are no Brand B conversion rows yet.
+
+Expected economics once Shopify `orders/paid` ingestion is working:
+
+- Direct commission recipient: `solrocks`.
+- Direct commission: `$6.25` on a `$25.00` order at 25%.
+- Platform fee at current default 5%: `$1.25`.
+- Level 1: `goatse`, approximately `$0.38`.
+- Level 2: `gibby`, approximately `$0.04`.
+- Level 3: `ctofnf`, approximately `$0.03`.
+- Level 4+: blocked; `epep` should receive nothing for this deepest-chain sale.
+- Brand B origin reward is not expected for this deepest sale because the three-level cap is consumed by creator levels.
+
+Current likely blocker:
+
+- Shopify `orders/paid` webhook delivery/registration for `novo-loom.myshopify.com` has not been proven.
+- The app code contains signed webhook handlers but does not currently show automatic webhook registration logic in `services/shopifyService.js`.
+- A read-only Admin API webhook listing attempt for `novo-loom.myshopify.com` returned a Shopify 403 related to token format, so webhook registration could not be confirmed from Codex.
+
+NO-GO until fixed/verified:
+
+- Do not treat Brand B checkout as an attribution/economics PASS.
+- Do not use this order to validate Brand B direct commission, network earnings, or settlement draftability.
+- Confirm/register Shopify `orders/paid` webhook for Brand B, then replay or place a new Bogus Gateway order after webhook delivery is verified.
+- Do not alter payout, Stripe, settlement, claim, reserve, refund, or earnings math.
+
+## Multi-Store Shopify Webhook Registration
+
+Status: RUNTIME WIRED FOR FUTURE INSTALLS / EXPIRING OFFLINE TOKEN FIX PREPARED / EXISTING STORES REQUIRE MIGRATION + DEPLOY + REINSTALL / NO PAYOUT OR SETTLEMENT CHANGE
+
+What changed:
+
+- Added automatic required Shopify webhook registration after OAuth install/callback.
+- Added `scripts/shopifyWebhookOperator.js` for read-only webhook status reporting and explicit operator registration.
+- Added required Shopify scope:
+  - `write_webhooks`
+- Required webhook topics:
+  - `orders/paid` -> `/webhooks/shopify/orders-paid`
+  - `refunds/create` -> `/webhooks/shopify/refunds-create`
+- Registration is idempotent:
+  - lists existing subscriptions first.
+  - creates only missing required topic/address pairs.
+  - does not create duplicates when matching subscriptions already exist.
+
+Current read-only status:
+
+- Brand A `partnerlinks-test.myshopify.com`:
+  - access token present.
+  - webhook status check failed with Shopify Admin API token-format error.
+  - active webhook registration could not be confirmed from Codex.
+- Brand B `novo-loom.myshopify.com`:
+  - access token present.
+  - webhook status check failed with Shopify Admin API token-format error.
+  - `orders/paid` delivery remains unverified.
+- Brand C `solace-market-588vpz0h.myshopify.com`:
+  - access token present.
+  - webhook status check failed with Shopify Admin API token-format error.
+  - active webhook registration could not be confirmed from Codex.
+
+Observed Shopify Admin API error for existing stored tokens:
+
+```text
+[API] Non-expiring access tokens are no longer accepted for the Admin API.
+```
+
+Root cause:
+
+- PartnerLinks was still exchanging Shopify OAuth authorization codes for legacy non-expiring offline Admin API tokens.
+- Current Shopify public-app installs require expiring offline tokens for this app path.
+- Expiring offline tokens require `expiring=1` during token exchange and storage of token metadata:
+  - `refresh_token`
+  - `access_token_expires_at`
+  - `refresh_token_expires_at`
+  - `granted_scopes`
+  - `token_type`
+  - `token_last_refreshed_at`
+
+Prepared fix:
+
+- Added additive migration `database/migrations/020_shopify_expiring_offline_tokens.sql`.
+- OAuth callback now stores expiring offline token metadata instead of treating the token response as a raw string.
+- Shopify token exchange now sends `expiring=1`.
+- Shopify access-token refresh support exists for operator registration paths.
+- Webhook operator reports token metadata without printing token values.
+- `--register` can refresh an expiring offline token before webhook registration.
+
+Manual deployment sequence required:
+
+1. Run `database/migrations/020_shopify_expiring_offline_tokens.sql` manually in Supabase.
+2. Deploy/restart Railway with this code.
+3. Reinstall/reconnect Brand B through Shopify OAuth so Shopify issues a new expiring offline token.
+4. Run:
+
+```bash
+node scripts/shopifyWebhookOperator.js --dry-run --report --brand-id 11
+```
+
+5. Confirm `api_ok=true`, `write_webhooks_granted=true`, and required webhook callbacks are present or safely registerable.
+
+Production configuration required:
+
+- Railway must set:
+  - `SHOPIFY_APP_URL=https://partnerlinks.app`
+  - `SHOPIFY_SCOPES=read_orders,read_customers,write_webhooks`
+- Existing stores likely need OAuth reinstall/reconnect after deploy so Shopify issues a token with the required webhook scope and usable token format.
+
+Operator commands:
+
+```bash
+node scripts/shopifyWebhookOperator.js --dry-run --report --brand-id 11
+node scripts/shopifyWebhookOperator.js --dry-run --report
+```
+
+Explicit registration command after deploy/reinstall and approval:
+
+```bash
+node scripts/shopifyWebhookOperator.js --register --brand-id 11
+```
+
+Important:
+
+- Do not run `--register` until `SHOPIFY_APP_URL` points to `https://partnerlinks.app` in the runtime that executes the command.
+- If run locally with local `.env`, callback URLs will point to `http://localhost:3000`.
+- Prefer production/Railway runtime for registration so callback URLs are correct.
+
+Validation:
+
+- `node --check services/shopifyService.js`
+- `node --check services/shopifyWebhookService.js`
+- `node --check index.js`
+- `node --check scripts/productionSafetyTest.js`
+- `node --check scripts/shopifyWebhookOperator.js`
+- `git diff --check`
+
+NO-GO:
+
+- Brand B economics remain unverified until a new `orders/paid` webhook is delivered and creates `shopify_attribution_events`.
+- Do not replay or place another Brand B order until webhook registration is confirmed with an expiring offline token accepted by Shopify.
+- No payout, Stripe, settlement, claim, reserve, refund, or earnings math changed.

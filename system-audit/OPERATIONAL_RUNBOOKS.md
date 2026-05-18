@@ -1353,3 +1353,99 @@ Do not:
 - delete stale historical data without explicit approval.
 - insert owner rows without confirmed auth user ids.
 - change payouts, settlement, Stripe, claims, reserves, refunds, or earnings math as part of Brand B/C setup.
+
+## Shopify Webhook Registration Runbook
+
+Status: RUNTIME WIRED FOR FUTURE INSTALLS / EXPIRING OFFLINE TOKEN FIX PREPARED / OPERATOR-CONTROLLED FOR EXISTING STORES
+
+Purpose:
+
+- Ensure every installed Shopify store has the required PartnerLinks webhook subscriptions.
+- Keep webhook registration separate from payout, settlement, claim, reserve, refund enforcement, and earnings math.
+
+Required production env:
+
+```text
+SHOPIFY_APP_URL=https://partnerlinks.app
+SHOPIFY_SCOPES=read_orders,read_customers,write_webhooks
+```
+
+Required database migration before next Shopify reinstall:
+
+```text
+database/migrations/020_shopify_expiring_offline_tokens.sql
+```
+
+Why this exists:
+
+- Shopify now rejects legacy non-expiring offline Admin API tokens for this public-app install path.
+- PartnerLinks must request expiring offline tokens with `expiring=1`.
+- PartnerLinks must store refresh-token metadata and refresh Admin API tokens before operator webhook registration when needed.
+
+Required webhooks:
+
+- `orders/paid`
+  - `https://partnerlinks.app/webhooks/shopify/orders-paid`
+- `refunds/create`
+  - `https://partnerlinks.app/webhooks/shopify/refunds-create`
+
+Automatic install behavior:
+
+- After Shopify OAuth callback stores the shop token, PartnerLinks attempts to register required webhooks for that exact shop.
+- OAuth stores expiring offline token metadata:
+  - `refresh_token`
+  - `access_token_expires_at`
+  - `refresh_token_expires_at`
+  - `granted_scopes`
+  - `token_type`
+  - `token_last_refreshed_at`
+- Registration is idempotent:
+  - list existing subscriptions.
+  - create only missing required topic/address pairs.
+  - avoid duplicate subscriptions for the same topic/address.
+
+Read-only status report:
+
+```bash
+node scripts/shopifyWebhookOperator.js --dry-run --report
+node scripts/shopifyWebhookOperator.js --dry-run --report --brand-id 11
+node scripts/shopifyWebhookOperator.js --dry-run --report --shop-domain novo-loom.myshopify.com
+```
+
+Explicit registration, only after approval:
+
+```bash
+node scripts/shopifyWebhookOperator.js --register --brand-id 11
+```
+
+Operator checks before registration:
+
+1. Command is running in the production/Railway environment or another environment with `SHOPIFY_APP_URL=https://partnerlinks.app`.
+2. Store has a current Shopify access token.
+3. App install has `write_webhooks` scope.
+4. Status report can list existing Shopify webhooks successfully.
+5. Missing topics are only the required PartnerLinks topics.
+
+Known current blocker for existing Brand A/B/C stores:
+
+- Existing stored Shopify tokens return an Admin API token-format error:
+  - non-expiring access tokens are no longer accepted.
+- Existing stores need OAuth reinstall/reconnect after:
+  - migration `020` is applied.
+  - Railway is deployed/restarted.
+  - `SHOPIFY_SCOPES` includes `write_webhooks`.
+
+After registration:
+
+1. Run the read-only status report again.
+2. Confirm `orders/paid` is registered.
+3. Confirm `refunds/create` is registered.
+4. Place a new Bogus Gateway order only after webhook registration is confirmed.
+5. Verify `shopify_attribution_events` exists before treating economics as validated.
+
+Do not:
+
+- register webhooks from local env if callback URLs point to localhost.
+- place new Brand B economics tests while `orders/paid` registration is unverified.
+- replay webhooks without explicit approval and valid signed payload.
+- alter payout, Stripe, settlement, claim, reserve, refund enforcement, or earnings math as part of webhook registration.

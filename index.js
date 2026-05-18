@@ -32,6 +32,7 @@ const {
   validateShopifyCallback,
   exchangeShopifyCodeForToken,
   upsertShopifyStore,
+  ensureRequiredWebhooks,
   generateShopifyState,
   shopifyStateCookieOptions,
   shopifyStateClearCookieOptions
@@ -1107,10 +1108,24 @@ app.get('/api/shopify/callback', async (req, res) => {
       ));
     }
 
-    const accessToken = await exchangeShopifyCodeForToken(shop, code);
+    const shopifyToken = await exchangeShopifyCodeForToken(shop, code);
     const store = await upsertShopifyStore({
       shopDomain: shop,
-      accessToken
+      tokenData: shopifyToken
+    });
+    const webhookRegistration = await ensureRequiredWebhooks({
+      shopDomain: store.shop_domain,
+      accessToken: store.access_token
+    });
+    log('Shopify required webhook registration checked after install:', {
+      shopDomain: store.shop_domain,
+      brandId: store.brand_id,
+      apiOk: webhookRegistration.api_ok,
+      created: (webhookRegistration.created || []).map((row) => row.topic),
+      missing: (webhookRegistration.required_webhooks || [])
+        .filter((row) => !row.registered)
+        .map((row) => row.topic),
+      errors: webhookRegistration.errors || []
     });
     await ensureBrandOwner({
       brandId: store.brand_id,
