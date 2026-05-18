@@ -829,11 +829,28 @@ app.get('/dashboard/:creatorCode', async (req, res) => {
     }
 
     const authUser = await getCurrentAuthUser(req, res);
+    if (!authUser) {
+      return res.status(401).send(renderSimpleMessagePage(
+        'Sign in required',
+        'Please sign in with the Google account that owns this creator dashboard.',
+        '/signup',
+        'Sign in with Google'
+      ));
+    }
+
     const ownerCanClaim = Boolean(
-      authUser &&
       dashboard.creator.auth_user_id &&
       String(dashboard.creator.auth_user_id) === String(authUser.id)
     );
+    if (!ownerCanClaim) {
+      return res.status(403).send(renderSimpleMessagePage(
+        'Creator access blocked',
+        'This creator dashboard is only available to the signed-in owner.',
+        '/dashboard',
+        'Open my dashboard'
+      ));
+    }
+
     const claimStatus = ['success', 'blocked'].includes(req.query.claim) ? req.query.claim : null;
     const payoutClaimGate = getPayoutClaimGate();
 
