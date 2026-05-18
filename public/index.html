@@ -397,27 +397,6 @@
         });
       });
 
-      document.querySelectorAll('.featured-brand-card').forEach((card) => {
-        const copyButton = card.querySelector('[data-featured-copy]');
-        const link = copyButton ? copyButton.dataset.featuredCopy || '' : '';
-        const match = link.match(/partnerlinks\.app\/r\/([^/]+)\/creator/);
-        if (!match) return;
-
-        const brandSlug = match[1];
-        card.tabIndex = 0;
-        card.setAttribute('role', 'link');
-        card.setAttribute('aria-label', `View ${card.querySelector('h3') ? card.querySelector('h3').textContent : 'brand'} products`);
-        card.addEventListener('click', () => {
-          window.location.href = `/brands/${encodeURIComponent(brandSlug)}`;
-        });
-        card.addEventListener('keydown', (event) => {
-          if (event.target.closest('[data-featured-copy]')) return;
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            window.location.href = `/brands/${encodeURIComponent(brandSlug)}`;
-          }
-        });
-      });
     })();
   </script>
   <script src="/support-knowledge-base.js?v=1" defer></script>
