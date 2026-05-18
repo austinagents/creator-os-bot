@@ -410,6 +410,24 @@ app.get('/styles.css', (req, res) => {
 });
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
+const staticPageRoutes = {
+  '/privacy': 'privacy.html',
+  '/terms': 'terms.html',
+  '/faq': 'faq.html',
+  '/about': 'about.html',
+  '/contact': 'contact.html',
+  '/support': 'support.html',
+  '/creators': 'creators.html',
+  '/brands': 'brands.html',
+  '/data-attribution': 'data-attribution.html'
+};
+
+Object.entries(staticPageRoutes).forEach(([route, fileName]) => {
+  app.get(route, (_req, res) => {
+    res.sendFile(path.join(__dirname, 'public', fileName));
+  });
+});
+
 app.get('/join/brand/:brandSlug', async (req, res) => {
   try {
     const brandCode = normalizeCode(req.params.brandSlug);
