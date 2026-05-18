@@ -31,6 +31,29 @@ The core standard is Shopify/Stripe/affiliate-infrastructure discipline:
 - provider-compliant
 - operationally safe
 
+## Strategic Positioning Source Of Truth
+
+Status: INTERNAL STRATEGY / DOCUMENTATION ONLY
+
+Root-level strategy memo:
+
+```text
+GO_TO_MARKET_STRATEGY.md
+```
+
+Current strategic positioning:
+
+- PartnerLinks should not position itself as another generic affiliate app.
+- PartnerLinks should position itself as creator network infrastructure and creator-led growth infrastructure.
+- The core differentiator is optimizing creator-to-creator network expansion, not only brand-to-creator acquisition.
+- GTM language must avoid recruitment-style framing and should use creator network, creator expansion, creator-led growth, referral infrastructure, creator participation, network propagation, and creator ecosystem.
+- Time-to-first-referral-link is a critical activation metric with a target of under 60 seconds.
+
+Strategic safety boundary:
+
+- Strategy docs do not change runtime behavior.
+- No payout, Stripe, settlement, claim, reserve, refund, earnings math, Shopify webhook, or financial state behavior is changed by this document.
+
 ## Status Classification Warning
 
 Documented architecture is not automatically runtime-enforced. Treat all financial safety claims as runtime-enforced only when explicitly marked `RUNTIME-ENFORCED`.
@@ -3972,6 +3995,9 @@ Persistence:
   - minimized/expanded state.
   - recent local conversation messages.
 - Chat state is client-side only.
+- The large default security warning banner has been replaced with a small inline info interaction next to the `Support` heading.
+- The info interaction opens on hover/tap, closes on outside click, and closes with `Esc`.
+- The security reminder remains available without dominating the support widget's onboarding/helpfulness hierarchy.
 
 Covered support topics:
 

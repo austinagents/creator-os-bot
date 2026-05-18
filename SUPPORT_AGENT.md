@@ -19,6 +19,9 @@ Purpose:
 - The widget stores:
   - expanded/minimized state.
   - local conversation messages.
+- The default widget header stays onboarding-focused and calm.
+- Security guidance is available through a small inline info interaction beside the `Support` heading instead of a large visible warning banner.
+- The info popover opens on hover or tap, closes on outside click, and closes with `Esc`.
 - The widget does not send messages to a backend.
 - The widget does not call external AI APIs.
 - The widget does not mutate PartnerLinks data.

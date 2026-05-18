@@ -11,6 +11,8 @@
     toggle: 'partnerlinks-support-toggle',
     close: 'partnerlinks-support-close',
     clear: 'partnerlinks-support-clear',
+    info: 'partnerlinks-support-info',
+    infoPopover: 'partnerlinks-support-info-popover',
     messages: 'partnerlinks-support-messages',
     form: 'partnerlinks-support-form',
     input: 'partnerlinks-support-input',
@@ -53,16 +55,19 @@
         <header class="pl-support-header">
           <div>
             <p class="pl-support-kicker">PartnerLinks</p>
-            <h2 id="partnerlinks-support-title">Support</h2>
+            <div class="pl-support-title-row">
+              <h2 id="partnerlinks-support-title">Support</h2>
+              <button id="${SELECTORS.info}" class="pl-support-info-button" type="button" aria-label="Security reminder" aria-expanded="false" aria-controls="${SELECTORS.infoPopover}">ⓘ</button>
+              <div id="${SELECTORS.infoPopover}" class="pl-support-info-popover" role="tooltip" aria-hidden="true">
+                Security reminder: PartnerLinks support will never ask for passwords, private keys, webhook secrets, or full payment card details.
+              </div>
+            </div>
           </div>
           <div class="pl-support-header-actions">
             <button id="${SELECTORS.clear}" class="pl-support-icon-button" type="button" title="Clear chat" aria-label="Clear support chat">Clear</button>
             <button id="${SELECTORS.close}" class="pl-support-icon-button" type="button" title="Minimize" aria-label="Minimize support chat">×</button>
           </div>
         </header>
-        <div class="pl-support-safety-note">
-          Do not share passwords, API keys, private keys, webhook secrets, or full card numbers.
-        </div>
         <div id="${SELECTORS.messages}" class="pl-support-messages" aria-live="polite"></div>
         <div id="${SELECTORS.quickReplies}" class="pl-support-quick-replies">
           ${quickReplies.map((reply) => `<button type="button" data-support-reply="${escapeAttribute(reply)}">${escapeHtml(reply)}</button>`).join('')}
@@ -80,6 +85,7 @@
     const toggle = root.querySelector(`#${SELECTORS.toggle}`);
     const close = root.querySelector(`#${SELECTORS.close}`);
     const clear = root.querySelector(`#${SELECTORS.clear}`);
+    const info = root.querySelector(`#${SELECTORS.info}`);
     const form = root.querySelector(`#${SELECTORS.form}`);
     const input = root.querySelector(`#${SELECTORS.input}`);
     const quickReplies = root.querySelector(`#${SELECTORS.quickReplies}`);
@@ -108,6 +114,19 @@
       input.focus();
     });
 
+    info.addEventListener('click', (event) => {
+      event.stopPropagation();
+      setInfoOpen(root, !root.classList.contains('is-info-open'));
+    });
+
+    info.addEventListener('mouseenter', () => {
+      setInfoOpen(root, true);
+    });
+
+    root.querySelector(`#${SELECTORS.infoPopover}`).addEventListener('mouseleave', () => {
+      setInfoOpen(root, false);
+    });
+
     quickReplies.addEventListener('click', (event) => {
       const button = event.target.closest('[data-support-reply]');
       if (!button) return;
@@ -123,10 +142,22 @@
     });
 
     document.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape' || !state.expanded) return;
+      if (event.key !== 'Escape') return;
+      if (root.classList.contains('is-info-open')) {
+        setInfoOpen(root, false);
+        info.focus();
+        return;
+      }
+      if (!state.expanded) return;
       state.expanded = false;
       saveState(state);
       setExpanded(root, false);
+    });
+
+    document.addEventListener('click', (event) => {
+      if (!root.classList.contains('is-info-open')) return;
+      if (event.target.closest(`#${SELECTORS.info}`) || event.target.closest(`#${SELECTORS.infoPopover}`)) return;
+      setInfoOpen(root, false);
     });
   }
 
@@ -212,6 +243,15 @@
     root.classList.toggle('is-expanded', Boolean(expanded));
     toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
     panel.setAttribute('aria-hidden', expanded ? 'false' : 'true');
+    if (!expanded) setInfoOpen(root, false);
+  }
+
+  function setInfoOpen(root, open) {
+    const info = root.querySelector(`#${SELECTORS.info}`);
+    const popover = root.querySelector(`#${SELECTORS.infoPopover}`);
+    root.classList.toggle('is-info-open', Boolean(open));
+    info.setAttribute('aria-expanded', open ? 'true' : 'false');
+    popover.setAttribute('aria-hidden', open ? 'false' : 'true');
   }
 
   function loadState() {
