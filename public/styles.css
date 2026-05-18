@@ -725,7 +725,7 @@ a {
   justify-content: space-between;
   gap: 24px;
   align-items: center;
-  padding: 28px 30px;
+  padding: 26px 30px;
   border-radius: 36px;
   background: rgba(12, 17, 34, 0.86);
   border: 1px solid rgba(255,255,255,0.08);
@@ -753,8 +753,8 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 72px;
-  padding: 10px 14px;
+  min-width: 58px;
+  padding: 10px 13px;
   border-radius: 999px;
   background: linear-gradient(135deg, rgba(155,92,255,0.14), rgba(255,111,97,0.14));
   font-weight: 700;
@@ -768,14 +768,18 @@ a {
 }
 .proof-metric {
   display: grid;
-  gap: 6px;
+  gap: 5px;
+  min-width: 116px;
   text-align: right;
 }
 .proof-metric strong {
-  font-size: 1.4rem;
+  font-size: 1.32rem;
+  line-height: 1;
 }
 .proof-metric span {
   color: var(--muted);
+  font-size: 0.9rem;
+  white-space: nowrap;
 }
 .site-footer {
   display: flex;
