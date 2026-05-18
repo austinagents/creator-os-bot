@@ -1,12 +1,13 @@
 (function () {
   window.PartnerLinksSupportKnowledge = {
-    version: 'support_kb_v1',
-    escalationMessage: 'I can flag this for PartnerLinks support. Please share only the email on the account and the Shopify .myshopify.com store domain if this is a brand issue. Do not share passwords, card numbers, API keys, private keys, webhook secrets, or recovery codes.',
+    version: 'support_kb_v2_approved_answers',
+    sourceDocument: 'SUPPORT_KNOWLEDGE_BASE.md',
+    escalationMessage: 'I may need PartnerLinks support to review that. Please include your store domain, account email, and a short description of the issue. Do not share passwords, API keys, webhook secrets, private keys, recovery codes, or full payment card details.',
     boundaries: [
       'PartnerLinks support cannot promise payouts or guarantee earnings.',
-      'Accounted earnings are not necessarily funded earnings.',
-      'Live creator payouts and settlement automation are not public-launch features yet.',
-      'Sensitive financial, account ownership, payout, or store-access issues should go to a human/admin review path.'
+      'Accounted earnings are not necessarily funded or claimable earnings.',
+      'Live creator payouts and settlement automation are not public-launch features unless PROJECT_STATUS.md says otherwise.',
+      'Sensitive financial, account ownership, payout, refund, security, or store-access issues should go to human/admin review.'
     ],
     quickReplies: [
       'What is PartnerLinks?',
@@ -18,82 +19,191 @@
     ],
     topics: [
       {
-        id: 'overview',
-        title: 'What PartnerLinks is',
-        keywords: ['what is partnerlinks', 'what does partnerlinks do', 'overview', 'explain partnerlinks'],
-        answer: 'PartnerLinks helps brands and creators run referral links, Shopify attribution, creator invite chains, earnings tracking, and payout workflows. It is currently focused on deterministic tracking and safe accounting before broad live payout automation.'
+        id: 'what_is_partnerlinks',
+        title: 'What Is PartnerLinks?',
+        intent: 'User asks what PartnerLinks is or what it does.',
+        approvedResponse: 'PartnerLinks helps brands and creators run referral links, Shopify attribution, creator invite flows, earnings tracking, and payout workflows. It is built as creator-led growth infrastructure, with an emphasis on deterministic tracking, clear money states, and safe operations.',
+        sensitive: false,
+        public: true,
+        sourceOfTruth: ['CHAT_HANDOFF.md', 'PROJECT_STATUS.md', 'GO_TO_MARKET_STRATEGY.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['what is partnerlinks', 'what does partnerlinks do', 'overview', 'explain partnerlinks', 'creator-led growth', 'creator network infrastructure', 'affiliate', 'referral platform']
       },
       {
         id: 'brand_onboarding',
-        title: 'Brand onboarding',
-        keywords: ['brand onboarding', 'register business', 'connect shopify', 'brand setup', 'brand dashboard', 'shopify connect'],
-        answer: 'Brands start by connecting a Shopify store, confirming setup details, and inviting creators with a brand onboarding link. Brand admin pages require the signed-in owner for that exact brand. If you see the wrong dashboard, check that you are signed into the intended Google account and Shopify store context.'
+        title: 'Brand Onboarding Overview',
+        intent: 'Brand asks how to get started or connect a business.',
+        approvedResponse: 'Brands start by connecting a Shopify store, completing brand setup, setting creator commission terms, and sharing creator onboarding links. Brand dashboard and setup access require the signed-in owner/admin for that exact brand.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'SUPPORT_AGENT.md', 'system-audit/OPERATIONAL_RUNBOOKS.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['brand onboarding', 'register business', 'connect shopify', 'brand setup', 'brand dashboard', 'creator commission', 'invite creators', 'start as a brand', 'business setup']
       },
       {
         id: 'creator_onboarding',
-        title: 'Creator onboarding',
-        keywords: ['creator onboarding', 'creator signup', 'join as creator', 'google signup', 'invite link', 'creator invite'],
-        answer: 'Creators join with Google, receive a creator code, and can share referral links. If you joined from an invite, PartnerLinks records the invite lineage after successful signup, not just from visiting the link.'
+        title: 'Creator Onboarding Overview',
+        intent: 'Creator asks how to join or get a creator account.',
+        approvedResponse: 'Creators join with Google, receive a creator code, and can use referral links to share brands or products. If a creator joins from an invite, PartnerLinks records the invite context after successful signup.',
+        sensitive: false,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'CHAT_HANDOFF.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['creator onboarding', 'creator signup', 'join as creator', 'google signup', 'creator account', 'creator code', 'invite link', 'join link']
       },
       {
         id: 'referral_links',
-        title: 'Referral link basics',
-        keywords: ['referral link', 'tracking link', 'link not redirecting', 'product link', 'redirect', '/r/', 'cart'],
-        answer: 'Product referral links should route through PartnerLinks first, create a tracking click, generate a partnerlinks_ref, then send the shopper to the Shopify product or cart path with attribution fields. If a link goes to the generic site, the brand/product route may not be configured or deployed yet.'
+        title: 'Referral Links Overview',
+        intent: 'User asks how referral links work or why a link redirects.',
+        approvedResponse: 'Referral links route through PartnerLinks first so the system can record a click, create a tracking reference, and send the shopper to the correct brand or Shopify product path. Product links should preserve attribution data so Shopify order attribution can be resolved later.',
+        sensitive: false,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'CHAT_HANDOFF.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['referral link', 'tracking link', 'link not redirecting', 'product link', 'redirect', '/r/', 'cart link', 'partnerlinks_ref', 'share link', 'link goes wrong']
       },
       {
-        id: 'creator_chain',
-        title: 'Creator invite chain basics',
-        keywords: ['invite chain', 'creator chain', 'network', 'level 1', 'level 2', 'level 3', 'downstream', 'upstream'],
-        answer: 'Creator invite chains can create Level 1, Level 2, and Level 3 network override rows from eligible downstream platform fees. There is a hard stop after Level 3, and creators should not earn network overrides from their own direct sales.'
+        id: 'creator_invite_chains',
+        title: 'Creator Invite Chains / Creator Network Explanation',
+        intent: 'User asks how creator networks, creator invites, or levels work.',
+        approvedResponse: 'PartnerLinks supports creator network participation where creators can invite other creators into a brand ecosystem. Network rewards are tied to eligible downstream attributed commerce, not signups alone. Current creator network economics stop after Level 3 and should not reward a creator for their own direct sale.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'GO_TO_MARKET_STRATEGY.md', 'system-audit/ECONOMIC_ARCHITECTURE.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['creator invite chain', 'creator network', 'invite creators', 'level 1', 'level 2', 'level 3', 'network reward', 'network earnings', 'creator expansion', 'downstream', 'upstream']
       },
       {
-        id: 'shopify_connection',
-        title: 'Shopify connection basics',
-        keywords: ['shopify', 'app not installed', 'wrong store', 'shopify account', 'store context', 'myshopify', 'oauth'],
-        answer: 'Shopify identity is tied to the canonical .myshopify.com store domain. If install or reconnect behaves strangely, confirm you are in the correct Shopify account and store, then reconnect from the brand setup flow. Shopify app-installed state and PartnerLinks local store records can diverge.'
+        id: 'shopify_install_connect',
+        title: 'Shopify Install / Connect Overview',
+        intent: 'Brand asks how Shopify install/connect works.',
+        approvedResponse: 'PartnerLinks connects to Shopify through the brand onboarding flow. Shopify identity is based on the canonical .myshopify.com store domain, and the install flow depends on the user being in the correct Shopify account and store context.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'INFRASTRUCTURE_DECISION_RULES.md', 'system-audit/OPERATIONAL_RUNBOOKS.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['shopify install', 'connect shopify', 'shopify app', 'shopify oauth', 'install app', 'connect store', 'myshopify', 'shopify setup']
       },
       {
-        id: 'attribution',
-        title: 'Tracking and attribution',
-        keywords: ['attribution', 'click', 'partnerlinks_ref', 'tracking', 'conversion', 'order attribution', 'not tracked'],
-        answer: 'PartnerLinks prefers exact partnerlinks_ref attribution from the referral click and Shopify cart/order attributes. If deterministic attribution is missing and multiple creators could match, the safe behavior is to skip attribution instead of guessing.'
-      },
-      {
-        id: 'earnings_states',
-        title: 'Pending vs claimable earnings',
-        keywords: ['pending', 'claimable', 'pending settlement', 'earnings pending', 'why not claimable', 'claim disabled', 'settlement'],
-        answer: 'Pending or accounted earnings are not the same as funded or claimable earnings. Earnings may stay pending while settlement, review, or beta safety gates are incomplete. PartnerLinks should not promise payment from a conversion alone.'
-      },
-      {
-        id: 'payout_status',
-        title: 'Payout status',
-        keywords: ['payout', 'stripe', 'claim', 'claimed', 'transfer', 'payout disabled', 'stripe connect'],
-        answer: 'Payout status can include pending, claimable, claimed, blocked, or setup-required states. Live payouts remain guarded. If claims are unavailable, it may be because settlement, manual approval, reserve coverage, or sandbox-only payout mode requirements are not met.'
+        id: 'shopify_context_confusion',
+        title: 'Shopify Account / Store Context Confusion',
+        intent: 'User is confused because Shopify says the app is installed/uninstalled, or they are in the wrong account/store.',
+        approvedResponse: "Shopify account and store context can be confusing. Please confirm the exact .myshopify.com domain and the email you are using. PartnerLinks local connected state can differ from Shopify's installed-app state, so support may need to review the store connection safely.",
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['SUPPORT_AGENT_TRAINING_LOG.md', 'PROJECT_STATUS.md', 'INFRASTRUCTURE_DECISION_RULES.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['wrong shopify account', 'wrong store', 'app not installed', 'app installed', 'uninstalled', 'store context', 'shopify says', 'reconnect', 'oauth loop']
       },
       {
         id: 'dashboard_access',
-        title: 'Dashboard access',
-        keywords: ['cannot access dashboard', 'dashboard blocked', 'brand dashboard', 'creator dashboard', 'owner email', 'wrong email', 'access denied'],
-        answer: 'Creator dashboards are tied to the signed-in creator account. Brand dashboards require the signed-in owner/admin for that exact brand. If access is blocked, check the Google email and, for brands, the Shopify store domain. Owner mismatch issues should go to human support.'
+        title: 'Dashboard Access / Wrong Owner Email',
+        intent: 'User cannot access a creator or brand dashboard, or sees the wrong workspace.',
+        approvedResponse: 'Creator dashboards are tied to the signed-in creator account. Brand dashboards require the signed-in owner/admin for that exact brand. If access is blocked or the wrong dashboard opens, check the Google email and Shopify store domain first, then support can review the owner binding.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'SUPPORT_AGENT_TRAINING_LOG.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['cannot access dashboard', 'dashboard blocked', 'wrong dashboard', 'brand dashboard', 'creator dashboard', 'owner email', 'wrong email', 'access denied', 'owner binding']
       },
       {
-        id: 'beta_limits',
-        title: 'Sandbox and beta limitations',
-        keywords: ['beta', 'sandbox', 'live payouts', 'production', 'test mode', 'bogus gateway', 'limitations'],
-        answer: 'Some PartnerLinks flows are still controlled beta or sandbox-only. Sandbox tests can prove internal logic, but they do not prove production payout readiness, Shopify protected customer data approval, or live settlement readiness.'
+        id: 'pending_vs_claimable',
+        title: 'Pending Earnings Vs Claimable Earnings',
+        intent: 'Creator asks why earnings are pending or not claimable.',
+        approvedResponse: 'Pending or accounted earnings are not always claimable. Claimable earnings may require settlement, manual approval, reserve coverage, or other safety checks. A conversion does not automatically mean funds are safe to pay.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'INFRASTRUCTURE_DECISION_RULES.md', 'system-audit/ECONOMIC_ARCHITECTURE.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['pending earnings', 'claimable earnings', 'pending settlement', 'earnings pending', 'why not claimable', 'accounted earnings', 'funded earnings', 'safe to pay', 'conversion paid']
       },
       {
-        id: 'privacy',
-        title: 'Safety and privacy',
-        keywords: ['password', 'secret', 'api key', 'card', 'private key', 'security', 'privacy'],
-        answer: 'Please do not share passwords, API keys, webhook secrets, private keys, recovery codes, or full card numbers. For account ownership help, share only the account email and Shopify .myshopify.com store domain.'
+        id: 'payout_status',
+        title: 'Payout Status Explanation',
+        intent: 'Creator asks what payout status means.',
+        approvedResponse: 'Payout status may include pending, claimable, claimed, blocked, setup-required, or review states. PartnerLinks should not promise payouts from a conversion alone. If a payout status looks wrong, support can review the account and explain the current blocker.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'SUPPORT_AGENT.md', 'INFRASTRUCTURE_DECISION_RULES.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['payout status', 'payout', 'stripe', 'claimed', 'transfer', 'payout disabled', 'stripe connect', 'missing payout', 'paid', 'payment']
       },
       {
-        id: 'escalation',
-        title: 'Support escalation',
-        keywords: ['contact support', 'human', 'admin', 'help me', 'support', 'escalate', 'flag'],
-        answer: 'I can flag this for PartnerLinks support. For safe triage, share the account email, creator code if relevant, and Shopify .myshopify.com store domain for brand issues. Do not share secrets or payment details.'
+        id: 'claim_button_disabled',
+        title: 'Claim Button Disabled',
+        intent: 'Creator asks why the Claim button is unavailable.',
+        approvedResponse: 'If the Claim button is disabled, the account may not currently meet payout, settlement, approval, reserve, setup, or beta safety requirements. PartnerLinks support can review the account and explain the current blocker, but the support agent cannot promise payout timing or approval.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'SUPPORT_AGENT_TRAINING_LOG.md', 'system-audit/OPERATIONAL_RUNBOOKS.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['claim button disabled', 'claim disabled', 'claim unavailable', 'cannot claim', 'claim earnings', 'claim blocked', 'button disabled']
+      },
+      {
+        id: 'refunds_reversals',
+        title: 'Refunds And Reversals',
+        intent: 'User asks what happens after refunds, reversals, disputes, or chargebacks.',
+        approvedResponse: 'Refund and reversal handling is a sensitive financial workflow. PartnerLinks may record diagnostic reversal information, but refund enforcement, payout offsets, and balance adjustments should be reviewed by an operator. Support can flag refund or reversal questions for admin review.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'SUPPORT_AGENT_TRAINING_LOG.md', 'system-audit/ECONOMIC_ARCHITECTURE.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['refund', 'reversal', 'chargeback', 'dispute', 'offset', 'clawback', 'balance adjustment', 'refunded order']
+      },
+      {
+        id: 'protected_customer_data',
+        title: 'Protected Customer Data / Shopify Webhook Limitation',
+        intent: 'User asks why Shopify order/refund ingestion or webhooks are not fully working in production.',
+        approvedResponse: 'Some Shopify order and refund webhook topics require protected customer data approval. Sandbox or diagnostic tests can verify PartnerLinks internal logic, but they do not prove production Shopify approval or live webhook readiness.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'INFRASTRUCTURE_DECISION_RULES.md', 'SUPPORT_AGENT_TRAINING_LOG.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['protected customer data', 'shopify webhook', 'orders paid', 'refunds create', 'order webhook', 'refund webhook', 'webhook limitation', 'orders not appearing', 'production webhook']
+      },
+      {
+        id: 'beta_sandbox_limitations',
+        title: 'Beta / Sandbox Limitations',
+        intent: 'User asks what is live, beta, sandbox-only, or not available yet.',
+        approvedResponse: 'Some PartnerLinks flows are beta or sandbox-only. Sandbox tests can validate internal logic, but they do not prove live payout readiness, production settlement readiness, protected customer data approval, or broader public-launch readiness.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'INFRASTRUCTURE_DECISION_RULES.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['beta', 'sandbox', 'test mode', 'live payouts', 'production ready', 'public launch', 'bogus gateway', 'limitations', 'live settlement']
+      },
+      {
+        id: 'security_privacy',
+        title: 'Security Reminder / Do Not Share Secrets',
+        intent: 'User asks whether they should share credentials or sensitive information.',
+        approvedResponse: 'PartnerLinks support will never ask for passwords, private keys, webhook secrets, API keys, recovery codes, or full payment card details. For account ownership help, share only the account email and Shopify .myshopify.com store domain if relevant.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['SUPPORT_AGENT.md', 'INFRASTRUCTURE_DECISION_RULES.md', 'SUPPORT_AGENT_TRAINING_LOG.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['password', 'secret', 'api key', 'private key', 'webhook secret', 'card number', 'credit card', 'security', 'privacy', 'recovery code', 'share credentials']
+      },
+      {
+        id: 'support_escalation',
+        title: 'Support Escalation Path',
+        intent: 'User needs human/admin support or asks for escalation.',
+        approvedResponse: 'I can flag this for PartnerLinks support. Please share only the account email, creator code if relevant, and Shopify .myshopify.com store domain for brand issues. Do not share passwords, API keys, webhook secrets, private keys, recovery codes, or full payment card details.',
+        sensitive: true,
+        public: true,
+        sourceOfTruth: ['SUPPORT_AGENT.md', 'SUPPORT_AGENT_TRAINING_LOG.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['contact support', 'human', 'admin', 'help me', 'support', 'escalate', 'flag this', 'talk to someone', 'review my account']
+      },
+      {
+        id: 'internal_brand_b_testing',
+        title: 'Internal-Only: Brand B / Testing-Specific Issues',
+        intent: 'Internal operator asks about Brand B or test-store-specific issues.',
+        approvedResponse: 'Brand B and test-store details are internal operator context and should not be exposed in public support responses. Public support should discuss general Shopify store connection, referral link, dashboard access, and beta limitation patterns unless an authorized operator is reviewing a specific test.',
+        sensitive: true,
+        public: false,
+        sourceOfTruth: ['PROJECT_STATUS.md', 'system-audit/OPERATIONAL_RUNBOOKS.md', 'INFRASTRUCTURE_DECISION_RULES.md'],
+        lastReviewed: '2026-05-18',
+        keywords: ['brand b', 'novo loom', 'novo-loom', 'test creator', 'sandbox replay', 'diagnostic script', 'test order', 'internal route']
       }
     ]
   };

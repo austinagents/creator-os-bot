@@ -21,6 +21,8 @@ Canonical answer source:
 - This stores the approved support answers the agent should use.
 - `SUPPORT_AGENT.md` controls behavior and safety rules; it should not become the answer database.
 - `SUPPORT_AGENT_TRAINING_LOG.md` tracks improvement history; approved answer changes should be promoted into `SUPPORT_KNOWLEDGE_BASE.md`.
+- `public/support-knowledge-base.js` is the frontend-safe runtime mirror of `SUPPORT_KNOWLEDGE_BASE.md`.
+- Runtime support answers should be updated from the approved knowledge base, not improvised in widget logic.
 
 ## Runtime Behavior
 

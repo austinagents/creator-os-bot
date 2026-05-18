@@ -3992,6 +3992,8 @@ Support training governance:
 
 - The support agent should not learn by guessing.
 - `SUPPORT_KNOWLEDGE_BASE.md` is the canonical approved support answer database.
+- `public/support-knowledge-base.js` now mirrors approved KB entries for the client-side widget.
+- The widget uses lightweight keyword/intent matching to return approved KB responses and falls back to safe support escalation when no confident public match exists.
 - `SUPPORT_AGENT_TRAINING_LOG.md` tracks unanswered questions, incorrect answers, approved snippets, escalation rules, and source-of-truth updates.
 - Sensitive topics such as payouts, claimable earnings, Shopify connection, account ownership, refunds/reversals, protected customer data, and beta/sandbox status must use approved snippets or escalation.
 

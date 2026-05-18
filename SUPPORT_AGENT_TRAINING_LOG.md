@@ -42,10 +42,11 @@ Approved future sources once created:
 
 Current runtime knowledge note:
 
-- The first support-widget MVP uses `public/support-knowledge-base.js` as the client-side deterministic response source.
 - `SUPPORT_KNOWLEDGE_BASE.md` is now the human-readable canonical support answer source.
+- `public/support-knowledge-base.js` is the frontend-safe runtime mirror of the approved support answers.
 - Approved answers from this training log should be promoted into `SUPPORT_KNOWLEDGE_BASE.md`.
 - The client-side/runtime knowledge should be updated from `SUPPORT_KNOWLEDGE_BASE.md` only after review.
+- Widget matching should return approved KB responses where possible and use safe escalation fallback when no confident public match exists.
 
 Rules:
 

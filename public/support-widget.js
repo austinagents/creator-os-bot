@@ -182,25 +182,31 @@
       'recovery code'
     ];
     if (unsafe.some((term) => normalized.includes(term))) {
-      return findTopic(knowledge, 'privacy').answer;
+      return getTopicAnswer(knowledge, 'security_privacy');
+    }
+
+    if (bestTopicMatch(knowledge, normalized, { publicOnly: false, internalOnly: true })) {
+      return knowledge.escalationMessage || 'I may need PartnerLinks support to review that. Please include your store domain, account email, and a short description of the issue.';
     }
 
     const topic = bestTopicMatch(knowledge, normalized);
-    if (topic) return topic.answer;
+    if (topic) return approvedTopicResponse(topic);
 
     if (/(money|paid|payment|earn|commission|claim|stripe|payout|settlement)/.test(normalized)) {
-      return findTopic(knowledge, 'earnings_states').answer;
+      return getTopicAnswer(knowledge, 'pending_vs_claimable');
     }
 
-    return knowledge.escalationMessage || 'I can flag this for PartnerLinks support. Please share only the account email and Shopify .myshopify.com store domain if relevant.';
+    return knowledge.escalationMessage || 'I may need PartnerLinks support to review that. Please include your store domain, account email, and a short description of the issue.';
   }
 
-  function bestTopicMatch(knowledge, normalized) {
+  function bestTopicMatch(knowledge, normalized, options = {}) {
     const topics = Array.isArray(knowledge.topics) ? knowledge.topics : [];
     let best = null;
     let bestScore = 0;
 
     for (const topic of topics) {
+      if (options.publicOnly !== false && topic.public === false) continue;
+      if (options.internalOnly && topic.public !== false) continue;
       const keywords = Array.isArray(topic.keywords) ? topic.keywords : [];
       const score = keywords.reduce((sum, keyword) => {
         const normalizedKeyword = normalize(keyword);
@@ -217,14 +223,22 @@
       }
     }
 
-    return bestScore > 0 ? best : null;
+    return bestScore >= 2 ? best : null;
   }
 
   function findTopic(knowledge, id) {
     const topics = Array.isArray(knowledge.topics) ? knowledge.topics : [];
     return topics.find((topic) => topic.id === id) || {
-      answer: knowledge.escalationMessage || 'I can flag this for PartnerLinks support.'
+      approvedResponse: knowledge.escalationMessage || 'I may need PartnerLinks support to review that.'
     };
+  }
+
+  function getTopicAnswer(knowledge, id) {
+    return approvedTopicResponse(findTopic(knowledge, id));
+  }
+
+  function approvedTopicResponse(topic) {
+    return topic.approvedResponse || topic.answer || 'I may need PartnerLinks support to review that.';
   }
 
   function renderMessages(root, state) {
