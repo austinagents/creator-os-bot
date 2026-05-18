@@ -3985,6 +3985,13 @@ Runtime files:
 - `public/support-knowledge-base.js`
 - `public/support-widget.js`
 - `SUPPORT_AGENT.md`
+- `SUPPORT_AGENT_TRAINING_LOG.md`
+
+Support training governance:
+
+- The support agent should not learn by guessing.
+- `SUPPORT_AGENT_TRAINING_LOG.md` tracks unanswered questions, incorrect answers, approved snippets, escalation rules, and source-of-truth updates.
+- Sensitive topics such as payouts, claimable earnings, Shopify connection, account ownership, refunds/reversals, protected customer data, and beta/sandbox status must use approved snippets or escalation.
 
 Persistence:
 

@@ -8,6 +8,13 @@ Purpose:
 - Give creators and brands concise help for onboarding, referral links, Shopify setup, dashboards, earnings states, and safe escalation.
 - Keep the first version deterministic, local, and privacy-preserving.
 
+Training and improvement log:
+
+- `SUPPORT_AGENT_TRAINING_LOG.md`
+- The support agent should not learn by guessing.
+- Improvements should come from reviewed unanswered questions, approved snippets, explicit escalation rules, and source-of-truth document updates.
+- Sensitive topics should use approved snippets or escalation.
+
 ## Runtime Behavior
 
 - Widget assets:

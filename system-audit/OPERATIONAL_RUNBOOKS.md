@@ -1634,3 +1634,43 @@ Future support backend requirements:
 - rate limiting and abuse controls.
 - approved knowledge sources only.
 - no claims that planned/NO-GO systems are live.
+
+## Runbook: Weekly Support-Agent Review
+
+Status: MANUAL OPERATOR TASK / DOCUMENTATION AND KNOWLEDGE REVIEW ONLY
+
+Use when:
+
+- Reviewing support-agent quality.
+- Turning unanswered or misanswered questions into approved support knowledge.
+- Updating escalation rules.
+- Preparing a future backend support or AI/RAG system.
+
+Source documents:
+
+- `SUPPORT_AGENT.md`
+- `SUPPORT_AGENT_TRAINING_LOG.md`
+- `PROJECT_STATUS.md`
+- `system-audit/OPERATIONAL_RUNBOOKS.md`
+- `INFRASTRUCTURE_DECISION_RULES.md`
+- `CHAT_HANDOFF.md`
+- `SUPPORT_KNOWLEDGE_BASE.md` once created.
+
+Weekly process:
+
+1. Review unanswered or misanswered support questions.
+2. Identify missing support intents.
+3. Identify sensitive topics that need approved snippets.
+4. Add training-log entries using the template in `SUPPORT_AGENT_TRAINING_LOG.md`.
+5. Update `SUPPORT_KNOWLEDGE_BASE.md` once it exists.
+6. Update `public/support-knowledge-base.js` only from approved source material.
+7. Update `SUPPORT_AGENT.md` only if behavior rules change.
+8. Update `PROJECT_STATUS.md` only if runtime/product status changes.
+
+Do not:
+
+- let the support agent learn by guessing.
+- add sensitive answers without approved snippets.
+- claim planned/NO-GO features are live.
+- ask users for secrets or full payment details.
+- treat support review as a financial, payout, settlement, refund, claim, or webhook mutation process.
