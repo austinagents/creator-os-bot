@@ -2101,7 +2101,7 @@ function renderBrandDashboardPage(dashboard) {
   <div class="creator-dashboard">
     <aside class="creator-sidebar" aria-label="Brand dashboard navigation">
       <a class="creator-sidebar-brand" href="/">
-        <span class="logo-mark">PL</span>
+        <img class="dashboard-logo" src="/partnerlinks-logo.png" alt="PartnerLinks logo" width="44" height="44">
         <span>
           <span class="brand-name">PartnerLinks</span>
           <span class="brand-tag">Brand</span>
@@ -2353,7 +2353,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
   <div class="creator-dashboard">
     <aside class="creator-sidebar" aria-label="Creator dashboard navigation">
       <a class="creator-sidebar-brand" href="/">
-        <span class="logo-mark">PL</span>
+        <img class="dashboard-logo" src="/partnerlinks-logo.png" alt="PartnerLinks logo" width="44" height="44">
         <span>
           <span class="brand-name">PartnerLinks</span>
           <span class="brand-tag">Creator</span>
@@ -2566,6 +2566,14 @@ function renderCreatorDashboardCriticalStyles() {
       border-radius: 14px;
       background: linear-gradient(135deg, #9b5cff, #ff6f61);
       font-weight: 800;
+    }
+    .dashboard-logo {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+      object-fit: cover;
+      border-radius: 14px;
+      box-shadow: 0 16px 34px rgba(84, 43, 255, 0.24);
     }
     .brand-name { display: block; font-weight: 800; font-size: 1rem; }
     .brand-tag { display: block; color: var(--muted); font-size: 0.78rem; }
