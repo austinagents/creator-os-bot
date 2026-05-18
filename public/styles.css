@@ -1048,6 +1048,38 @@ a {
   color: #ffb68a;
   font-weight: 700;
 }
+.info-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.info-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 230px;
+  padding: 24px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+}
+.info-card span {
+  color: #ffb68a;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.info-card h2 {
+  margin: 0;
+  font-size: 1.45rem;
+  line-height: 1.12;
+}
+.info-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.75;
+}
 .auth-page {
   min-height: 100vh;
   display: grid;
@@ -1660,7 +1692,8 @@ a {
   }
   .site-footer-rich,
   .legal-layout,
-  .faq-grid {
+  .faq-grid,
+  .info-card-grid {
     grid-template-columns: 1fr;
   }
   .legal-sidebar {
