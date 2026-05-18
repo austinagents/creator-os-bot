@@ -23,7 +23,10 @@ function parseArgs(argv) {
     if (arg === '--dry-run') args.dryRun = true;
     else if (arg === '--report') args.report = true;
     else if (arg === '--oauth-debug') args.oauthDebug = true;
-    else if (arg === '--register') args.register = true;
+    else if (arg === '--register') {
+      args.register = true;
+      args.dryRun = false;
+    }
     else if (arg === '--brand-id') {
       args.brandId = argv[index + 1] ? Number(argv[index + 1]) : null;
       index += 1;
