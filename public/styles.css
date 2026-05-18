@@ -154,6 +154,9 @@ a {
 }
 .hero-copy {
   max-width: 760px;
+  display: grid;
+  align-content: center;
+  gap: 30px;
 }
 .eyebrow {
   display: inline-flex;
@@ -185,7 +188,7 @@ a {
 }
 .hero-statement-grid {
   display: grid;
-  gap: 28px;
+  gap: 24px;
   align-items: start;
 }
 .hero-statement {
@@ -214,7 +217,7 @@ a {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
-  margin: 36px 0 28px;
+  margin: 4px 0 0;
   margin-left: 65px;
 }
 .hero-actions-signed-in {
@@ -300,21 +303,6 @@ a {
   font-weight: 600;
   border-bottom: 1px solid rgba(255,255,255,0.18);
   padding-bottom: 2px;
-}
-.hero-notes {
-  max-width: 520px;
-  display: grid;
-  gap: 8px;
-  color: #f4c982;
-  font-size: 1.05rem;
-  font-weight: 700;
-}
-.hero-notes-label {
-  color: rgba(184, 192, 224, 0.72);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
 }
 .hero-board {
   display: grid;
