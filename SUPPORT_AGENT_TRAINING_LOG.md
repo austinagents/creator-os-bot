@@ -28,6 +28,7 @@ The support agent should answer only from approved PartnerLinks sources.
 Approved current sources:
 
 - `SUPPORT_AGENT.md`
+- `SUPPORT_KNOWLEDGE_BASE.md`
 - `PROJECT_STATUS.md`
 - `system-audit/OPERATIONAL_RUNBOOKS.md`
 - `INFRASTRUCTURE_DECISION_RULES.md`
@@ -35,7 +36,6 @@ Approved current sources:
 
 Approved future sources once created:
 
-- `SUPPORT_KNOWLEDGE_BASE.md`
 - Privacy Policy
 - Terms of Service
 - Security/Data Handling page
@@ -43,7 +43,9 @@ Approved future sources once created:
 Current runtime knowledge note:
 
 - The first support-widget MVP uses `public/support-knowledge-base.js` as the client-side deterministic response source.
-- If `SUPPORT_KNOWLEDGE_BASE.md` is created later, it should become the human-readable canonical support knowledge source and the client-side/runtime knowledge should be updated from it only after review.
+- `SUPPORT_KNOWLEDGE_BASE.md` is now the human-readable canonical support answer source.
+- Approved answers from this training log should be promoted into `SUPPORT_KNOWLEDGE_BASE.md`.
+- The client-side/runtime knowledge should be updated from `SUPPORT_KNOWLEDGE_BASE.md` only after review.
 
 Rules:
 

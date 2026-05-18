@@ -15,6 +15,13 @@ Training and improvement log:
 - Improvements should come from reviewed unanswered questions, approved snippets, explicit escalation rules, and source-of-truth document updates.
 - Sensitive topics should use approved snippets or escalation.
 
+Canonical answer source:
+
+- `SUPPORT_KNOWLEDGE_BASE.md`
+- This stores the approved support answers the agent should use.
+- `SUPPORT_AGENT.md` controls behavior and safety rules; it should not become the answer database.
+- `SUPPORT_AGENT_TRAINING_LOG.md` tracks improvement history; approved answer changes should be promoted into `SUPPORT_KNOWLEDGE_BASE.md`.
+
 ## Runtime Behavior
 
 - Widget assets:
