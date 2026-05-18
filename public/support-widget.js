@@ -27,7 +27,7 @@
     if (!state.messages.length) {
       state.messages.push({
         role: 'agent',
-        text: 'Hi, I am PartnerLinks support. I can help with onboarding, referral links, Shopify setup, dashboards, and earnings states. I cannot promise payouts or handle secrets.'
+        text: "Hi, I'm PartnerLinks support agent. I can assist with onboarding, referral links, Shopify setup, dashboards, earnings states, or any other questions you might have. What do you need help with?"
       });
       saveState(state);
     }
