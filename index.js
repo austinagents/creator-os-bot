@@ -708,32 +708,12 @@ app.get('/', async (req, res) => {
   }
 });
 app.get('/brands/:brandSlug', async (req, res) => {
-  try {
-    const brandSlug = normalizeCode(req.params.brandSlug);
-    const brand = getMockFeaturedBrand(brandSlug);
-    if (!brand) {
-      return res.status(404).send(renderSimpleMessagePage(
-        'Brand not found',
-        'We could not find that featured brand.',
-        '/',
-        'Return home'
-      ));
-    }
-
-    const queryCreatorCode = normalizeCode(req.query.creator_code || req.query.referral_code || req.query.partnerlinks_ref || req.query.pl_ref);
-    const creator = await getHomepageCreator(req, res);
-    const creatorCode = queryCreatorCode || (creator && creator.creator_code ? normalizeCode(creator.creator_code) : 'creator');
-    res.set('Cache-Control', 'no-store, max-age=0');
-    res.send(renderBrandDiscoveryPage(brand, creatorCode));
-  } catch (error) {
-    log('Brand discovery page error:', error);
-    res.status(500).send(renderSimpleMessagePage(
-      'Unable to load brand',
-      'Please try again in a moment.',
-      '/',
-      'Return home'
-    ));
-  }
+  res.status(404).send(renderSimpleMessagePage(
+    'Demo brand page unavailable',
+    'PartnerLinks public demo cards are display-only examples. Use an approved brand referral link or return home.',
+    '/',
+    'Return home'
+  ));
 });
 app.get('/signup', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'signup.html'));
