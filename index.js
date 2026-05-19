@@ -2080,12 +2080,12 @@ function renderBrandDashboardEntryPage() {
 function renderBrandDashboardPage(dashboard) {
   const dashboardPath = `/brand-dashboard/${encodeURIComponent(dashboard.brandSlug)}`;
   const primaryStats = [
-    ['Tracked Revenue', formatMoney(dashboard.totalTrackedRevenue), 'Revenue attributed through PartnerLinks'],
-    ['Active Creators', dashboard.activeCreators, 'Creators connected to this brand'],
-    ['Conversions', dashboard.totalConversions, 'Recorded sales'],
-    ['Platform Fees', formatMoney(dashboard.platformFeesGenerated), 'PartnerLinks platform revenue'],
-    ['Network Payouts', formatMoney(dashboard.networkPayouts), 'Estimated network rewards owed'],
-    ['Conversion Rate', formatPercent(dashboard.conversionRate), 'Clicks to recorded conversions']
+    ['tracked-revenue', 'Tracked Revenue', formatMoney(dashboard.totalTrackedRevenue), 'Revenue attributed through PartnerLinks'],
+    ['active-creators', 'Active Creators', dashboard.activeCreators, 'Creators connected to this brand'],
+    ['recorded-conversions', 'Conversions', dashboard.totalConversions, 'Recorded sales'],
+    ['platform-fees', 'Platform Fees', formatMoney(dashboard.platformFeesGenerated), 'PartnerLinks platform revenue'],
+    ['network-payouts', 'Network Payouts', formatMoney(dashboard.networkPayouts), 'Estimated network rewards owed'],
+    ['conversion-rate', 'Conversion Rate', formatPercent(dashboard.conversionRate), 'Clicks to recorded conversions']
   ];
 
   return `<!DOCTYPE html>
@@ -2109,11 +2109,11 @@ function renderBrandDashboardPage(dashboard) {
       </a>
       <nav class="creator-sidebar-nav">
         <a href="${escapeHtml(dashboardPath)}#overview">Overview</a>
-        <a href="${escapeHtml(dashboardPath)}#creators">Creators</a>
-        <a href="${escapeHtml(dashboardPath)}#conversions">Conversions</a>
-        <a href="${escapeHtml(dashboardPath)}#earnings">Earnings</a>
-        <a href="${escapeHtml(dashboardPath)}#links">Tracking Links</a>
-        <a href="${escapeHtml(dashboardPath)}#settings">Settings</a>
+        <a href="${escapeHtml(dashboardPath)}#creator-onboarding">Creators</a>
+        <a href="${escapeHtml(dashboardPath)}#tracked-revenue">Conversions</a>
+        <a href="${escapeHtml(dashboardPath)}#network-payouts">Earnings</a>
+        <a href="${escapeHtml(dashboardPath)}#recent-conversions">Tracking Links</a>
+        <a href="${escapeHtml(dashboardPath)}#revenue-summary">Settings</a>
       </nav>
     </aside>
 
@@ -2130,7 +2130,7 @@ function renderBrandDashboardPage(dashboard) {
         </div>
       </header>
 
-      <section class="creator-action-panel" id="links">
+      <section class="creator-action-panel" id="creator-onboarding">
         <div>
           <span>Creator onboarding link</span>
           <strong id="brand-creator-onboarding-link">${escapeHtml(dashboard.creatorOnboardingLink)}</strong>
@@ -2140,8 +2140,8 @@ function renderBrandDashboardPage(dashboard) {
       </section>
 
       <section class="creator-stat-grid" aria-label="Brand performance summary">
-        ${primaryStats.map(([label, value, description]) => `
-          <article class="creator-stat-card">
+        ${primaryStats.map(([id, label, value, description]) => `
+          <article class="creator-stat-card" id="${escapeHtml(id)}">
             <span>${escapeHtml(label)}</span>
             <strong>${escapeHtml(value)}</strong>
             <p>${escapeHtml(description)}</p>
@@ -2150,7 +2150,7 @@ function renderBrandDashboardPage(dashboard) {
       </section>
 
       <section class="creator-content-grid">
-        <article class="creator-panel" id="conversions">
+        <article class="creator-panel" id="recent-conversions">
           <div class="panel-heading">
             <span>Recent Conversions</span>
             <strong>${escapeHtml(String(dashboard.totalConversions))}</strong>
@@ -2160,7 +2160,7 @@ function renderBrandDashboardPage(dashboard) {
           </div>
         </article>
 
-        <article class="creator-panel creator-panel-accent" id="creators">
+        <article class="creator-panel creator-panel-accent">
           <div class="panel-heading">
             <span>Top Creators</span>
             <strong>${escapeHtml(String(dashboard.activeCreators))}</strong>
@@ -2172,7 +2172,7 @@ function renderBrandDashboardPage(dashboard) {
       </section>
 
       <section class="creator-lower-grid">
-        <article class="creator-panel" id="earnings">
+        <article class="creator-panel" id="revenue-summary">
           <div class="panel-heading">
             <span>Revenue Summary</span>
             <strong>${escapeHtml(formatMoney(dashboard.totalTrackedRevenue))}</strong>
@@ -2188,7 +2188,7 @@ function renderBrandDashboardPage(dashboard) {
           <p class="muted-panel-copy">Conversion rate is based on recorded clicks and conversions.</p>
         </article>
 
-        <article class="creator-panel" id="settings">
+        <article class="creator-panel">
           <div class="panel-heading">
             <span>Creator Growth</span>
             <strong>${escapeHtml(String(dashboard.activeCreators))}</strong>
@@ -2327,13 +2327,13 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
   const inviteLink = dashboard.inviteLink || `${PUBLIC_BASE_URL}/join/${dashboard.creatorCode}`;
   const dashboardPath = `/dashboard/${encodeURIComponent(dashboard.creatorCode)}`;
   const primaryStats = [
-    ['Accounted Earnings', formatMoney(dashboard.totalEarnings), 'Recorded earnings before funding and settlement gates'],
-    ['Pending Settlement', formatMoney(dashboard.pendingSettlementEarnings || dashboard.pendingEarnings), 'Accounted earnings waiting for funding, approval, or reserve coverage'],
-    ['Claimable Earnings', formatMoney(dashboard.claimableEarnings), 'Funding/approval-gated earnings available in the active payout mode'],
-    ['Claimed Earnings', formatMoney(dashboard.claimedEarnings), 'Internally claimed earnings ledger'],
-    ['Order Value', formatMoney(dashboard.totalOrderValue), 'Attributed creator sales'],
-    ['Conversions', dashboard.totalConversions, 'Recorded sales'],
-    ['Network Earnings', formatMoney(dashboard.networkEarnings), 'Creator referral overrides']
+    ['accounted-earnings', 'Accounted Earnings', formatMoney(dashboard.totalEarnings), 'Recorded earnings before funding and settlement gates'],
+    ['pending-settlement', 'Pending Settlement', formatMoney(dashboard.pendingSettlementEarnings || dashboard.pendingEarnings), 'Accounted earnings waiting for funding, approval, or reserve coverage'],
+    ['claimable-earnings', 'Claimable Earnings', formatMoney(dashboard.claimableEarnings), 'Funding/approval-gated earnings available in the active payout mode'],
+    ['claimed-earnings', 'Claimed Earnings', formatMoney(dashboard.claimedEarnings), 'Internally claimed earnings ledger'],
+    ['order-value', 'Order Value', formatMoney(dashboard.totalOrderValue), 'Attributed creator sales'],
+    ['creator-conversions', 'Conversions', dashboard.totalConversions, 'Recorded sales'],
+    ['creator-network-earnings', 'Network Earnings', formatMoney(dashboard.networkEarnings), 'Creator referral overrides']
   ];
   const referralStats = [
     ['Direct', dashboard.directReferralsCount],
@@ -2362,10 +2362,10 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
       </a>
       <nav class="creator-sidebar-nav">
         <a href="${escapeHtml(dashboardPath)}#overview">Overview</a>
-        <a href="${escapeHtml(dashboardPath)}#referrals">Referrals</a>
-        <a href="${escapeHtml(dashboardPath)}#earnings">Earnings</a>
-        <a href="${escapeHtml(dashboardPath)}#links">Links</a>
-        <a href="${escapeHtml(dashboardPath)}#settings">Settings</a>
+        <a href="${escapeHtml(dashboardPath)}#creator-invite">Referrals</a>
+        <a href="${escapeHtml(dashboardPath)}#accounted-earnings">Earnings</a>
+        <a href="${escapeHtml(dashboardPath)}#referral-performance">Links</a>
+        <a href="${escapeHtml(dashboardPath)}#payout-history">Settings</a>
       </nav>
     </aside>
 
@@ -2387,7 +2387,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
           ${options.claimStatus === 'success' ? '<section class="creator-claim-success">Earnings claimed internally. No Stripe transfer was created.</section>' : ''}
           ${options.claimStatus === 'blocked' ? '<section class="creator-claim-success">Claims are unavailable until settlement or approval is enabled.</section>' : ''}
 
-      <section class="creator-action-panel" id="links">
+      <section class="creator-action-panel" id="creator-invite">
         <div>
           <span>Creator invite link</span>
           <strong id="invite-link">${escapeHtml(inviteLink)}</strong>
@@ -2397,8 +2397,8 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
       </section>
 
       <section class="creator-stat-grid" aria-label="Creator performance summary">
-        ${primaryStats.map(([label, value, description]) => `
-          <article class="creator-stat-card">
+        ${primaryStats.map(([id, label, value, description]) => `
+          <article class="creator-stat-card" id="${escapeHtml(id)}">
             <span>${escapeHtml(label)}</span>
             <strong>${escapeHtml(value)}</strong>
             <p>${escapeHtml(description)}</p>
@@ -2407,7 +2407,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
       </section>
 
       <section class="creator-content-grid">
-        <article class="creator-panel" id="referrals">
+        <article class="creator-panel" id="referral-performance">
           <div class="panel-heading">
             <span>Referral Performance</span>
             <strong>${escapeHtml(String(dashboard.directReferralsCount + dashboard.secondLevelReferralsCount + dashboard.thirdLevelReferralsCount))}</strong>
@@ -2422,7 +2422,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
           </div>
         </article>
 
-        <article class="creator-panel creator-panel-accent" id="earnings">
+        <article class="creator-panel creator-panel-accent">
           <div class="panel-heading">
             <span>Earnings Mix</span>
             <strong>${escapeHtml(formatMoney(dashboard.totalEarnings))}</strong>
@@ -2469,7 +2469,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
           <p class="muted-panel-copy">Network rewards are calculated only from PartnerLinks platform fees.</p>
         </article>
 
-        <article class="creator-panel creator-payout-history-panel">
+        <article class="creator-panel creator-payout-history-panel" id="payout-history">
           <div class="panel-heading">
             <span>Payout History</span>
             <strong>${escapeHtml(String(dashboard.payoutHistory.length))}</strong>
@@ -2477,7 +2477,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
           ${renderPayoutHistory(dashboard.payoutHistory)}
         </article>
 
-        <article class="creator-panel" id="settings">
+        <article class="creator-panel">
           <div class="panel-heading">
             <span>Referral Tree Preview</span>
             <strong>3 Levels</strong>
