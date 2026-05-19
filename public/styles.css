@@ -761,11 +761,17 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 58px;
-  padding: 10px 13px;
+  width: auto;
+  min-width: max-content;
+  min-height: 38px;
+  height: auto;
+  padding: 8px 13px;
   border-radius: 999px;
   background: linear-gradient(135deg, rgba(155,92,255,0.14), rgba(255,111,97,0.14));
+  font-size: 0.78rem;
   font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
 }
 .proof-text {
   color: var(--text);
