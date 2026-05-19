@@ -2519,9 +2519,8 @@ function renderDashboardNavScript() {
       })
       .filter((pair) => pair.section);
     const setActiveSidebarLink = (activeLink) => {
-      sidebarLinks.forEach((link) => {
-        link.classList.toggle('active', link === activeLink);
-      });
+      sidebarLinks.forEach((link) => link.classList.remove('active'));
+      if (activeLink) activeLink.classList.add('active');
     };
     sidebarLinks.forEach((link) => {
       link.addEventListener('click', () => setActiveSidebarLink(link));
