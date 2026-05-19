@@ -1309,7 +1309,7 @@ a {
   gap: 22px;
 }
 .creator-main [id] {
-  scroll-margin-top: 24px;
+  scroll-margin-top: 120px;
 }
 .creator-topbar {
   display: grid;

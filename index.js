@@ -2511,7 +2511,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
 
 function renderDashboardNavScript() {
   return `
-    const ACTIVE_OFFSET = 140;
+    const ACTIVATION_Y = 160;
     const sidebarLinks = Array.from(document.querySelectorAll('.creator-sidebar-nav a[href*="#"]'));
     const sectionPairs = sidebarLinks
       .map((link) => {
@@ -2524,14 +2524,13 @@ function renderDashboardNavScript() {
       if (activeLink) activeLink.classList.add('active');
     };
 
-    const getSectionTop = (section) => (
-      section.getBoundingClientRect().top + window.scrollY
-    );
     const updateActiveFromScroll = () => {
-      const scrollPosition = window.scrollY + ACTIVE_OFFSET;
-      let activePair = sectionPairs[0] || null;
+      let activePair = null;
+      let smallestDistance = Infinity;
       sectionPairs.forEach((pair) => {
-        if (getSectionTop(pair.section) <= scrollPosition) {
+        const distance = Math.abs(pair.section.getBoundingClientRect().top - ACTIVATION_Y);
+        if (distance < smallestDistance) {
+          smallestDistance = distance;
           activePair = pair;
         }
       });
@@ -2678,7 +2677,7 @@ function renderCreatorDashboardCriticalStyles() {
       background: rgba(255,255,255,0.07);
     }
     .creator-main { min-width: 0; display: grid; gap: 22px; }
-    .creator-main [id] { scroll-margin-top: 24px; }
+    .creator-main [id] { scroll-margin-top: 120px; }
     .creator-topbar {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
