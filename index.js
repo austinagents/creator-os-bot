@@ -2511,6 +2511,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
 
 function renderDashboardNavScript() {
   return `
+    const ACTIVE_OFFSET = 140;
     const sidebarLinks = Array.from(document.querySelectorAll('.creator-sidebar-nav a[href*="#"]'));
     const sectionPairs = sidebarLinks
       .map((link) => {
@@ -2518,41 +2519,23 @@ function renderDashboardNavScript() {
         return { link, section: id ? document.getElementById(id) : null };
       })
       .filter((pair) => pair.section);
-    const activateOnly = (activeLink) => {
+    const setActiveLink = (activeLink) => {
       sidebarLinks.forEach((link) => link.classList.remove('active'));
       if (activeLink) activeLink.classList.add('active');
     };
 
-    const chooseDominantPair = () => {
-      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 1;
-      const viewportAnchor = viewportHeight * 0.32;
-      return sectionPairs
-        .map((pair, index) => {
-          const rect = pair.section.getBoundingClientRect();
-          const visibleTop = Math.max(rect.top, 0);
-          const visibleBottom = Math.min(rect.bottom, viewportHeight);
-          const visibleHeight = Math.max(0, visibleBottom - visibleTop);
-          const ratio = rect.height > 0 ? visibleHeight / rect.height : 0;
-          return {
-            ...pair,
-            index,
-            ratio,
-            distance: Math.abs(rect.top - viewportAnchor),
-            passedAnchor: rect.top <= viewportAnchor
-          };
-        })
-        .filter((pair) => pair.ratio > 0 || pair.passedAnchor)
-        .sort((left, right) => {
-          if (left.passedAnchor !== right.passedAnchor) return left.passedAnchor ? -1 : 1;
-          if (Math.abs(right.ratio - left.ratio) > 0.01) return right.ratio - left.ratio;
-          if (Math.abs(left.distance - right.distance) > 1) return left.distance - right.distance;
-          return right.index - left.index;
-        })[0] || sectionPairs[0];
-    };
-
-    const updateFromObserver = () => {
-      const dominantPair = chooseDominantPair();
-      activateOnly(dominantPair ? dominantPair.link : null);
+    const getSectionTop = (section) => (
+      section.getBoundingClientRect().top + window.scrollY
+    );
+    const updateActiveFromScroll = () => {
+      const scrollPosition = window.scrollY + ACTIVE_OFFSET;
+      let activePair = sectionPairs[0] || null;
+      sectionPairs.forEach((pair) => {
+        if (getSectionTop(pair.section) <= scrollPosition) {
+          activePair = pair;
+        }
+      });
+      setActiveLink(activePair ? activePair.link : null);
     };
 
     sidebarLinks.forEach((link) => {
@@ -2567,14 +2550,8 @@ function renderDashboardNavScript() {
         }
       });
     });
-
-    const observer = new IntersectionObserver(updateFromObserver, {
-      root: null,
-      rootMargin: '-18% 0px -52% 0px',
-      threshold: [0, 0.25, 0.5, 0.75, 1]
-    });
-    sectionPairs.forEach((pair) => observer.observe(pair.section));
-    window.requestAnimationFrame(updateFromObserver);
+    updateActiveFromScroll();
+    window.addEventListener('scroll', updateActiveFromScroll, { passive: true });
   `;
 }
 
