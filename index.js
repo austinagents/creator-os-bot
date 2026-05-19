@@ -2793,6 +2793,10 @@ function renderCreatorDashboardCriticalStyles() {
       margin: 0;
       color: var(--muted);
       line-height: 1.6;
+      max-width: 100%;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .copy-button {
       min-width: 118px;
