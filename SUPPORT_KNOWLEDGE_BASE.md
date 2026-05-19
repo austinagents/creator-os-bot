@@ -31,7 +31,7 @@ Intent:
 User asks what PartnerLinks is or what it does.
 
 Approved Response:
-PartnerLinks helps brands and creators run referral links, Shopify attribution, creator invite flows, earnings tracking, and payout workflows. It is built as creator-led growth infrastructure, with an emphasis on deterministic tracking, clear money states, and safe operations.
+PartnerLinks helps brands and creators run referral links, Shopify attribution, creator invite flows, earnings tracking, and payout workflows. It is built as brand program infrastructure, with an emphasis on deterministic tracking, clear money states, and safe operations.
 
 Sensitive?:
 No
@@ -113,13 +113,13 @@ Source of Truth:
 Last Reviewed:
 2026-05-18
 
-## Creator Invite Chains / Creator Network Explanation
+## Creator Invite Chains / Creator Participation Explanation
 
 Intent:
-User asks how creator networks, creator invites, or levels work.
+User asks how creator invites, creator participation, or reward levels work.
 
 Approved Response:
-PartnerLinks supports creator network participation where creators can invite other creators into a brand ecosystem. Network rewards are tied to eligible downstream attributed commerce, not signups alone. Current creator network economics stop after Level 3 and should not reward a creator for their own direct sale.
+PartnerLinks supports creator participation where creators can invite other creators into participating brand programs. Program rewards are tied to tracked referral outcomes, not signups alone. Current creator reward logic stops after Level 3 and should not reward a creator for their own direct sale.
 
 Sensitive?:
 Yes

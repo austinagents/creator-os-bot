@@ -13,6 +13,7 @@ function parseArgs(argv) {
     dryRun: true,
     report: false,
     oauthDebug: false,
+    scopeCheck: false,
     register: false,
     brandId: null,
     shopDomain: null
@@ -23,6 +24,7 @@ function parseArgs(argv) {
     if (arg === '--dry-run') args.dryRun = true;
     else if (arg === '--report') args.report = true;
     else if (arg === '--oauth-debug') args.oauthDebug = true;
+    else if (arg === '--scope-check') args.scopeCheck = true;
     else if (arg === '--register') {
       args.register = true;
       args.dryRun = false;
@@ -43,10 +45,13 @@ function parseArgs(argv) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.scopeCheck && !args.brandId) {
+    throw new Error('--scope-check requires --brand-id.');
+  }
   const stores = await getStores(args);
 
   console.log('\n=== Shopify Webhook Operator ===');
-  console.log(`Mode: ${args.register && !args.dryRun ? 'REGISTER WEBHOOKS' : 'DRY RUN / READ ONLY'}`);
+  console.log(`Mode: ${args.scopeCheck ? 'SCOPE CHECK / TOKEN REFRESH IF REQUIRED' : (args.register && !args.dryRun ? 'REGISTER WEBHOOKS' : 'DRY RUN / READ ONLY')}`);
   console.log(`Stores: ${stores.length}`);
   console.log('Safety: no payouts, Stripe, settlement, claims, reserves, refunds, or earnings math are touched.');
 
@@ -58,11 +63,11 @@ async function main() {
   for (const store of stores) {
     if (args.oauthDebug) {
       printOAuthDebug(store);
-      if (!args.report && !args.register) continue;
+      if (!args.report && !args.register && !args.scopeCheck) continue;
     }
 
     const tokenReadiness = getTokenReadiness(store);
-    const tokenResult = args.register && !args.dryRun
+    const tokenResult = args.scopeCheck || (args.register && !args.dryRun)
       ? await refreshStoredShopifyTokenIfNeeded(store)
       : {
         refreshed: false,
@@ -70,6 +75,15 @@ async function main() {
         reason: tokenReadiness.needs_refresh ? 'dry_run_refresh_not_attempted' : 'dry_run_no_refresh_needed'
       };
     const activeStore = tokenResult.store || store;
+    if (args.scopeCheck) {
+      const liveScopeStatus = await getLiveGrantedScopes({
+        shopDomain: activeStore.shop_domain,
+        accessToken: tokenResult.accessToken
+      });
+      printScopeCheckStatus(activeStore, tokenReadiness, tokenResult, liveScopeStatus);
+      continue;
+    }
+
     const status = args.register && !args.dryRun
       ? await ensureRequiredWebhooks({
         shopDomain: activeStore.shop_domain,
@@ -86,6 +100,33 @@ async function main() {
 
     printStoreStatus(activeStore, status, args, tokenReadiness, tokenResult, liveScopeStatus);
   }
+}
+
+function printScopeCheckStatus(store, tokenReadiness, tokenResult, liveScopeStatus) {
+  const storedGrantedScopes = parseScopeList(store.granted_scopes);
+  const liveGrantedScopes = liveScopeStatus.scopes || [];
+
+  console.log('\n--- Scope Check ---');
+  console.log(JSON.stringify({
+    brand_id: store.brand_id,
+    shop_domain: store.shop_domain,
+    stored_granted_scopes: storedGrantedScopes,
+    stored_granted_scopes_include_read_customers: storedGrantedScopes.includes('read_customers'),
+    live_granted_scopes: liveGrantedScopes,
+    live_granted_scopes_ok: liveScopeStatus.ok,
+    live_granted_scopes_status: liveScopeStatus.status || null,
+    live_granted_scopes_error: liveScopeStatus.error || null,
+    live_granted_scopes_include_read_customers: liveGrantedScopes.includes('read_customers'),
+    stored_live_granted_scopes_differ: !sameStringList(storedGrantedScopes, liveGrantedScopes),
+    token_needs_refresh: tokenReadiness.needs_refresh,
+    token_refresh_available: tokenReadiness.refresh_available,
+    token_refresh_attempted: Boolean(tokenReadiness.needs_refresh && tokenReadiness.refresh_available),
+    token_refresh_succeeded: Boolean(tokenResult.refreshed || (!tokenReadiness.needs_refresh && tokenResult.accessToken)),
+    token_refresh_reason: tokenResult.reason || null,
+    secrets_printed: false,
+    mutated_shopify_webhooks: false,
+    mutated_financial_state: false
+  }, null, 2));
 }
 
 function printOAuthDebug(store) {

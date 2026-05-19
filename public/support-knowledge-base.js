@@ -22,12 +22,12 @@
         id: 'what_is_partnerlinks',
         title: 'What Is PartnerLinks?',
         intent: 'User asks what PartnerLinks is or what it does.',
-        approvedResponse: 'PartnerLinks helps brands and creators run referral links, Shopify attribution, creator invite flows, earnings tracking, and payout workflows. It is built as creator-led growth infrastructure, with an emphasis on deterministic tracking, clear money states, and safe operations.',
+        approvedResponse: 'PartnerLinks helps brands and creators run referral links, Shopify attribution, creator invite flows, earnings tracking, and payout workflows. It is built as brand program infrastructure, with an emphasis on deterministic tracking, clear money states, and safe operations.',
         sensitive: false,
         public: true,
         sourceOfTruth: ['CHAT_HANDOFF.md', 'PROJECT_STATUS.md', 'GO_TO_MARKET_STRATEGY.md'],
         lastReviewed: '2026-05-18',
-        keywords: ['what is partnerlinks', 'what does partnerlinks do', 'overview', 'explain partnerlinks', 'creator-led growth', 'creator network infrastructure', 'affiliate', 'referral platform']
+        keywords: ['what is partnerlinks', 'what does partnerlinks do', 'overview', 'explain partnerlinks', 'brand program infrastructure', 'affiliate', 'referral platform']
       },
       {
         id: 'brand_onboarding',
@@ -64,14 +64,14 @@
       },
       {
         id: 'creator_invite_chains',
-        title: 'Creator Invite Chains / Creator Network Explanation',
-        intent: 'User asks how creator networks, creator invites, or levels work.',
-        approvedResponse: 'PartnerLinks supports creator network participation where creators can invite other creators into a brand ecosystem. Network rewards are tied to eligible downstream attributed commerce, not signups alone. Current creator network economics stop after Level 3 and should not reward a creator for their own direct sale.',
+        title: 'Creator Invite Chains / Creator Participation Explanation',
+        intent: 'User asks how creator invites, creator participation, or reward levels work.',
+        approvedResponse: 'PartnerLinks supports creator participation where creators can invite other creators into participating brand programs. Program rewards are tied to tracked referral outcomes, not signups alone. Current creator reward logic stops after Level 3 and should not reward a creator for their own direct sale.',
         sensitive: true,
         public: true,
         sourceOfTruth: ['PROJECT_STATUS.md', 'GO_TO_MARKET_STRATEGY.md', 'system-audit/ECONOMIC_ARCHITECTURE.md'],
         lastReviewed: '2026-05-18',
-        keywords: ['creator invite chain', 'creator network', 'invite creators', 'level 1', 'level 2', 'level 3', 'network reward', 'network earnings', 'creator expansion', 'downstream', 'upstream']
+        keywords: ['creator invite chain', 'creator participation', 'invite creators', 'level 1', 'level 2', 'level 3', 'program reward', 'referral reward', 'brand program activity']
       },
       {
         id: 'shopify_install_connect',
