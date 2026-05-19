@@ -33,6 +33,8 @@ const {
   validateShopifyCallback,
   exchangeShopifyCodeForToken,
   upsertShopifyStore,
+  markShopifyStoreUninstalled,
+  resolveShopifyConnectionState,
   ensureRequiredWebhooks,
   generateShopifyState,
   shopifyStateCookieOptions,
@@ -398,6 +400,45 @@ app.post('/webhooks/shopify/refunds-create', express.raw({ type: '*/*' }), async
       stack: error.stack || null
     });
     res.status(500).json({ ok: false, error: 'Unable to process Shopify refund webhook.' });
+  }
+});
+
+app.post('/webhooks/shopify/app-uninstalled', express.raw({ type: '*/*' }), async (req, res) => {
+  const shopDomain = String(req.get('X-Shopify-Shop-Domain') || '').trim().toLowerCase();
+  const webhookId = req.get('X-Shopify-Webhook-Id') || null;
+
+  try {
+    const hmac = req.get('X-Shopify-Hmac-Sha256');
+    if (!verifyShopifyWebhookHmac(req.body, hmac)) {
+      log('Shopify app uninstall webhook rejected: invalid HMAC', {
+        shopDomain,
+        webhookId
+      });
+      return res.status(401).send('Invalid Shopify webhook signature.');
+    }
+
+    const payload = req.body && req.body.length ? JSON.parse(req.body.toString('utf8')) : {};
+    const resolvedShopDomain = shopDomain || payload.myshopify_domain || payload.shop_domain || payload.domain;
+    if (!resolvedShopDomain) {
+      return res.status(400).json({ ok: false, error: 'Missing Shopify shop domain.' });
+    }
+    const result = await markShopifyStoreUninstalled({ shopDomain: resolvedShopDomain });
+    log('Shopify app uninstall webhook processed:', {
+      shopDomain: result.shop_domain,
+      brandId: result.brand_id || null,
+      status: result.status || result.reason,
+      webhookId
+    });
+
+    res.status(200).json({ ok: true, ...result });
+  } catch (error) {
+    log('Shopify app uninstall webhook error:', {
+      shopDomain,
+      webhookId,
+      message: error.message,
+      stack: error.stack || null
+    });
+    res.status(500).json({ ok: false, error: 'Unable to process Shopify uninstall webhook.' });
   }
 });
 
@@ -1315,7 +1356,7 @@ app.get('/brand/setup/:brandId', async (req, res) => {
       ));
     }
 
-    res.send(renderBrandSetupPage(setup.brand, setup.store));
+    res.send(renderBrandSetupPage(setup.brand, setup.store, setup.shopifyConnectionState));
   } catch (error) {
     log('Brand setup page error:', error);
     res.status(500).send(renderSimpleMessagePage(
@@ -1384,8 +1425,10 @@ app.post('/brand/setup/:brandId', async (req, res) => {
       .limit(1);
     if (storeError) throw storeError;
 
+    const store = stores ? stores[0] : null;
+    const shopifyConnectionState = await resolveShopifyConnectionState(store);
     res.cookie('partnerlinks_brand_slug', generateSlug(brand.name), brandStateCookieOptions());
-    res.send(renderBrandSetupSuccessPage(brand, stores ? stores[0] : null));
+    res.send(renderBrandSetupSuccessPage(brand, store, shopifyConnectionState));
   } catch (error) {
     log('Brand setup save error:', error);
     res.status(500).send(renderSimpleMessagePage(
@@ -3021,9 +3064,13 @@ async function getBrandSetupData(brandId) {
     .limit(1);
   if (storeError) throw storeError;
 
+  const store = stores ? stores[0] : null;
+  const shopifyConnectionState = await resolveShopifyConnectionState(store);
+
   return {
     brand,
-    store: stores ? stores[0] : null
+    store,
+    shopifyConnectionState
   };
 }
 
@@ -3057,8 +3104,15 @@ async function getBrandById(brandId) {
   return data;
 }
 
-function renderBrandSetupPage(brand, store) {
+function renderBrandSetupPage(brand, store, shopifyConnectionState = null) {
   const destinationUrl = brand.destination_url || (store ? `https://${store.shop_domain}` : '');
+  const shopifyConnected = Boolean(store && shopifyConnectionState && shopifyConnectionState.connected);
+  const shopifyStatusText = store
+    ? (shopifyConnected
+      ? `${store.shop_domain} is connected.`
+      : `${store.shop_domain} needs Shopify reconnect before it is treated as connected.`)
+    : 'Connect Shopify to finish store setup.';
+  const reconnectHref = store ? `/brand/setup/${encodeURIComponent(brand.id)}/reconnect-shopify` : '/register-business';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3072,7 +3126,8 @@ function renderBrandSetupPage(brand, store) {
     <section class="auth-panel">
       <p class="eyebrow">PartnerLinks</p>
       <h1>Set up your brand</h1>
-      <p>${escapeHtml(store ? `${store.shop_domain} is connected.` : 'Your Shopify store is connected.')}</p>
+      <p>${escapeHtml(shopifyStatusText)}</p>
+      ${store && !shopifyConnected ? `<div class="auth-actions"><a class="auth-secondary-button" href="${escapeHtml(reconnectHref)}">Reconnect Shopify</a></div>` : ''}
       <form class="auth-form" action="/brand/setup/${escapeHtml(brand.id)}" method="POST">
         <label for="name">Display brand name</label>
         <input id="name" name="name" type="text" value="${escapeHtml(brand.name || '')}" required>
@@ -3088,10 +3143,14 @@ function renderBrandSetupPage(brand, store) {
 </html>`;
 }
 
-function renderBrandSetupSuccessPage(brand, store) {
+function renderBrandSetupSuccessPage(brand, store, shopifyConnectionState = null) {
   const links = buildBrandLinkExamples(brand);
   const brandSlug = generateSlug(brand.name);
   const brandDashboardHref = `/brand-dashboard/${encodeURIComponent(brandSlug)}`;
+  const shopifyConnected = Boolean(store && shopifyConnectionState && shopifyConnectionState.connected);
+  const shopifyStatus = store
+    ? (shopifyConnected ? store.shop_domain : `${store.shop_domain} needs Shopify reconnect`)
+    : 'Connected store not found';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3106,7 +3165,7 @@ function renderBrandSetupSuccessPage(brand, store) {
       <p class="eyebrow">PartnerLinks</p>
       <h1>Brand setup saved</h1>
       <div class="link-list">
-        <p><strong>Connected Shopify store</strong><br>${escapeHtml(store ? store.shop_domain : 'Connected store not found')}</p>
+        <p><strong>Shopify store</strong><br>${escapeHtml(shopifyStatus)}</p>
         <p><strong>Brand name</strong><br>${escapeHtml(brand.name)}</p>
         <p><strong>Creator commission</strong><br>${escapeHtml(brand.creator_commission_rate)}%</p>
         <p><strong>Creator onboarding link</strong><br>${escapeHtml(links.creatorSignupLink)}</p>

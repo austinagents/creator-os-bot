@@ -12,6 +12,10 @@ const {
 const SHOPIFY_API_VERSION = '2025-01';
 const REQUIRED_WEBHOOKS = [
   {
+    topic: 'app/uninstalled',
+    path: '/webhooks/shopify/app-uninstalled'
+  },
+  {
     topic: 'orders/paid',
     path: '/webhooks/shopify/orders-paid'
   },
@@ -166,10 +170,10 @@ async function upsertShopifyStore({ shopDomain, accessToken, tokenData = null, b
       brand_id: linkedBrandId,
       shop_domain: normalizedShopDomain,
       access_token: normalizedToken.accessToken,
-      refresh_token: normalizedToken.refreshToken || existingStore?.refresh_token || null,
-      access_token_expires_at: normalizedToken.accessTokenExpiresAt || existingStore?.access_token_expires_at || null,
-      refresh_token_expires_at: normalizedToken.refreshTokenExpiresAt || existingStore?.refresh_token_expires_at || null,
-      granted_scopes: normalizedToken.scope || existingStore?.granted_scopes || null,
+      refresh_token: normalizedToken.refreshToken || null,
+      access_token_expires_at: normalizedToken.accessTokenExpiresAt || null,
+      refresh_token_expires_at: normalizedToken.refreshTokenExpiresAt || null,
+      granted_scopes: normalizedToken.scope || null,
       token_type: normalizedToken.tokenType,
       token_last_refreshed_at: normalizedToken.tokenLastRefreshedAt,
       installed_at: new Date().toISOString()
@@ -226,6 +230,143 @@ async function refreshStoredShopifyTokenIfNeeded(store) {
     accessToken: data.access_token,
     store: data,
     reason: 'refreshed_expiring_offline_token'
+  };
+}
+
+async function markShopifyStoreUninstalled({ shopDomain }) {
+  const normalizedShopDomain = normalizeShopDomain(shopDomain);
+  const { data, error } = await supabase
+    .from('shopify_stores')
+    .update({
+      access_token: '__partnerlinks_shopify_uninstalled__',
+      refresh_token: null,
+      access_token_expires_at: null,
+      refresh_token_expires_at: null,
+      granted_scopes: null,
+      token_type: 'uninstalled',
+      token_last_refreshed_at: null
+    })
+    .eq('shop_domain', normalizedShopDomain)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      return { ok: false, shop_domain: normalizedShopDomain, reason: 'store_not_found' };
+    }
+    throw error;
+  }
+
+  return {
+    ok: true,
+    shop_domain: normalizedShopDomain,
+    brand_id: data ? data.brand_id : null,
+    status: 'uninstalled'
+  };
+}
+
+async function resolveShopifyConnectionState(store) {
+  if (!store) return { connected: false, reason: 'missing_store_row', api_ok: false };
+  if (store.token_type === 'uninstalled') {
+    return {
+      connected: false,
+      reason: 'shopify_app_uninstalled',
+      api_ok: false,
+      shop_domain: store.shop_domain
+    };
+  }
+  if (!store.access_token || store.access_token === '__partnerlinks_shopify_uninstalled__') {
+    return {
+      connected: false,
+      reason: 'missing_access_token',
+      api_ok: false,
+      shop_domain: store.shop_domain
+    };
+  }
+  if (store.access_token_expires_at && isAccessTokenExpiringSoon(store.access_token_expires_at)) {
+    if (store.refresh_token) {
+      try {
+        const tokenResult = await refreshStoredShopifyTokenIfNeeded(store);
+        store = tokenResult.store || {
+          ...store,
+          access_token: tokenResult.accessToken
+        };
+      } catch (error) {
+        return {
+          connected: false,
+          reason: 'shopify_token_refresh_failed',
+          api_ok: false,
+          shop_domain: store.shop_domain,
+          last_error: error.message
+        };
+      }
+    } else {
+      return {
+        connected: false,
+        reason: 'access_token_expired_without_refresh',
+        api_ok: false,
+        shop_domain: store.shop_domain
+      };
+    }
+  }
+
+  if (store.access_token_expires_at && isAccessTokenExpiringSoon(store.access_token_expires_at)) {
+    return {
+      connected: false,
+      reason: 'access_token_expired_without_refresh',
+      api_ok: false,
+      shop_domain: store.shop_domain
+    };
+  }
+
+  const scopeStatus = await getShopifyAccessScopes({
+    shopDomain: store.shop_domain,
+    accessToken: store.access_token
+  });
+  return {
+    connected: Boolean(scopeStatus.ok),
+    reason: scopeStatus.ok ? 'connected' : (scopeStatus.status === 401 ? 'shopify_token_invalid' : 'shopify_api_check_failed'),
+    api_ok: Boolean(scopeStatus.ok),
+    api_status: scopeStatus.status || null,
+    shop_domain: store.shop_domain,
+    live_granted_scopes: scopeStatus.scopes || [],
+    last_error: scopeStatus.error || null
+  };
+}
+
+async function getShopifyAccessScopes({ shopDomain, accessToken }) {
+  const normalizedShopDomain = normalizeShopDomain(shopDomain);
+  if (!accessToken) {
+    return {
+      ok: false,
+      status: null,
+      scopes: [],
+      error: 'missing_access_token'
+    };
+  }
+
+  const response = await fetch(`https://${normalizedShopDomain}/admin/oauth/access_scopes.json`, {
+    headers: shopifyAdminHeaders(accessToken)
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      scopes: [],
+      error: compactShopifyError(body)
+    };
+  }
+
+  const parsed = JSON.parse(body || '{}');
+  return {
+    ok: true,
+    status: response.status,
+    scopes: (parsed.access_scopes || [])
+      .map((scope) => scope && scope.handle)
+      .filter(Boolean)
+      .sort(),
+    error: null
   };
 }
 
@@ -615,6 +756,9 @@ module.exports = {
   refreshShopifyAccessToken,
   upsertShopifyStore,
   refreshStoredShopifyTokenIfNeeded,
+  markShopifyStoreUninstalled,
+  resolveShopifyConnectionState,
+  getShopifyAccessScopes,
   ensureRequiredWebhooks,
   getWebhookRegistrationStatus,
   normalizeShopDomain,
