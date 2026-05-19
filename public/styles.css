@@ -1308,6 +1308,9 @@ a {
   display: grid;
   gap: 22px;
 }
+.creator-main [id] {
+  scroll-margin-top: 24px;
+}
 .creator-topbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);

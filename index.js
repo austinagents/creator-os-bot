@@ -2108,7 +2108,7 @@ function renderBrandDashboardPage(dashboard) {
         </span>
       </a>
       <nav class="creator-sidebar-nav">
-        <a class="active" href="${escapeHtml(dashboardPath)}#overview">Overview</a>
+        <a href="${escapeHtml(dashboardPath)}#overview">Overview</a>
         <a href="${escapeHtml(dashboardPath)}#creators">Creators</a>
         <a href="${escapeHtml(dashboardPath)}#conversions">Conversions</a>
         <a href="${escapeHtml(dashboardPath)}#earnings">Earnings</a>
@@ -2361,7 +2361,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
         </span>
       </a>
       <nav class="creator-sidebar-nav">
-        <a class="active" href="${escapeHtml(dashboardPath)}#overview">Overview</a>
+        <a href="${escapeHtml(dashboardPath)}#overview">Overview</a>
         <a href="${escapeHtml(dashboardPath)}#referrals">Referrals</a>
         <a href="${escapeHtml(dashboardPath)}#earnings">Earnings</a>
         <a href="${escapeHtml(dashboardPath)}#links">Links</a>
@@ -2518,23 +2518,63 @@ function renderDashboardNavScript() {
         return { link, section: id ? document.getElementById(id) : null };
       })
       .filter((pair) => pair.section);
-    const setActiveSidebarLink = (activeLink) => {
+    const activateOnly = (activeLink) => {
       sidebarLinks.forEach((link) => link.classList.remove('active'));
       if (activeLink) activeLink.classList.add('active');
     };
-    sidebarLinks.forEach((link) => {
-      link.addEventListener('click', () => setActiveSidebarLink(link));
-    });
-    const updateActiveSidebarLink = () => {
-      let activePair = sectionPairs[0];
-      sectionPairs.forEach((pair) => {
-        const rect = pair.section.getBoundingClientRect();
-        if (rect.top <= 140) activePair = pair;
-      });
-      if (activePair) setActiveSidebarLink(activePair.link);
+
+    const chooseDominantPair = () => {
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 1;
+      const viewportAnchor = viewportHeight * 0.32;
+      return sectionPairs
+        .map((pair, index) => {
+          const rect = pair.section.getBoundingClientRect();
+          const visibleTop = Math.max(rect.top, 0);
+          const visibleBottom = Math.min(rect.bottom, viewportHeight);
+          const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+          const ratio = rect.height > 0 ? visibleHeight / rect.height : 0;
+          return {
+            ...pair,
+            index,
+            ratio,
+            distance: Math.abs(rect.top - viewportAnchor),
+            passedAnchor: rect.top <= viewportAnchor
+          };
+        })
+        .filter((pair) => pair.ratio > 0 || pair.passedAnchor)
+        .sort((left, right) => {
+          if (left.passedAnchor !== right.passedAnchor) return left.passedAnchor ? -1 : 1;
+          if (Math.abs(right.ratio - left.ratio) > 0.01) return right.ratio - left.ratio;
+          if (Math.abs(left.distance - right.distance) > 1) return left.distance - right.distance;
+          return right.index - left.index;
+        })[0] || sectionPairs[0];
     };
-    updateActiveSidebarLink();
-    window.addEventListener('scroll', updateActiveSidebarLink, { passive: true });
+
+    const updateFromObserver = () => {
+      const dominantPair = chooseDominantPair();
+      activateOnly(dominantPair ? dominantPair.link : null);
+    };
+
+    sidebarLinks.forEach((link) => {
+      link.addEventListener('click', (event) => {
+        const id = link.hash ? link.hash.slice(1) : '';
+        const section = id ? document.getElementById(id) : null;
+        if (!section) return;
+        event.preventDefault();
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', link.getAttribute('href'));
+        }
+      });
+    });
+
+    const observer = new IntersectionObserver(updateFromObserver, {
+      root: null,
+      rootMargin: '-18% 0px -52% 0px',
+      threshold: [0, 0.25, 0.5, 0.75, 1]
+    });
+    sectionPairs.forEach((pair) => observer.observe(pair.section));
+    window.requestAnimationFrame(updateFromObserver);
   `;
 }
 
@@ -2661,6 +2701,7 @@ function renderCreatorDashboardCriticalStyles() {
       background: rgba(255,255,255,0.07);
     }
     .creator-main { min-width: 0; display: grid; gap: 22px; }
+    .creator-main [id] { scroll-margin-top: 24px; }
     .creator-topbar {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
