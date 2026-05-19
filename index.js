@@ -2108,7 +2108,7 @@ function renderBrandDashboardPage(dashboard) {
         </span>
       </a>
       <nav class="creator-sidebar-nav">
-        <a class="active" href="${escapeHtml(dashboardPath)}">Overview</a>
+        <a class="active" href="${escapeHtml(dashboardPath)}#overview">Overview</a>
         <a href="${escapeHtml(dashboardPath)}#creators">Creators</a>
         <a href="${escapeHtml(dashboardPath)}#conversions">Conversions</a>
         <a href="${escapeHtml(dashboardPath)}#earnings">Earnings</a>
@@ -2118,7 +2118,7 @@ function renderBrandDashboardPage(dashboard) {
     </aside>
 
     <main class="creator-main">
-      <header class="creator-topbar">
+      <header class="creator-topbar" id="overview">
         <div>
           <p class="eyebrow">Brand Dashboard</p>
           <h1>${escapeHtml(dashboard.brandName)}</h1>
@@ -2214,6 +2214,7 @@ function renderBrandDashboardPage(dashboard) {
         }
       });
     });
+    ${renderDashboardNavScript()}
   </script>
 </body>
 </html>`;
@@ -2360,7 +2361,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
         </span>
       </a>
       <nav class="creator-sidebar-nav">
-        <a class="active" href="${escapeHtml(dashboardPath)}">Overview</a>
+        <a class="active" href="${escapeHtml(dashboardPath)}#overview">Overview</a>
         <a href="${escapeHtml(dashboardPath)}#referrals">Referrals</a>
         <a href="${escapeHtml(dashboardPath)}#earnings">Earnings</a>
         <a href="${escapeHtml(dashboardPath)}#links">Links</a>
@@ -2369,7 +2370,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
     </aside>
 
     <main class="creator-main">
-      <header class="creator-topbar">
+      <header class="creator-topbar" id="overview">
         <div>
           <p class="eyebrow">Creator Dashboard</p>
           <h1>Welcome, ${escapeHtml(dashboard.displayName)}</h1>
@@ -2502,9 +2503,40 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
         }
       });
     });
+    ${renderDashboardNavScript()}
   </script>
 </body>
 </html>`;
+}
+
+function renderDashboardNavScript() {
+  return `
+    const sidebarLinks = Array.from(document.querySelectorAll('.creator-sidebar-nav a[href*="#"]'));
+    const sectionPairs = sidebarLinks
+      .map((link) => {
+        const id = link.hash ? link.hash.slice(1) : '';
+        return { link, section: id ? document.getElementById(id) : null };
+      })
+      .filter((pair) => pair.section);
+    const setActiveSidebarLink = (activeLink) => {
+      sidebarLinks.forEach((link) => {
+        link.classList.toggle('active', link === activeLink);
+      });
+    };
+    sidebarLinks.forEach((link) => {
+      link.addEventListener('click', () => setActiveSidebarLink(link));
+    });
+    const updateActiveSidebarLink = () => {
+      let activePair = sectionPairs[0];
+      sectionPairs.forEach((pair) => {
+        const rect = pair.section.getBoundingClientRect();
+        if (rect.top <= 140) activePair = pair;
+      });
+      if (activePair) setActiveSidebarLink(activePair.link);
+    };
+    updateActiveSidebarLink();
+    window.addEventListener('scroll', updateActiveSidebarLink, { passive: true });
+  `;
 }
 
 function renderPayoutHistory(payoutHistory) {
