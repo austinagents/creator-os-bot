@@ -2653,8 +2653,10 @@ function renderCreatorDashboardCriticalStyles() {
       color: var(--muted);
       font-weight: 700;
     }
-    .creator-sidebar-nav a.active,
     .creator-sidebar-nav a:hover {
+      color: var(--text);
+    }
+    .creator-sidebar-nav a.active {
       color: var(--text);
       background: rgba(255,255,255,0.07);
     }
