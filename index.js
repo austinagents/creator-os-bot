@@ -1065,8 +1065,17 @@ app.get('/stripe/connect/return', async (req, res) => {
 
   res.redirect(redirectPath);
 });
-app.get('/brand-dashboard', (req, res) => {
-  res.send(renderBrandDashboardEntryPage());
+app.get('/brand-dashboard', async (req, res) => {
+  try {
+    const brandEntry = await getSignedInBrandOwnerEntry(req, res);
+    if (brandEntry && brandEntry.redirectPath) {
+      return res.redirect(brandEntry.redirectPath);
+    }
+    res.send(renderBrandDashboardEntryPage());
+  } catch (error) {
+    log('Brand dashboard entry error:', error);
+    res.send(renderBrandDashboardEntryPage());
+  }
 });
 app.get('/brand-dashboard/:brandSlug', async (req, res) => {
   try {
@@ -1082,6 +1091,11 @@ app.get('/brand-dashboard/:brandSlug', async (req, res) => {
     });
     if (!brandAccess.allowed) {
       return sendBrandAccessBlocked(res, brandAccess);
+    }
+
+    const setup = await getBrandSetupData(brand.id);
+    if (setup && setup.store && setup.shopifyConnectionState && !setup.shopifyConnectionState.connected) {
+      return res.redirect(`/brand/setup/${encodeURIComponent(brand.id)}/reconnect-shopify`);
     }
 
     const dashboard = await getBrandDashboardBySlug(brandSlug);
@@ -1332,8 +1346,17 @@ app.get('/api/shopify/callback', async (req, res) => {
     ));
   }
 });
-app.get('/register-business', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'register-business.html'));
+app.get('/register-business', async (req, res) => {
+  try {
+    const brandEntry = await getSignedInBrandOwnerEntry(req, res);
+    if (brandEntry && brandEntry.redirectPath) {
+      return res.redirect(brandEntry.redirectPath);
+    }
+    res.sendFile(path.join(__dirname, 'public', 'register-business.html'));
+  } catch (error) {
+    log('Register business entry error:', error);
+    res.sendFile(path.join(__dirname, 'public', 'register-business.html'));
+  }
 });
 app.get('/brand/setup/:brandId', async (req, res) => {
   try {
@@ -1354,6 +1377,9 @@ app.get('/brand/setup/:brandId', async (req, res) => {
         '/register-business',
         'Connect Shopify'
       ));
+    }
+    if (setup.store && setup.shopifyConnectionState && !setup.shopifyConnectionState.connected) {
+      return res.redirect(`/brand/setup/${encodeURIComponent(brandId)}/reconnect-shopify`);
     }
 
     res.send(renderBrandSetupPage(setup.brand, setup.store, setup.shopifyConnectionState));
@@ -1623,6 +1649,48 @@ async function getScopedSignedInBrandOwner(req, res, {
     allowed: true,
     authUser,
     brandId: normalizedBrandId
+  };
+}
+
+async function getSignedInBrandOwnerEntry(req, res) {
+  const authUser = await getCurrentAuthUser(req, res);
+  if (!authUser) return null;
+
+  const { data: ownerRows, error } = await supabase
+    .from('brand_owners')
+    .select('brand_id')
+    .eq('auth_user_id', authUser.id)
+    .is('revoked_at', null)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+
+  const ownerRow = ownerRows ? ownerRows[0] : null;
+  if (!ownerRow || !ownerRow.brand_id) return null;
+
+  const setup = await getBrandSetupData(ownerRow.brand_id);
+  if (!setup || !setup.brand) return null;
+
+  if (setup.store && setup.shopifyConnectionState && !setup.shopifyConnectionState.connected) {
+    return {
+      brandId: setup.brand.id,
+      redirectPath: `/brand/setup/${encodeURIComponent(setup.brand.id)}/reconnect-shopify`,
+      reason: setup.shopifyConnectionState.reason || 'shopify_reconnect_required'
+    };
+  }
+
+  if (setup.store && setup.shopifyConnectionState && setup.shopifyConnectionState.connected) {
+    return {
+      brandId: setup.brand.id,
+      redirectPath: `/brand-dashboard/${encodeURIComponent(generateSlug(setup.brand.name))}`,
+      reason: 'shopify_connected'
+    };
+  }
+
+  return {
+    brandId: setup.brand.id,
+    redirectPath: `/brand/setup/${encodeURIComponent(setup.brand.id)}`,
+    reason: 'brand_setup_required'
   };
 }
 
