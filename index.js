@@ -2511,32 +2511,7 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
 
 function renderDashboardNavScript() {
   return `
-    const ACTIVATION_Y = 160;
     const sidebarLinks = Array.from(document.querySelectorAll('.creator-sidebar-nav a[href*="#"]'));
-    const sectionPairs = sidebarLinks
-      .map((link) => {
-        const id = link.hash ? link.hash.slice(1) : '';
-        return { link, section: id ? document.getElementById(id) : null };
-      })
-      .filter((pair) => pair.section);
-    const setActiveLink = (activeLink) => {
-      sidebarLinks.forEach((link) => link.classList.remove('active'));
-      if (activeLink) activeLink.classList.add('active');
-    };
-
-    const updateActiveFromScroll = () => {
-      let activePair = null;
-      let smallestDistance = Infinity;
-      sectionPairs.forEach((pair) => {
-        const distance = Math.abs(pair.section.getBoundingClientRect().top - ACTIVATION_Y);
-        if (distance < smallestDistance) {
-          smallestDistance = distance;
-          activePair = pair;
-        }
-      });
-      setActiveLink(activePair ? activePair.link : null);
-    };
-
     sidebarLinks.forEach((link) => {
       link.addEventListener('click', (event) => {
         const id = link.hash ? link.hash.slice(1) : '';
@@ -2544,13 +2519,8 @@ function renderDashboardNavScript() {
         if (!section) return;
         event.preventDefault();
         section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        if (window.history && window.history.replaceState) {
-          window.history.replaceState(null, '', link.getAttribute('href'));
-        }
       });
     });
-    updateActiveFromScroll();
-    window.addEventListener('scroll', updateActiveFromScroll, { passive: true });
   `;
 }
 
@@ -2671,10 +2641,6 @@ function renderCreatorDashboardCriticalStyles() {
     }
     .creator-sidebar-nav a:hover {
       color: var(--text);
-    }
-    .creator-sidebar-nav a.active {
-      color: var(--text);
-      background: rgba(255,255,255,0.07);
     }
     .creator-main { min-width: 0; display: grid; gap: 22px; }
     .creator-main [id] { scroll-margin-top: 120px; }
