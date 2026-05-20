@@ -2427,9 +2427,9 @@ function renderCreatorDashboardPage(dashboard, options = {}) {
     ['creator-network-earnings', 'Network Earnings', formatMoney(dashboard.networkEarnings), 'Creator referral overrides']
   ];
   const referralStats = [
-    ['Direct', dashboard.directReferralsCount],
-    ['Second-Level', dashboard.secondLevelReferralsCount],
-    ['Third-Level', dashboard.thirdLevelReferralsCount]
+    ['Direct Referrals', dashboard.directReferralsCount],
+    ['Extended Referrals', dashboard.secondLevelReferralsCount],
+    ['Network Referrals', dashboard.thirdLevelReferralsCount]
   ];
 
   return `<!DOCTYPE html>

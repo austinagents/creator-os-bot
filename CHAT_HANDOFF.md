@@ -1,5 +1,52 @@
 # PartnerLinks / Creator OS Vision
 
+## 2026-05-19 Clean Chat Handoff Snapshot
+
+- Shopify approval readiness: app is close to submission-ready. Remaining high-leverage work is screencast, reviewer instructions, test credentials, screenshots/app listing polish, final visual QA, and support widget QA.
+- Shopify scope proof milestone:
+  - runtime requests `read_orders`.
+  - OAuth URL requests `read_orders`.
+  - stored scopes are `["read_orders"]`.
+  - live Shopify scopes are `["read_orders"]` for Brand 10 and Brand 11.
+  - `read_customers` is not present stored or live.
+  - proof used the dedicated `--scope-check` mode and did not mutate webhooks or financial state.
+- OAuth/install/uninstall/reconnect:
+  - Shopify install/OAuth works.
+  - uninstall/reinstall/reconnect flows have been tested repeatedly.
+  - Brand 10 and Brand 11 live scope checks passed after fresh reconnect.
+  - invalid/uninstalled/stale Shopify connection routes now redirect to owner-scoped reconnect before brand dashboard/setup continues.
+- Public wording and support KB:
+  - public pages and support KB were cleaned to reduce MLM/recruitment/network-income-adjacent wording.
+  - softened terms include creator network participation, network rewards, downstream, and recruitment-only rewards platform.
+  - privacy language now focuses on `limited order-associated metadata available through Shopify order records`.
+  - support widget KB should answer review probes with order/referral/brand-program focused wording.
+- Branding/polish:
+  - favicon was added/updated across public HTML pages using `/favicon.png`.
+  - favicon uses cleaner PartnerLinks branding.
+  - homepage/demo wording was cleaned.
+- Identity/auth consideration:
+  - MVP allows creator and brand capabilities to coexist.
+  - current risk is identity fragmentation when brand-first users later sign in with Google, or creator-first users later register a brand.
+  - preferred MVP direction is identity-linking logic so one human/user can hold both creator and brand capabilities without duplicate unrelated identities.
+  - do not force Google OAuth immediately after Shopify OAuth unless explicitly decided later.
+  - future sensitive setting changes may use Google re-auth or email OTP step-up verification.
+- Commission/security idea:
+  - possible future Brand Dashboard Settings feature: commission percent change modal.
+  - sensitive commission changes should require step-up verification.
+  - likely guardrail: normal self-service range below 30%; elevated/manual review above higher thresholds; 50%+ requires PartnerLinks approval.
+  - not implemented.
+- Railway operational note:
+  - transient Railway Not Found / "train has not arrived" issue was observed while no deploy had occurred for about 16 hours.
+  - production later recovered/appeared reachable.
+  - treat as infrastructure observation, not confirmed app code crash.
+  - add uptime/health monitoring to ops backlog.
+- Recommended next work:
+  - record Shopify screencast.
+  - prepare reviewer instructions with exact flow, test accounts, reconnect URLs, and concise `read_orders` explanation.
+  - run final public visual QA and support widget QA.
+  - prepare app listing screenshots/copy.
+  - then submit.
+
 Important continuity rule:
 
 - Read `INFRASTRUCTURE_DECISION_RULES.md` before every major implementation or debugging pass. During long debugging sessions, re-read it at least every third response.

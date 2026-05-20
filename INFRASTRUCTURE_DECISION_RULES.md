@@ -75,6 +75,47 @@ Avoid:
 - direct database edits as proof of runtime correctness
 - conflating sandbox success with production readiness
 
+## Minimal-Context Workflow
+
+Use the smallest context set that can safely answer the task.
+
+- Avoid broad `.md` reads by default.
+- Prefer scoped reads based on task tier and current risk.
+- For small UI, styling, copy, and frontend polish tasks, avoid architecture and runtime docs unless they are directly needed.
+- For runtime, financial, auth, Shopify, Stripe, settlement, payout, support, or compliance work, read only the smallest relevant docs.
+- Prefer runtime verification and narrow file inspection over historical re-analysis.
+- Do not update documentation unless explicitly requested or required by the task.
+- If additional docs are needed, state exactly which files are needed, why they are needed, and what cannot be completed without them before pulling more context.
+
+## Approval-Window Operational Discipline
+
+During Shopify review, protected-data approval, or submission-prep windows:
+
+- Avoid destabilizing auth rewrites unless explicitly approved.
+- Avoid payout, settlement, refund, attribution math, or economic changes unless explicitly approved.
+- Avoid broad UI redesigns, routing rewrites, or architectural refactors unless explicitly approved.
+- Prioritize reviewer readiness, operational stability, visual QA, support QA, least-privilege scope posture, and deterministic install/reconnect behavior.
+- Treat small trust, wording, navigation, and support-polish fixes as preferred over new feature expansion.
+
+## Runtime Vs Planned Distinction
+
+Clearly label system claims as one of:
+
+- `RUNTIME-ENFORCED`
+- `READ-ONLY DIAGNOSTIC`
+- `MANUAL OPERATOR TASK`
+- `DOCUMENTED ARCHITECTURE ONLY`
+- `PLANNED / NOT IMPLEMENTED`
+- `BLOCKED / NO-GO`
+
+Rules:
+
+- Sandbox proof does not equal production readiness.
+- Diagnostic capture does not equal enforcement.
+- Attribution/accounting does not equal payout eligibility.
+- Provider configuration does not equal provider approval.
+- Stored app state does not always equal live provider state.
+
 ## Financial Infrastructure Posture
 
 PartnerLinks touches:
@@ -156,6 +197,10 @@ For Shopify debugging, verify in this order:
 - No arbitrary external redirects.
 - Ownership checks must be exact and resource-scoped.
 - Do not rely on latest/default creator or brand identity for sensitive actions.
+- Creator and brand capabilities may coexist for the same human/user.
+- Prefer identity-linking over forced auth redesign for the MVP.
+- Fail closed if ownership, account identity, creator identity, or brand identity is ambiguous.
+- Never use latest/default creator or brand fallback behavior for sensitive actions.
 
 ## Operational Discipline
 

@@ -1,8 +1,60 @@
 # PartnerLinks / creator-os-bot Project Status
 
-Last updated: 2026-05-18
+Last updated: 2026-05-19
 
 This file is the current implementation snapshot for starting a new ChatGPT/Codex project chat with minimal context loss. Permanent product philosophy, UX guardrails, terminology, and long-term architecture rules live in `CHAT_HANDOFF.md`.
+
+## 2026-05-19 Session Update
+
+Status: SHOPIFY REVIEW READINESS / HANDOFF SNAPSHOT
+
+- Shopify approval readiness is close to submission-ready. Remaining high-leverage work: record the app screencast, prepare reviewer instructions, confirm test credentials, polish screenshots/app listing copy, run final visual QA, and run support widget QA.
+- Shopify minimum-necessary scope milestone is complete:
+  - runtime Shopify OAuth scope is `read_orders`.
+  - generated OAuth URL requests `read_orders`.
+  - stored Shopify scopes are `["read_orders"]`.
+  - live Shopify scopes were verified as `["read_orders"]` for Brand 10 and Brand 11.
+  - `read_customers` is not present in stored or live scopes.
+  - verification used the dedicated `scripts/shopifyWebhookOperator.js --scope-check` mode.
+  - scope verification did not mutate webhooks or financial state.
+- Shopify OAuth/install/uninstall/reconnect status:
+  - Shopify install/OAuth works.
+  - uninstall/reinstall/reconnect flows have been tested repeatedly.
+  - Brand 10 and Brand 11 live scope checks passed after fresh reconnect.
+  - invalid, uninstalled, or stale Shopify connection states now route to owner-scoped reconnect before brand dashboard/setup continues.
+- Public Shopify-review wording cleanup is substantially complete:
+  - public pages and support KB were cleaned to reduce MLM/recruitment/network-income-adjacent wording.
+  - wording such as creator network participation, network rewards, downstream, and recruitment-only rewards platform was softened.
+  - privacy wording was tightened around `limited order-associated metadata available through Shopify order records`.
+  - support widget KB was cleaned so review probes should stay order/referral/brand-program focused.
+- Branding and polish:
+  - favicon integration was added/updated across public HTML pages using `/favicon.png`.
+  - favicon now uses cleaner PartnerLinks branding.
+  - homepage/demo wording was cleaned for Shopify reviewer trust posture.
+- Current identity/auth consideration:
+  - MVP currently allows creator and brand capabilities to coexist.
+  - current concern: identity fragmentation when brand-first users later sign in with Google, or creator-first users later register a brand.
+  - preferred MVP direction is to preserve low-friction onboarding while adding identity-linking logic so the same human/user can hold both creator and brand capabilities without duplicate unrelated identities.
+  - do not force Google OAuth immediately after Shopify OAuth unless explicitly decided later.
+  - future sensitive settings may use Google re-auth or email OTP step-up verification.
+- Future commission/security idea:
+  - possible Brand Dashboard Settings feature: commission percent change modal.
+  - sensitive commission changes should require step-up verification.
+  - likely guardrail: normal self-service range below 30%; elevated/manual review above higher thresholds; 50%+ requires PartnerLinks approval.
+  - not implemented yet.
+- Railway operational note:
+  - Railway dashboard/routing showed a transient Not Found / "train has not arrived" issue.
+  - no deploy had occurred for roughly 16 hours when observed.
+  - production later recovered/appeared reachable.
+  - treat this as an infrastructure observation, not a confirmed app code crash.
+  - add uptime/health monitoring to the ops backlog.
+- Recommended next work:
+  - record Shopify screencast.
+  - prepare reviewer instructions with exact flow, test accounts, reconnect URLs, and concise `read_orders` explanation.
+  - run final public visual QA.
+  - run support widget QA.
+  - prepare app listing screenshots/copy.
+  - submit after those items are complete.
 
 ## Required Infrastructure Decision Rules
 
