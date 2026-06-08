@@ -1786,7 +1786,20 @@ function renderHomepage(creator) {
           </div>`,
       renderHomepageInvitePanel(creatorCode, inviteLink)
     )
+    .replaceAll(getSecretElementFallbackProductLink(), escapeHtml(buildSecretElementProductLink(creatorCode)))
     .replace('</body>', `${renderHomepageCopyScript()}</body>`);
+}
+
+function getSecretElementFallbackProductLink() {
+  return buildSecretElementProductLink('creator');
+}
+
+function buildSecretElementProductLink(creatorCode) {
+  return buildDisplayReferralLink(
+    'secret-element',
+    normalizeCode(creatorCode),
+    'secret-element-citrus-bergamot-42911099387'
+  );
 }
 
 function renderHomepageInvitePanel(creatorCode, inviteLink) {
