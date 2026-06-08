@@ -27,6 +27,7 @@ const {
   refreshCreatorStripeStatus
 } = require("./services/stripeConnectService");
 const { claimCreatorEarnings } = require("./services/earningsLifecycleService");
+const { appendAwinClickref, getProductFeedDestination } = require("./services/productFeedService");
 const {
   buildShopifyInstallUrl,
   getShopifyOAuthDebugInfo,
@@ -684,44 +685,48 @@ app.get('/r/:brandSlug/:creatorCode/:productSlug', async (req, res) => {
     if (!sessionId) {
       sessionId = generateSessionId();
     }
-    const productDestination = getShopifyProductDestination(brandSlug, productSlug, creatorCode, sessionId);
-    if (productDestination.blockedReason) {
+    const productFeedDestination = await getProductFeedDestination(brandSlug, productSlug);
+    const shopifyProductDestination = productFeedDestination
+      ? { url: null, product: null, blockedReason: null, shopDomain: null }
+      : getShopifyProductDestination(brandSlug, productSlug, creatorCode, sessionId);
+    if (shopifyProductDestination.blockedReason) {
       log('Product referral blocked by incomplete Shopify product metadata:', {
         brandSlug,
         creatorCode,
         productSlug,
-        reason: productDestination.blockedReason,
-        shopDomain: productDestination.shopDomain || null
+        reason: shopifyProductDestination.blockedReason,
+        shopDomain: shopifyProductDestination.shopDomain || null
       });
       return res.status(503).json({ error: 'Product route is not fully configured for Shopify checkout attribution.' });
     }
-    const productDestinationUrl = productDestination.url;
-    const mappedShopDomain = getPublicShopifyBrandDomain(brandSlug);
+    const feedDestinationUrl = productFeedDestination ? appendAwinClickref(productFeedDestination.url, sessionId) : null;
+    const shopifyDestinationUrl = shopifyProductDestination.url;
+    const mappedShopDomain = feedDestinationUrl ? null : getPublicShopifyBrandDomain(brandSlug);
 
     const brand = await getBrandForProductReferral(brandSlug);
     if (!brand) {
-      if (productDestinationUrl) {
+      if (shopifyDestinationUrl) {
         log('Product referral forwarding without DB brand match:', {
           brandSlug,
           creatorCode,
           productSlug,
           shopDomain: mappedShopDomain || null
         });
-        return res.redirect(productDestinationUrl);
+        return res.redirect(shopifyDestinationUrl);
       }
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    const destinationUrl = productDestinationUrl || brand.destination_url;
+    const destinationUrl = feedDestinationUrl || shopifyDestinationUrl || brand.destination_url;
     if (!destinationUrl) {
       return res.status(400).json({ error: 'Product destination URL not configured' });
     }
 
     const creator = await getCreatorForProductReferral(creatorCode, brand.id);
     if (!creator) {
-      if (productDestinationUrl) {
+      if (shopifyDestinationUrl) {
         log('Product referral forwarding without DB creator match:', { brandId: brand.id, brandSlug, creatorCode, productSlug });
-        return res.redirect(productDestinationUrl);
+        return res.redirect(shopifyDestinationUrl);
       }
       return res.status(404).json({ error: 'Creator not found' });
     }
