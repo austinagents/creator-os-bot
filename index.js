@@ -460,7 +460,12 @@ const staticPageRoutes = {
   '/support': 'support.html',
   '/creators': 'creators.html',
   '/brands': 'brands.html',
-  '/data-attribution': 'data-attribution.html'
+  '/data-attribution': 'data-attribution.html',
+  '/product-discovery-layer': 'product-discovery-layer.html',
+  '/opportunity-first-creator': 'opportunity-first-creator.html',
+  '/creator-revenue-stack': 'creator-revenue-stack.html',
+  '/discovery-before-content': 'discovery-before-content.html',
+  '/ai-monetization-workflow': 'ai-monetization-workflow.html'
 };
 
 Object.entries(staticPageRoutes).forEach(([route, fileName]) => {
