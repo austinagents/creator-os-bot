@@ -449,6 +449,29 @@ app.get('/styles.css', (req, res) => {
   res.set('Cache-Control', 'no-store, max-age=0');
   res.sendFile(path.join(__dirname, 'public', 'styles.css'));
 });
+app.use((req, res, next) => {
+  if ((req.method === 'GET' || req.method === 'HEAD') && (
+    req.path === '/sitemap.xml/' ||
+    req.path === '/sitemap_index.xml' ||
+    req.path === '/sitemap_index.xml/'
+  )) {
+    return res.redirect(301, '/sitemap.xml');
+  }
+  next();
+});
+app.get('/sitemap.xml', (_req, res) => {
+  res.type('application/xml');
+  res.sendFile(path.join(__dirname, 'public', 'sitemap.xml'));
+});
+app.get('/sitemap.xml/', (_req, res) => {
+  res.redirect(301, '/sitemap.xml');
+});
+app.get('/sitemap_index.xml', (_req, res) => {
+  res.redirect(301, '/sitemap.xml');
+});
+app.get('/sitemap_index.xml/', (_req, res) => {
+  res.redirect(301, '/sitemap.xml');
+});
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 const staticPageRoutes = {
