@@ -165,6 +165,7 @@ a {
   display: grid;
   align-content: start;
   gap: 18px;
+  transform: translateY(20px);
 }
 .eyebrow {
   display: inline-flex;
@@ -318,7 +319,7 @@ a {
 .board-shell {
   display: grid;
   grid-template-rows: auto 1fr;
-  gap: 22px;
+  gap: 14px;
   min-height: 430px;
   align-content: stretch;
   padding: 28px;
@@ -364,7 +365,7 @@ a {
 .performance-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-self: center;
+  align-self: start;
   gap: 14px;
 }
 .performance-metric {
@@ -377,6 +378,9 @@ a {
   border-radius: 18px;
   background: linear-gradient(145deg, rgba(23, 29, 55, 0.88), rgba(9, 12, 27, 0.88));
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.025), 0 0 28px rgba(155,92,255,0.1);
+}
+.performance-metric:nth-child(n + 3) {
+  padding-bottom: 8px;
 }
 .performance-metric strong {
   color: #9b72ff;
@@ -1878,6 +1882,9 @@ a {
     min-height: 38px;
     padding: 0 10px;
     color: var(--text);
+  }
+  .hero-copy {
+    transform: none;
   }
   .hero-title {
     font-size: 3rem;
