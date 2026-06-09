@@ -1,5 +1,58 @@
 # PartnerLinks / Creator OS Vision
 
+# AWIN Product Feed Milestone (June 2026)
+
+Completed:
+
+- AWIN product feed importer deployed.
+- `product_feed_items` migration deployed.
+- 42 products imported.
+- Secret Element brand created.
+- MyDietDoc brand created.
+- Creator-specific product links generated.
+- Product redirects verified.
+- `clickref` appended to AWIN links before redirect.
+- Railway deployment successful.
+
+Verified:
+
+```text
+Creator Link
+-> PartnerLinks
+-> Product Page
+```
+
+Not Yet Verified:
+
+```text
+Creator Link
+-> Sale
+-> AWIN Conversion
+-> Creator Attribution
+```
+
+Highest Priority Next Task:
+
+- Build AWIN conversion attribution pipeline.
+
+Required future flow:
+
+```text
+Click
+-> clickref
+-> AWIN conversion
+-> conversion import
+-> creator attribution
+-> creator earnings
+-> payout
+```
+
+Important doctrine:
+
+- The traffic layer is complete enough to test.
+- The earnings layer is not yet implemented.
+- Future development should prioritize AWIN conversion attribution before large-scale product expansion.
+
 ## 2026-05-19 Clean Chat Handoff Snapshot
 
 - Shopify approval readiness: app is close to submission-ready. Remaining high-leverage work is screencast, reviewer instructions, test credentials, screenshots/app listing polish, final visual QA, and support widget QA.

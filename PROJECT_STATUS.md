@@ -1,8 +1,36 @@
 # PartnerLinks / creator-os-bot Project Status
 
-Last updated: 2026-05-19
+Last updated: 2026-06-08
 
 This file is the current implementation snapshot for starting a new ChatGPT/Codex project chat with minimal context loss. Permanent product philosophy, UX guardrails, terminology, and long-term architecture rules live in `CHAT_HANDOFF.md`.
+
+## 2026-06-08 AWIN Product Feed Milestone
+
+Status: TRAFFIC LAYER OPERATIONAL / MONEY LAYER NOT IMPLEMENTED
+
+- AWIN product feed import is now operational.
+- `product_feed_items` table exists and is populated.
+- 42 products were imported from the AWIN feed.
+- Advertisers currently imported:
+  - Secret Element
+  - MyDietDoc
+- Product redirects are working.
+- Creator-specific product links are working.
+- Brand resolution from imported products is working.
+- AWIN `clickref` deployment is complete.
+- Verified redirect path:
+  - PartnerLinks Link -> Product Page.
+- Homepage now contains a real imported product card instead of only placeholder content.
+- Current layer status:
+  - Traffic Layer = Operational.
+  - Money Layer = Not Implemented.
+
+Important boundary:
+
+- AWIN conversion ingestion is not implemented.
+- AWIN earnings attribution is not implemented.
+- AWIN payout reconciliation is not implemented.
+- Future work must prioritize AWIN conversion attribution before large-scale product expansion.
 
 ## 2026-05-19 Session Update
 

@@ -1786,19 +1786,21 @@ function renderHomepage(creator) {
           </div>`,
       renderHomepageInvitePanel(creatorCode, inviteLink)
     )
-    .replaceAll(getSecretElementFallbackProductLink(), escapeHtml(buildSecretElementProductLink(creatorCode)))
+    .replaceAll(getHomepageProductFallbackLink('secret-element-citrus-bergamot-42911099387'), escapeHtml(buildHomepageProductLink(creatorCode, 'secret-element-citrus-bergamot-42911099387')))
+    .replaceAll(getHomepageProductFallbackLink('secret-element-sea-moss-42911172539'), escapeHtml(buildHomepageProductLink(creatorCode, 'secret-element-sea-moss-42911172539')))
+    .replaceAll(getHomepageProductFallbackLink('magnesium-gummies-42911320254'), escapeHtml(buildHomepageProductLink(creatorCode, 'magnesium-gummies-42911320254')))
     .replace('</body>', `${renderHomepageCopyScript()}</body>`);
 }
 
-function getSecretElementFallbackProductLink() {
-  return buildSecretElementProductLink('creator');
+function getHomepageProductFallbackLink(productSlug) {
+  return buildHomepageProductLink('creator', productSlug);
 }
 
-function buildSecretElementProductLink(creatorCode) {
+function buildHomepageProductLink(creatorCode, productSlug) {
   return buildDisplayReferralLink(
     'secret-element',
     normalizeCode(creatorCode),
-    'secret-element-citrus-bergamot-42911099387'
+    productSlug
   );
 }
 

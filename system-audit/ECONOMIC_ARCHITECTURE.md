@@ -8,6 +8,62 @@ Purpose:
 
 This is an architecture document. It does not describe every current implementation detail, and it does not authorize code changes by itself.
 
+## AWIN Economic Model
+
+Status: DOCUMENTED ARCHITECTURE ONLY / PARTIAL TRAFFIC-LAYER IMPLEMENTATION
+
+AWIN currently pays PartnerLinks, operated by Austin, directly through AWIN payout rails. Creators do not get paid directly by AWIN.
+
+Intended AWIN money flow:
+
+```text
+AWIN sale
+-> AWIN pays PartnerLinks
+-> PartnerLinks records actual commission received
+-> PartnerLinks splits earnings internally
+-> creators claim payouts from PartnerLinks via Stripe
+```
+
+Current business policy:
+
+- 20% AWIN commission:
+  - Creator = 15%.
+  - PartnerLinks = 5%.
+- 25%+ AWIN commission:
+  - Creator = 20%.
+  - PartnerLinks = remaining commission.
+
+Examples:
+
+- 20% AWIN commission:
+  - Creator = 15%.
+  - PartnerLinks = 5%.
+- 25% AWIN commission:
+  - Creator = 20%.
+  - PartnerLinks = 5%.
+- 30% AWIN commission:
+  - Creator = 20%.
+  - PartnerLinks = 10%.
+- 35% AWIN commission:
+  - Creator = 20%.
+  - PartnerLinks = 15%.
+
+Important implementation boundary:
+
+- Current schema only supports brand-level commission rates.
+- Product-level commission logic is not implemented.
+- Existing conversion system is Shopify-oriented.
+- AWIN conversion ingestion is not implemented.
+- AWIN earnings attribution is not implemented.
+- AWIN payout reconciliation is not implemented.
+
+Current AWIN traffic-layer status:
+
+- AWIN product feed import is operational.
+- `product_feed_items` exists and is populated.
+- AWIN product redirects append `clickref` before redirecting to the AWIN destination.
+- This proves click traffic can flow through PartnerLinks first, but it does not prove sale attribution, earnings allocation, or payout reconciliation.
+
 ## Runtime Enforcement Boundary
 
 This file is mostly `DOCUMENTED ARCHITECTURE ONLY` unless an item is explicitly listed as currently implemented.
