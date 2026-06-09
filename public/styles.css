@@ -317,6 +317,7 @@ a {
   display: grid;
 }
 .board-shell {
+  position: relative;
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 14px;
@@ -387,6 +388,38 @@ a {
   font-size: clamp(1.9rem, 4vw, 2.45rem);
   line-height: 1;
   text-shadow: 0 0 24px rgba(155, 92, 255, 0.35);
+}
+.network-earnings-callout {
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  bottom: 6px;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding-top: 14px;
+  text-align: center;
+  color: rgba(232, 196, 118, 0.82);
+}
+.network-earnings-callout::before {
+  content: "";
+  width: min(210px, 70%);
+  height: 1px;
+  margin-bottom: 4px;
+  background: linear-gradient(90deg, transparent, rgba(212, 175, 91, 0.4), transparent);
+}
+.network-earnings-callout p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.25;
+  color: rgba(232, 196, 118, 0.72);
+}
+.network-earnings-callout strong {
+  color: #d8b35f;
+  font-size: 1rem;
+  line-height: 1.15;
+  font-weight: 800;
+  text-shadow: 0 0 22px rgba(216, 179, 95, 0.16);
 }
 .works-section {
   padding: 42px 0 24px;
